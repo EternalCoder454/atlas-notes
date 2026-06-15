@@ -1,5 +1,5 @@
 BIN     := bin/atlas-notes
-VERSION ?= 0.1.0
+VERSION ?= 0.2.0
 PREFIX  := $(HOME)/.local
 
 # Injected into the binary: the source dir (for the in-app updater) and version.
