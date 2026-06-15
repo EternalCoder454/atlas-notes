@@ -1,5 +1,5 @@
-// Package ui holds the folder tree panel, the AI sidebar, and the editor
-// toolbar — the GTK widgets composed by package app.
+// Package ui holds the folder-tree panel and the AI sidebar — the side-panel GTK
+// widgets composed by package app.
 package ui
 
 import (

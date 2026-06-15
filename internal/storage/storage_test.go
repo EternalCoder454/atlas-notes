@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-
-	"atlas-notes/internal/checklist"
 )
 
 func testStore(t *testing.T) *Store {
@@ -103,29 +101,8 @@ func TestIndexAndTitle(t *testing.T) {
 		t.Fatalf("ListNotes len = %d want 1", len(notes))
 	}
 	n := notes[0]
-	if n.Path != "Work/Plan" || n.Folder != "Work" || n.Title != "Plan" || !n.IsChecklist {
+	if n.Path != "Work/Plan" || n.Folder != "Work" || n.Title != "Plan" {
 		t.Errorf("meta = %+v", n)
-	}
-}
-
-func TestChecklistItemsIndex(t *testing.T) {
-	s := testStore(t)
-	content := "- [ ] a <!-- priority:high order:1 -->\n- [x] b <!-- priority:low order:2 -->\n"
-	if err := s.WriteNote("List", content); err != nil {
-		t.Fatal(err)
-	}
-	items, err := s.ChecklistItems("List")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 2 {
-		t.Fatalf("items len = %d want 2", len(items))
-	}
-	if items[0].Priority != checklist.PriorityHigh {
-		t.Errorf("item[0] priority = %q want high", items[0].Priority)
-	}
-	if !items[1].Checked {
-		t.Errorf("item[1] should be checked: %+v", items[1])
 	}
 }
 

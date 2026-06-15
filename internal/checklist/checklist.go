@@ -150,18 +150,3 @@ func TextOffset(line string) int {
 	// Submatch 3 (the text) has byte-start loc[6].
 	return utf8.RuneCountInString(line[:loc[6]])
 }
-
-// PriorityRank maps a priority to a sortable rank (high first). Unknown/none
-// sort last. Used as a stable ordering key.
-func PriorityRank(p Priority) int {
-	switch p {
-	case PriorityHigh:
-		return 0
-	case PriorityMedium:
-		return 1
-	case PriorityLow:
-		return 2
-	default:
-		return 3
-	}
-}

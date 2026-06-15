@@ -19,7 +19,6 @@ import (
 // connection.
 type Store struct {
 	VaultPath string
-	DBPath    string
 
 	db  *sql.DB
 	enc *zstd.Encoder
@@ -75,7 +74,7 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	// SQLite serializes writers; a single connection avoids "database is locked".
 	db.SetMaxOpenConns(1)
 
-	s := &Store{VaultPath: vaultPath, DBPath: dbPath, db: db, enc: enc, dec: dec}
+	s := &Store{VaultPath: vaultPath, db: db, enc: enc, dec: dec}
 	if err := s.migrate(); err != nil {
 		s.Close()
 		return nil, err
@@ -102,25 +101,14 @@ func (s *Store) Close() error {
 
 const schema = `
 CREATE TABLE IF NOT EXISTS notes (
-	id           INTEGER PRIMARY KEY AUTOINCREMENT,
-	path         TEXT    NOT NULL UNIQUE,
-	folder       TEXT    NOT NULL DEFAULT '',
-	title        TEXT    NOT NULL DEFAULT '',
-	modified_at  INTEGER NOT NULL DEFAULT 0,
-	created_at   INTEGER NOT NULL DEFAULT 0,
-	is_checklist INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS checklist_items (
-	id         INTEGER PRIMARY KEY AUTOINCREMENT,
-	note_id    INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-	text       TEXT    NOT NULL DEFAULT '',
-	priority   TEXT    NOT NULL DEFAULT '',
-	due_date   TEXT    NOT NULL DEFAULT '',
-	sort_order INTEGER NOT NULL DEFAULT 0,
-	checked    INTEGER NOT NULL DEFAULT 0
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	path        TEXT    NOT NULL UNIQUE,
+	folder      TEXT    NOT NULL DEFAULT '',
+	title       TEXT    NOT NULL DEFAULT '',
+	modified_at INTEGER NOT NULL DEFAULT 0,
+	created_at  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder);
-CREATE INDEX IF NOT EXISTS idx_items_note ON checklist_items(note_id, sort_order);
 `
 
 func (s *Store) migrate() error {
@@ -132,11 +120,4 @@ func (s *Store) migrate() error {
 	s.db.Exec(`ALTER TABLE notes ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`)
 	s.db.Exec(`UPDATE notes SET created_at = modified_at WHERE created_at = 0`)
 	return nil
-}
-
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

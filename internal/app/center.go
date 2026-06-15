@@ -6,8 +6,8 @@ import (
 	"atlas-notes/internal/editor"
 )
 
-// buildCenter assembles the center panel: note header (title + save state),
-// formatting toolbar, the editor, and a word/character status bar.
+// buildCenter assembles the center panel: note header (title + save state), the
+// editor, and a word/character status bar.
 func (a *App) buildCenter() *gtk.Box {
 	center := gtk.NewBox(gtk.OrientationVertical, 0)
 	center.SetHExpand(true)

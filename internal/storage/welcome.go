@@ -8,8 +8,9 @@ nothing is ever uploaded.
 
 ## The basics
 
-- The **left panel** is your vault. Create folders and notes, drag a note into a
-  folder, or rename and delete from the toolbar at the bottom.
+- The **left panel** is your vault. Right-click to add, rename, or delete notes
+  and folders (or double-click a note's name to rename it), and drag a note onto
+  a folder to move it.
 - Write in **Markdown** and it renders as you type — # headings, **bold**,
   *italic*, and ` + "`code`" + `. The raw symbols only show on the line you're editing.
 - **Ctrl + S** saves instantly, and Atlas Notes autosaves in the background. The

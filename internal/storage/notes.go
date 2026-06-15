@@ -6,20 +6,17 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"atlas-notes/internal/checklist"
 )
 
 const noteExt = ".md.zst"
 
 // NoteMeta is a row of indexed note metadata.
 type NoteMeta struct {
-	Path        string // vault-relative, no extension, e.g. "Work/Todo"
-	Folder      string // parent folder, "" for root
-	Title       string
-	ModifiedAt  time.Time
-	CreatedAt   time.Time
-	IsChecklist bool
+	Path       string // vault-relative, no extension, e.g. "Work/Todo"
+	Folder     string // parent folder, "" for root
+	Title      string
+	ModifiedAt time.Time
+	CreatedAt  time.Time
 }
 
 // atomicWrite writes data to path durably: temp file in the same directory,
@@ -79,7 +76,7 @@ func (s *Store) WriteNote(rel, content string) error {
 	if err := atomicWrite(abs, compressed); err != nil {
 		return err
 	}
-	return s.indexNote(rel, content, time.Now())
+	return s.indexNote(rel, time.Now())
 }
 
 // ReadNote reads and decompresses a note's markdown.
@@ -128,30 +125,26 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 	return err
 }
 
-// indexNote upserts a note's metadata row and re-syncs its checklist items.
-func (s *Store) indexNote(rel, content string, modified time.Time) error {
+// indexNote upserts a note's metadata row.
+func (s *Store) indexNote(rel string, modified time.Time) error {
 	folder := path.Dir(rel)
 	if folder == "." {
 		folder = ""
 	}
 	_, err := s.db.Exec(`
-		INSERT INTO notes(path, folder, title, modified_at, created_at, is_checklist)
-		VALUES(?,?,?,?,?,?)
+		INSERT INTO notes(path, folder, title, modified_at, created_at)
+		VALUES(?,?,?,?,?)
 		ON CONFLICT(path) DO UPDATE SET
-			folder       = excluded.folder,
-			title        = excluded.title,
-			modified_at  = excluded.modified_at,
-			is_checklist = excluded.is_checklist`,
-		rel, folder, deriveTitle(rel), modified.Unix(), modified.Unix(), b2i(checklist.HasItems(content)))
-	if err != nil {
-		return err
-	}
-	return s.SetChecklistItems(rel, checklist.Parse(content))
+			folder      = excluded.folder,
+			title       = excluded.title,
+			modified_at = excluded.modified_at`,
+		rel, folder, deriveTitle(rel), modified.Unix(), modified.Unix())
+	return err
 }
 
 // ListNotes returns all indexed notes ordered by folder then title.
 func (s *Store) ListNotes() ([]NoteMeta, error) {
-	rows, err := s.db.Query(`SELECT path, folder, title, modified_at, created_at, is_checklist FROM notes ORDER BY folder, title`)
+	rows, err := s.db.Query(`SELECT path, folder, title, modified_at, created_at FROM notes ORDER BY folder, title`)
 	if err != nil {
 		return nil, err
 	}
@@ -160,13 +153,11 @@ func (s *Store) ListNotes() ([]NoteMeta, error) {
 	for rows.Next() {
 		var m NoteMeta
 		var modified, created int64
-		var isList int
-		if err := rows.Scan(&m.Path, &m.Folder, &m.Title, &modified, &created, &isList); err != nil {
+		if err := rows.Scan(&m.Path, &m.Folder, &m.Title, &modified, &created); err != nil {
 			return nil, err
 		}
 		m.ModifiedAt = time.Unix(modified, 0)
 		m.CreatedAt = time.Unix(created, 0)
-		m.IsChecklist = isList != 0
 		out = append(out, m)
 	}
 	return out, rows.Err()

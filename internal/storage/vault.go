@@ -111,15 +111,14 @@ func (s *Store) Reindex() error {
 			return rerr
 		}
 		rel = normalizeRel(rel)
-		content, cerr := s.ReadNote(rel)
-		if cerr != nil {
+		if _, cerr := s.ReadNote(rel); cerr != nil {
 			return nil // skip unreadable/corrupt files rather than abort
 		}
 		modified := time.Now()
 		if info, ierr := d.Info(); ierr == nil {
 			modified = info.ModTime()
 		}
-		if err := s.indexNote(rel, content, modified); err != nil {
+		if err := s.indexNote(rel, modified); err != nil {
 			return err
 		}
 		seen[rel] = true

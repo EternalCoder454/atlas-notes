@@ -75,9 +75,6 @@ func New() *Editor {
 // Widget returns the scrollable editor widget.
 func (e *Editor) Widget() gtk.Widgetter { return e.scroll }
 
-// View exposes the underlying GtkTextView.
-func (e *Editor) View() *gtk.TextView { return e.view }
-
 func (e *Editor) createTags() {
 	e.newTag("heading1", map[string]any{"scale": 1.6, "weight": int(pango.WeightBold)})
 	e.newTag("heading2", map[string]any{"scale": 1.3, "weight": int(pango.WeightBold)})
