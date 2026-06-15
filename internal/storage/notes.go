@@ -66,7 +66,10 @@ func (s *Store) notePath(rel string) string {
 }
 
 // WriteNote compresses and atomically writes content, then refreshes the index.
+// Safe to call from any goroutine (see Store.writeMu).
 func (s *Store) WriteNote(rel, content string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
 	abs := s.notePath(rel)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
@@ -94,6 +97,8 @@ func (s *Store) ReadNote(rel string) (string, error) {
 
 // DeleteNote removes the file and its index row (cascading its checklist items).
 func (s *Store) DeleteNote(rel string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
 	if err := os.Remove(s.notePath(rel)); err != nil && !os.IsNotExist(err) {
 		return err
@@ -104,6 +109,8 @@ func (s *Store) DeleteNote(rel string) error {
 
 // RenameNote renames/moves a note; newRel may include a different folder.
 func (s *Store) RenameNote(oldRel, newRel string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	oldRel = normalizeRel(oldRel)
 	newRel = normalizeRel(newRel)
 	newAbs := s.notePath(newRel)

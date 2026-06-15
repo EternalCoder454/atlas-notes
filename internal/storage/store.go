@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
 	_ "modernc.org/sqlite"
@@ -23,6 +24,13 @@ type Store struct {
 	db  *sql.DB
 	enc *zstd.Encoder
 	dec *zstd.Decoder
+
+	// writeMu serializes mutating operations (note/folder writes, renames,
+	// deletes) so they are safe to call from a background goroutine — e.g. the
+	// app's async autosave — without overlapping the filesystem/index steps.
+	// Reads (ReadNote/List*) don't take it: atomic renames keep files consistent
+	// and database/sql serializes the single SQLite connection.
+	writeMu sync.Mutex
 }
 
 // Open initializes the vault directory, opens and migrates the SQLite index, and
@@ -52,7 +60,12 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 		return nil, err
 	}
 
-	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(on)"
+	// synchronous=NORMAL is safe under WAL (consistent, durable across app
+	// crashes; only the last transaction can be lost on power loss) and keeps
+	// fsync off the writer path so a slow disk can't stall the UI. The index is a
+	// rebuildable cache (the .md.zst files are the source of truth), so even that
+	// edge case is recoverable via Reindex.
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=synchronous(normal)&_pragma=foreign_keys(on)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		enc.Close()
@@ -70,8 +83,11 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	return s, nil
 }
 
-// Close releases the database and codec resources.
+// Close releases the database and codec resources, waiting for any in-flight
+// write to finish first.
 func (s *Store) Close() error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	if s.enc != nil {
 		s.enc.Close()
 	}

@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"atlas-notes/internal/checklist"
@@ -17,6 +19,51 @@ func testStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// TestConcurrentWrites exercises the store's write mutex: many goroutines write
+// and read distinct notes at once (meaningful under `go test -race`). Each note's
+// final content is its last revision, so a torn or lost write is caught.
+func TestConcurrentWrites(t *testing.T) {
+	s := testStore(t)
+	const notes, revs = 16, 6
+	var wg sync.WaitGroup
+	for i := 0; i < notes; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			rel := fmt.Sprintf("Concurrent/note-%d", i)
+			for j := 0; j < revs; j++ {
+				if err := s.WriteNote(rel, fmt.Sprintf("# note %d\n\nrevision %d\n", i, j)); err != nil {
+					t.Errorf("WriteNote %s: %v", rel, err)
+					return
+				}
+				if _, err := s.ReadNote(rel); err != nil {
+					t.Errorf("ReadNote %s: %v", rel, err)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	all, err := s.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != notes {
+		t.Fatalf("ListNotes = %d want %d", len(all), notes)
+	}
+	for i := 0; i < notes; i++ {
+		rel := fmt.Sprintf("Concurrent/note-%d", i)
+		got, err := s.ReadNote(rel)
+		if err != nil {
+			t.Fatalf("ReadNote %s: %v", rel, err)
+		}
+		if want := fmt.Sprintf("# note %d\n\nrevision %d\n", i, revs-1); got != want {
+			t.Errorf("note %d = %q want %q", i, got, want)
+		}
+	}
 }
 
 func TestNoteRoundTrip(t *testing.T) {

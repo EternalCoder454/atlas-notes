@@ -133,12 +133,6 @@ func (e *Editor) rawText() string {
 	return e.buffer.Slice(start, end, true)
 }
 
-// Stats returns word and character counts of the current content.
-func (e *Editor) Stats() (words, chars int) {
-	text := e.Content()
-	return len(strings.Fields(text)), len([]rune(text))
-}
-
 func (e *Editor) scheduleReparse() {
 	if e.reparseScheduled {
 		return

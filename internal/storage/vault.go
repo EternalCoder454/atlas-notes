@@ -39,11 +39,15 @@ func (s *Store) ListFolders() ([]string, error) {
 
 // CreateFolder creates a vault-relative folder (and any parents).
 func (s *Store) CreateFolder(rel string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	return os.MkdirAll(filepath.Join(s.VaultPath, filepath.FromSlash(rel)), 0o755)
 }
 
 // DeleteFolder removes a folder and everything under it, pruning the index.
 func (s *Store) DeleteFolder(rel string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	rel = strings.TrimPrefix(filepath.ToSlash(rel), "/")
 	abs := filepath.Join(s.VaultPath, filepath.FromSlash(rel))
 	if err := os.RemoveAll(abs); err != nil {
@@ -56,6 +60,8 @@ func (s *Store) DeleteFolder(rel string) error {
 // RenameFolder renames/moves a folder and everything under it, updating the
 // index with a single SQL statement (no file decompression) so it stays fast.
 func (s *Store) RenameFolder(oldRel, newRel string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	oldRel = strings.TrimPrefix(filepath.ToSlash(oldRel), "/")
 	newRel = strings.TrimPrefix(filepath.ToSlash(newRel), "/")
 	oldAbs := filepath.Join(s.VaultPath, filepath.FromSlash(oldRel))
@@ -90,6 +96,8 @@ func (s *Store) RenameFolder(oldRel, newRel string) error {
 // on disk and prunes index rows whose files have disappeared. Safe to call on
 // startup; for a personal vault it is effectively instant.
 func (s *Store) Reindex() error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	seen := make(map[string]bool)
 	err := filepath.WalkDir(s.VaultPath, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {

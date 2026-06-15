@@ -151,10 +151,17 @@ func (s *Sidebar) SetModel(model string) {
 // UpdateState enables sort-mode actions only when the note has checklist items
 // (and no AI call is in flight).
 func (s *Sidebar) UpdateState() {
-	hasItems := false
+	content := ""
 	if s.GetContent != nil {
-		hasItems = checklist.HasItems(s.GetContent())
+		content = s.GetContent()
 	}
+	s.UpdateStateWith(content)
+}
+
+// UpdateStateWith is UpdateState given already-fetched note content, so a caller
+// that already has the text doesn't reconstruct it again.
+func (s *Sidebar) UpdateStateWith(content string) {
+	hasItems := checklist.HasItems(content)
 	for _, b := range s.sortBtns {
 		b.SetSensitive(hasItems && !s.busy)
 	}

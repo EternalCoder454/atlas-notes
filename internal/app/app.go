@@ -7,6 +7,8 @@ import (
 	"log"
 	"path"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -61,10 +63,12 @@ type App struct {
 	saveLabel   *gtk.Label
 	statusLabel *gtk.Label
 
-	currentNote string
-	dirty       bool
-	saveState   int
-	autosaveGen int
+	currentNote  string
+	dirty        bool
+	saveState    int
+	autosaveGen  int
+	saveInFlight bool           // an async save is running
+	saveWG       sync.WaitGroup // tracks the in-flight async save goroutine
 }
 
 // New constructs the application without starting the main loop. css is the
@@ -229,12 +233,16 @@ func (a *App) onEditorChanged() {
 }
 
 // onEditorReparsed runs on the editor's 50ms debounce (not per keystroke), so the
-// word/character count and the sort-button state recompute once typing pauses
-// instead of reconstructing the whole document on every key press.
+// word/character count and the sort-button state recompute once typing pauses.
+// The document text is reconstructed once here and shared by both.
 func (a *App) onEditorReparsed() {
-	a.updateStats()
+	if a.editor == nil {
+		return
+	}
+	content := a.editor.Content()
+	a.updateStatsWith(content)
 	if a.sidebar != nil {
-		a.sidebar.UpdateState()
+		a.sidebar.UpdateStateWith(content)
 	}
 }
 
@@ -276,33 +284,60 @@ func (a *App) scheduleAutosave() {
 	})
 }
 
-// saveCurrent persists the open note asynchronously: it flashes the "saving"
-// (amber) indicator, then writes on the next idle tick so amber paints before
-// the synchronous write completes and turns it green. Used by autosave and
+// saveCurrent persists the open note off the main thread. It snapshots the
+// content (GTK access must stay on the main thread), flips the indicator to
+// amber, then writes on a background goroutine via the thread-safe Store and
+// marks the result green/red. Coalesced by saveInFlight so only one write runs
+// at a time; edits arriving mid-write schedule another. Used by autosave and
 // Ctrl+S. No tree refresh: a row's label is the filename, which a content save
 // never changes (and refreshing would collapse expanded folders).
 func (a *App) saveCurrent() {
-	if a.store == nil || a.editor == nil || a.currentNote == "" || !a.dirty {
+	if a.store == nil || a.editor == nil || a.currentNote == "" || !a.dirty || a.saveInFlight {
 		return
 	}
+	rel := a.currentNote
+	content := a.editor.Content()
+	a.dirty = false
+	a.saveInFlight = true
 	a.setSaveState(saveSaving)
-	note := a.currentNote
-	coreglib.IdleAdd(func() bool {
-		if a.currentNote != note { // note switched or closed before the write ran
-			return false
-		}
-		if a.flushDirty() {
+
+	a.saveWG.Add(1)
+	go func() {
+		defer a.saveWG.Done()
+		err := a.store.WriteNote(rel, content)
+		coreglib.IdleAdd(func() bool {
+			a.saveInFlight = false
+			if err != nil {
+				log.Printf("atlas-notes: save %q: %v", rel, err)
+			}
+			if a.currentNote != rel {
+				return false // moved on to another note; its state stands
+			}
+			if err != nil {
+				a.dirty = true
+				a.setSaveState(saveUnsaved)
+				return false
+			}
 			a.setSaveState(saveSaved)
-		}
-		return false
-	})
+			if a.dirty { // edits arrived while the write was in flight
+				a.scheduleAutosave()
+			}
+			return false
+		})
+	}()
 }
 
-// flushDirty writes the open note immediately when it has unsaved changes,
-// returning whether a write happened. Used where the save must complete before
-// the next step: switching notes, renaming, or shutting down.
+// flushDirty writes the open note synchronously when it has unsaved changes,
+// returning whether a write happened. It first waits for any in-flight async
+// save to finish, so the newest content always wins on disk. Used where the save
+// must complete before the next step: switching notes, renaming, or shutting
+// down.
 func (a *App) flushDirty() bool {
-	if a.store == nil || a.editor == nil || a.currentNote == "" || !a.dirty {
+	if a.store == nil || a.editor == nil || a.currentNote == "" {
+		return false
+	}
+	a.saveWG.Wait() // let any background save complete before we (re)write
+	if !a.dirty {
 		return false
 	}
 	if err := a.store.WriteNote(a.currentNote, a.editor.Content()); err != nil {
@@ -351,10 +386,20 @@ func (a *App) refreshHeader() {
 }
 
 func (a *App) updateStats() {
-	if a.statusLabel == nil || a.editor == nil {
+	if a.editor != nil {
+		a.updateStatsWith(a.editor.Content())
+	}
+}
+
+// updateStatsWith sets the word/character counter from already-fetched content,
+// so the debounced reparse reuses one reconstruction for both the counter and
+// the AI button state instead of rebuilding the document text twice.
+func (a *App) updateStatsWith(content string) {
+	if a.statusLabel == nil {
 		return
 	}
-	words, chars := a.editor.Stats()
+	words := len(strings.Fields(content))
+	chars := utf8.RuneCountInString(content)
 	a.statusLabel.SetText(fmt.Sprintf("%d words · %d characters", words, chars))
 }
 
