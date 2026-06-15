@@ -22,6 +22,10 @@ import (
 	"atlas-notes/internal/storage"
 )
 
+// indentStep is the per-depth indentation (px) for child rows — about half the
+// stock GtkTreeExpander indent, so nested notes sit closer to the panel edge.
+const indentStep = 12
+
 // node is one row in the vault tree: a folder or a note.
 type node struct {
 	name     string // display name
@@ -31,7 +35,9 @@ type node struct {
 	modified time.Time
 }
 
-// Tree is the left-panel vault browser: a GtkListView tree plus a button bar.
+// Tree is the left-panel vault browser: a GtkListView tree. Items are created,
+// renamed, and deleted from a right-click context menu (or double-click to
+// rename a note); there is no separate toolbar.
 type Tree struct {
 	store  *storage.Store
 	ai     *ai.Client
@@ -49,11 +55,7 @@ type Tree struct {
 	summaries        map[string]string
 	summaryPending   map[string]bool
 
-	compact     bool
-	buttonBar   *gtk.Box
-	currentBox  *gtk.Box
-	currentLbl  *gtk.Label
-	currentName string
+	currentRel string // the open note, kept selected/highlighted in the list
 
 	// OnOpenNote is invoked when a note row is activated.
 	OnOpenNote func(rel string)
@@ -92,12 +94,17 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 	scroll.SetChild(t.listView)
 	scroll.SetVExpand(true)
 
+	// Right-click on empty space → root-level New Note / New Folder.
+	bg := gtk.NewGestureClick()
+	bg.SetButton(3)
+	bg.ConnectPressed(func(_ int, x, y float64) {
+		t.showContextMenu(scroll, x, y, nil)
+	})
+	scroll.AddController(bg)
+
 	t.widget = gtk.NewBox(gtk.OrientationVertical, 0)
 	t.widget.SetVExpand(true)
-	t.widget.Append(t.buildCurrentIndicator())
 	t.widget.Append(scroll)
-	t.buttonBar = t.buildButtonBar()
-	t.widget.Append(t.buttonBar)
 
 	t.Refresh()
 	return t
@@ -106,15 +113,21 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 // Widget returns the root widget of the panel.
 func (t *Tree) Widget() gtk.Widgetter { return t.widget }
 
-// Refresh rebuilds the root level of the tree from storage. Expansion state of
-// folders is reset (acceptable for now).
+// Refresh rebuilds the root level of the tree from storage, preserving folder
+// expansion state and re-selecting the open note (so a rename or autosave no
+// longer collapses folders or loses the highlight).
 func (t *Tree) Refresh() {
+	expanded := t.snapshotExpanded()
 	t.reloadCache()
 	if n := t.rootModel.Len(); n > 0 {
 		t.rootModel.Splice(0, n)
 	}
 	for _, c := range t.childrenOf("") {
 		t.rootModel.Append(c)
+	}
+	t.restoreExpanded(expanded)
+	if t.currentRel != "" {
+		t.revealAndSelect(t.currentRel)
 	}
 }
 
@@ -133,53 +146,95 @@ func (t *Tree) SetSummariesEnabled(enabled bool) {
 	t.Refresh()
 }
 
-// SetCompact switches the panel between full rows and an icon-only rail (labels,
-// the current-file indicator, and the button bar hidden). Names remain on hover.
-func (t *Tree) SetCompact(enabled bool) {
-	if t.compact == enabled {
+// SetCurrent highlights the open note by selecting its row (revealing it inside
+// collapsed folders first). An empty rel clears the selection.
+func (t *Tree) SetCurrent(rel string) {
+	t.currentRel = rel
+	if rel == "" {
+		t.selection.SetSelected(gtk.InvalidListPosition)
 		return
 	}
-	t.compact = enabled
-	if t.buttonBar != nil {
-		t.buttonBar.SetVisible(!enabled)
-	}
-	if t.currentBox != nil {
-		t.currentBox.SetVisible(!enabled && t.currentName != "")
-	}
-	t.Refresh()
+	t.revealAndSelect(rel)
 }
 
-// SetCurrent updates the "current file" indicator at the top of the sidebar.
-func (t *Tree) SetCurrent(name string) {
-	t.currentName = name
-	if t.currentLbl == nil {
-		return
+// rowAt returns the TreeListRow at a flat position in the (expanded) list view.
+func (t *Tree) rowAt(pos uint) *gtk.TreeListRow {
+	obj := t.selection.Item(pos)
+	if obj == nil {
+		return nil
 	}
-	if name == "" {
-		t.currentBox.SetVisible(false)
-		return
-	}
-	t.currentLbl.SetText(name)
-	t.currentBox.SetVisible(!t.compact)
+	row, _ := obj.Cast().(*gtk.TreeListRow)
+	return row
 }
 
-func (t *Tree) buildCurrentIndicator() *gtk.Box {
-	t.currentBox = gtk.NewBox(gtk.OrientationHorizontal, 6)
-	t.currentBox.AddCSSClass("current-note-indicator")
-	t.currentBox.SetMarginTop(8)
-	t.currentBox.SetMarginBottom(4)
-	t.currentBox.SetMarginStart(8)
-	t.currentBox.SetMarginEnd(8)
-	t.currentBox.SetVisible(false)
+// findRow scans the visible rows for the node with the given rel and folder-ness.
+func (t *Tree) findRow(rel string, folder bool) (uint, bool) {
+	n := t.selection.NItems()
+	for i := uint(0); i < n; i++ {
+		row := t.rowAt(i)
+		if row == nil {
+			continue
+		}
+		if nd := gioutil.ObjectValue[*node](row.Item()); nd != nil && nd.isFolder == folder && nd.rel == rel {
+			return i, true
+		}
+	}
+	return 0, false
+}
 
-	icon := gtk.NewImageFromIconName("text-x-generic-symbolic")
-	t.currentLbl = gtk.NewLabel("")
-	t.currentLbl.SetXAlign(0)
-	t.currentLbl.SetEllipsize(pango.EllipsizeEnd)
-	t.currentLbl.AddCSSClass("heading")
-	t.currentBox.Append(icon)
-	t.currentBox.Append(t.currentLbl)
-	return t.currentBox
+// revealAndSelect expands the ancestor folders of rel and selects its note row.
+func (t *Tree) revealAndSelect(rel string) {
+	for _, anc := range ancestorFolders(rel) {
+		if pos, ok := t.findRow(anc, true); ok {
+			if row := t.rowAt(pos); row != nil && !row.Expanded() {
+				row.SetExpanded(true)
+			}
+		}
+	}
+	if pos, ok := t.findRow(rel, false); ok {
+		t.selection.SetSelected(pos)
+	}
+}
+
+// snapshotExpanded records which folders are currently expanded, by rel.
+func (t *Tree) snapshotExpanded() map[string]bool {
+	out := map[string]bool{}
+	n := t.selection.NItems()
+	for i := uint(0); i < n; i++ {
+		row := t.rowAt(i)
+		if row == nil || !row.Expanded() {
+			continue
+		}
+		if nd := gioutil.ObjectValue[*node](row.Item()); nd != nil && nd.isFolder {
+			out[nd.rel] = true
+		}
+	}
+	return out
+}
+
+// restoreExpanded re-expands the folders in set. It loops because expanding a
+// parent reveals child folders that may also need expanding.
+func (t *Tree) restoreExpanded(set map[string]bool) {
+	if len(set) == 0 {
+		return
+	}
+	for pass := 0; pass <= len(set); pass++ {
+		changed := false
+		n := t.selection.NItems()
+		for i := uint(0); i < n; i++ {
+			row := t.rowAt(i)
+			if row == nil || row.Expanded() {
+				continue
+			}
+			if nd := gioutil.ObjectValue[*node](row.Item()); nd != nil && nd.isFolder && set[nd.rel] {
+				row.SetExpanded(true)
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
 }
 
 // moveInto moves a dragged note into folderRel and returns whether it succeeded.
@@ -295,11 +350,7 @@ func (t *Tree) childrenOf(folderRel string) []*node {
 	}
 	for _, n := range t.cachedNotes {
 		if n.Folder == folderRel {
-			name := n.Title
-			if name == "" {
-				name = path.Base(n.Path)
-			}
-			out = append(out, &node{name: name, rel: n.Path, isFolder: false, created: n.CreatedAt, modified: n.ModifiedAt})
+			out = append(out, &node{name: path.Base(n.Path), rel: n.Path, isFolder: false, created: n.CreatedAt, modified: n.ModifiedAt})
 		}
 	}
 	sortNodes(out)
@@ -312,6 +363,7 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 		return
 	}
 	expander := gtk.NewTreeExpander()
+	expander.SetIndentForDepth(false) // depth indent is applied manually (indentStep) in bindItem
 	box := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	icon := gtk.NewImage()
 	label := gtk.NewLabel("")
@@ -344,6 +396,28 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 	})
 	expander.AddController(drop)
 
+	// Right-click a row → contextual menu (create / rename / delete).
+	menu := gtk.NewGestureClick()
+	menu.SetButton(3)
+	menu.ConnectPressed(func(_ int, x, y float64) {
+		menu.SetState(gtk.EventSequenceClaimed) // don't also trigger the empty-space menu
+		t.showContextMenu(expander, x, y, nodeFromExpander(expander))
+	})
+	expander.AddController(menu)
+
+	// Double-click a note's text to rename it.
+	dbl := gtk.NewGestureClick()
+	dbl.SetButton(1)
+	dbl.ConnectPressed(func(nPress int, x, y float64) {
+		if nPress < 2 {
+			return
+		}
+		if n := nodeFromExpander(expander); n != nil && !n.isFolder {
+			t.promptRename(n)
+		}
+	})
+	label.AddController(dbl)
+
 	item.SetChild(expander)
 }
 
@@ -370,6 +444,7 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 	if !ok {
 		return
 	}
+	box.SetMarginStart(int(row.Depth()) * indentStep) // manual, tighter depth indent
 	icon, ok := box.FirstChild().(*gtk.Image)
 	if !ok {
 		return
@@ -381,7 +456,6 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 	}
 	if label, ok := icon.NextSibling().(*gtk.Label); ok {
 		label.SetText(n.name)
-		label.SetVisible(!t.compact) // icon-only when the panel is collapsed to a rail
 	}
 	expander.SetTooltipText(t.tooltipFor(n))
 	if !n.isFolder && t.summariesEnabled {
@@ -412,32 +486,67 @@ func (t *Tree) onActivate(position uint) {
 	}
 }
 
-// buildButtonBar lays the actions out in a FlowBox so they wrap (instead of
-// clipping) as the panel narrows toward the rail.
-func (t *Tree) buildButtonBar() *gtk.Box {
-	bar := gtk.NewBox(gtk.OrientationVertical, 0)
-	bar.AddCSSClass("tree-toolbar")
-	bar.SetMarginTop(6)
-	bar.SetMarginBottom(6)
-	bar.SetMarginStart(6)
-	bar.SetMarginEnd(6)
+// showContextMenu pops up the create/rename/delete menu at (x,y) in parent's
+// coordinate space. n is the row under the pointer, or nil for empty space.
+func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
+	pop := gtk.NewPopover()
+	pop.SetAutohide(true)
+	pop.SetHasArrow(false)
+	rect := gdk.NewRectangle(int(x), int(y), 1, 1)
+	pop.SetPointingTo(&rect)
 
-	flow := gtk.NewFlowBox()
-	flow.SetSelectionMode(gtk.SelectionNone)
-	flow.SetMaxChildrenPerLine(4)
-	flow.SetMinChildrenPerLine(1)
-	flow.SetColumnSpacing(2)
-	flow.SetRowSpacing(2)
-	flow.Append(iconButton("document-new-symbolic", "New Note", t.promptNewNote))
-	flow.Append(iconButton("folder-new-symbolic", "New Folder", t.promptNewFolder))
-	flow.Append(iconButton("document-edit-symbolic", "Rename", t.promptRename))
-	flow.Append(iconButton("user-trash-symbolic", "Delete", t.promptDelete))
-	bar.Append(flow)
-	return bar
+	box := gtk.NewBox(gtk.OrientationVertical, 2)
+	box.SetMarginTop(4)
+	box.SetMarginBottom(4)
+	box.SetMarginStart(4)
+	box.SetMarginEnd(4)
+
+	add := func(label string, destructive bool, fn func()) {
+		b := gtk.NewButtonWithLabel(label)
+		b.AddCSSClass("flat")
+		b.SetHAlign(gtk.AlignFill)
+		if l, ok := b.Child().(*gtk.Label); ok {
+			l.SetXAlign(0)
+		}
+		if destructive {
+			b.AddCSSClass("destructive-action")
+		}
+		b.ConnectClicked(func() {
+			pop.Popdown()
+			fn()
+		})
+		box.Append(b)
+	}
+
+	folder := folderFor(n)
+	add("New Note", false, func() { t.promptNewNote(folder) })
+	add("New Folder", false, func() { t.promptNewFolder(folder) })
+	if n != nil {
+		box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+		add("Rename", false, func() { t.promptRename(n) })
+		add("Delete", true, func() { t.promptDelete(n) })
+	}
+
+	pop.SetChild(box)
+	pop.SetParent(parent)
+	pop.ConnectClosed(func() { pop.Unparent() })
+	pop.Popup()
 }
 
-func (t *Tree) promptNewNote() {
-	folder := t.targetFolder()
+// folderFor returns the folder a new item should be created in for a context
+// target: inside a folder, alongside a note, or at the root for empty space.
+func folderFor(n *node) string {
+	switch {
+	case n == nil:
+		return ""
+	case n.isFolder:
+		return n.rel
+	default:
+		return parentFolder(n.rel)
+	}
+}
+
+func (t *Tree) promptNewNote(folder string) {
 	t.promptText("New Note", "Create", "", func(name string) {
 		rel := joinRel(folder, name)
 		if err := t.store.WriteNote(rel, "# "+name+"\n\n"); err != nil {
@@ -451,8 +560,7 @@ func (t *Tree) promptNewNote() {
 	})
 }
 
-func (t *Tree) promptNewFolder() {
-	folder := t.targetFolder()
+func (t *Tree) promptNewFolder(folder string) {
 	t.promptText("New Folder", "Create", "", func(name string) {
 		if err := t.store.CreateFolder(joinRel(folder, name)); err != nil {
 			log.Printf("atlas-notes: new folder: %v", err)
@@ -462,8 +570,7 @@ func (t *Tree) promptNewFolder() {
 	})
 }
 
-func (t *Tree) promptRename() {
-	n := t.selectedNode()
+func (t *Tree) promptRename(n *node) {
 	if n == nil {
 		return
 	}
@@ -479,12 +586,16 @@ func (t *Tree) promptRename() {
 			log.Printf("atlas-notes: rename: %v", err)
 			return
 		}
+		if !n.isFolder && t.currentRel == n.rel {
+			if t.OnMoved != nil {
+				t.OnMoved(n.rel, newRel) // keep the open note in sync
+			}
+		}
 		t.Refresh()
 	})
 }
 
-func (t *Tree) promptDelete() {
-	n := t.selectedNode()
+func (t *Tree) promptDelete(n *node) {
 	if n == nil {
 		return
 	}
@@ -506,31 +617,6 @@ func (t *Tree) promptDelete() {
 		}
 		t.Refresh()
 	})
-}
-
-// targetFolder returns the folder new items should be created in, based on the
-// current selection (the selected folder, or a selected note's folder, or root).
-func (t *Tree) targetFolder() string {
-	n := t.selectedNode()
-	if n == nil {
-		return ""
-	}
-	if n.isFolder {
-		return n.rel
-	}
-	return parentFolder(n.rel)
-}
-
-func (t *Tree) selectedNode() *node {
-	obj := t.selection.SelectedItem()
-	if obj == nil {
-		return nil
-	}
-	row, ok := obj.Cast().(*gtk.TreeListRow)
-	if !ok {
-		return nil
-	}
-	return gioutil.ObjectValue[*node](row.Item())
 }
 
 // promptText shows a single-entry dialog and calls onOK with the trimmed value.
@@ -574,20 +660,25 @@ func (t *Tree) confirm(title, body, okLabel string, onOK func()) {
 	dialog.Present(t.parent)
 }
 
-func iconButton(iconName, tooltip string, onClick func()) *gtk.Button {
-	b := gtk.NewButtonFromIconName(iconName)
-	b.SetTooltipText(tooltip)
-	b.AddCSSClass("flat")
-	b.ConnectClicked(onClick)
-	return b
-}
-
 func parentFolder(rel string) string {
 	d := path.Dir(rel)
 	if d == "." || d == "/" {
 		return ""
 	}
 	return d
+}
+
+// ancestorFolders returns rel's ancestor folder rels, top-down (root first).
+func ancestorFolders(rel string) []string {
+	var stack []string
+	for d := path.Dir(rel); d != "." && d != "/" && d != ""; d = path.Dir(d) {
+		stack = append(stack, d)
+	}
+	out := make([]string, 0, len(stack))
+	for i := len(stack) - 1; i >= 0; i-- {
+		out = append(out, stack[i])
+	}
+	return out
 }
 
 func joinRel(folder, name string) string {

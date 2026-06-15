@@ -23,8 +23,18 @@ import (
 const (
 	// appID is all-lowercase so the Wayland app-id matches the .desktop file's
 	// basename exactly (GNOME shows the dock name/icon from that match).
-	appID           = "io.github.atlasnotes"
-	autosaveSeconds = 30
+	appID = "io.github.atlasnotes"
+	// autosaveDelayMs debounces autosave: the note is written this long after the
+	// last edit (the timer resets on each keystroke), so saves are timely and the
+	// indicator reflects real activity.
+	autosaveDelayMs = 1500
+)
+
+// Save-indicator states, surfaced as a red/amber/green dot.
+const (
+	saveSaved   = iota // green: persisted
+	saveUnsaved        // red: unsaved changes
+	saveSaving         // amber: write in progress
 )
 
 // App is the top-level application controller. It owns the long-lived services
@@ -47,12 +57,14 @@ type App struct {
 	sidebar *ui.Sidebar
 
 	titleEntry  *gtk.Entry
+	saveDot     *gtk.Box
 	saveLabel   *gtk.Label
 	statusLabel *gtk.Label
 
-	currentNote       string
-	dirty             bool
-	autosaveScheduled bool
+	currentNote string
+	dirty       bool
+	saveState   int
+	autosaveGen int
 }
 
 // New constructs the application without starting the main loop. css is the
@@ -101,7 +113,7 @@ func (a *App) activate() {
 }
 
 func (a *App) shutdown() {
-	a.saveCurrent()
+	a.flushDirty()
 	if err := storage.SaveConfig(a.cfg); err != nil {
 		log.Printf("atlas-notes: save config: %v", err)
 	}
@@ -129,7 +141,7 @@ func (a *App) openNote(rel string) {
 	if a.store == nil || a.editor == nil {
 		return
 	}
-	a.saveCurrent()
+	a.flushDirty()
 	content, err := a.store.ReadNote(rel)
 	if err != nil {
 		log.Printf("atlas-notes: open note %q: %v", rel, err)
@@ -141,7 +153,7 @@ func (a *App) openNote(rel string) {
 	a.editor.SetContent(content)
 	a.refreshHeader()
 	if a.tree != nil {
-		a.tree.SetCurrent(path.Base(rel))
+		a.tree.SetCurrent(rel)
 	}
 	if a.sidebar != nil {
 		a.sidebar.UpdateState()
@@ -165,7 +177,7 @@ func (a *App) onDeleted(rel string, isFolder bool) {
 	if a.titleEntry != nil {
 		a.titleEntry.Buffer().SetText("", -1)
 	}
-	a.setSaveState("")
+	a.setSaveState(saveSaved)
 	a.updateStats()
 	if a.tree != nil {
 		a.tree.SetCurrent("")
@@ -186,7 +198,7 @@ func (a *App) onMoved(oldRel, newRel string) {
 		a.titleEntry.Buffer().SetText(path.Base(newRel), -1)
 	}
 	if a.tree != nil {
-		a.tree.SetCurrent(path.Base(newRel))
+		a.tree.SetCurrent(newRel)
 	}
 }
 
@@ -212,7 +224,7 @@ func (a *App) openInitialNote() {
 // button state) are deferred to onEditorReparsed below.
 func (a *App) onEditorChanged() {
 	a.dirty = true
-	a.setSaveState("Unsaved")
+	a.setSaveState(saveUnsaved)
 	a.scheduleAutosave()
 }
 
@@ -241,41 +253,65 @@ func (a *App) applyAIContent(content string) {
 	}
 	a.editor.SetContent(content)
 	a.dirty = true
-	a.saveCurrent()
+	if a.flushDirty() {
+		a.setSaveState(saveSaved)
+	}
 	a.updateStats()
 	if a.sidebar != nil {
 		a.sidebar.UpdateState()
 	}
 }
 
-// scheduleAutosave saves after 30s of inactivity via a one-shot timer (no
-// polling loop), so idle CPU stays at zero.
+// scheduleAutosave debounces the autosave: every edit bumps a generation counter
+// and arms a timer; only the latest timer performs the save, so the note is
+// written once typing pauses for autosaveDelayMs. Idle CPU stays at zero.
 func (a *App) scheduleAutosave() {
-	if a.autosaveScheduled {
-		return
-	}
-	a.autosaveScheduled = true
-	coreglib.TimeoutSecondsAdd(autosaveSeconds, func() bool {
-		a.autosaveScheduled = false
-		a.saveCurrent()
+	a.autosaveGen++
+	gen := a.autosaveGen
+	coreglib.TimeoutAdd(autosaveDelayMs, func() bool {
+		if gen == a.autosaveGen && a.dirty {
+			a.saveCurrent()
+		}
 		return false
 	})
 }
 
+// saveCurrent persists the open note asynchronously: it flashes the "saving"
+// (amber) indicator, then writes on the next idle tick so amber paints before
+// the synchronous write completes and turns it green. Used by autosave and
+// Ctrl+S. No tree refresh: a row's label is the filename, which a content save
+// never changes (and refreshing would collapse expanded folders).
 func (a *App) saveCurrent() {
 	if a.store == nil || a.editor == nil || a.currentNote == "" || !a.dirty {
 		return
 	}
+	a.setSaveState(saveSaving)
+	note := a.currentNote
+	coreglib.IdleAdd(func() bool {
+		if a.currentNote != note { // note switched or closed before the write ran
+			return false
+		}
+		if a.flushDirty() {
+			a.setSaveState(saveSaved)
+		}
+		return false
+	})
+}
+
+// flushDirty writes the open note immediately when it has unsaved changes,
+// returning whether a write happened. Used where the save must complete before
+// the next step: switching notes, renaming, or shutting down.
+func (a *App) flushDirty() bool {
+	if a.store == nil || a.editor == nil || a.currentNote == "" || !a.dirty {
+		return false
+	}
 	if err := a.store.WriteNote(a.currentNote, a.editor.Content()); err != nil {
 		log.Printf("atlas-notes: save %q: %v", a.currentNote, err)
-		return
+		a.setSaveState(saveUnsaved)
+		return false
 	}
 	a.dirty = false
-	a.setSaveState("Saved")
-	// No tree refresh here: a row's label is the filename, which a content save
-	// never changes. Skipping it keeps autosave off the tree-rebuild path (which
-	// also collapses any expanded folders). Renames/moves refresh the tree
-	// themselves.
+	return true
 }
 
 // onTitleActivate renames the current note when the title entry is committed.
@@ -291,15 +327,16 @@ func (a *App) onTitleActivate() {
 	if newRel == a.currentNote {
 		return
 	}
-	a.saveCurrent()
+	a.flushDirty()
 	if err := a.store.RenameNote(a.currentNote, newRel); err != nil {
 		log.Printf("atlas-notes: rename via title: %v", err)
 		return
 	}
 	a.currentNote = newRel
 	a.cfg.LastNote = newRel
+	a.setSaveState(saveSaved)
 	if a.tree != nil {
-		a.tree.SetCurrent(path.Base(newRel))
+		a.tree.SetCurrent(newRel)
 		a.tree.Refresh()
 	}
 }
@@ -310,7 +347,7 @@ func (a *App) refreshHeader() {
 		a.titleEntry.Buffer().SetText(path.Base(a.currentNote), -1)
 	}
 	a.updateStats()
-	a.setSaveState("Saved")
+	a.setSaveState(saveSaved)
 }
 
 func (a *App) updateStats() {
@@ -321,9 +358,35 @@ func (a *App) updateStats() {
 	a.statusLabel.SetText(fmt.Sprintf("%d words · %d characters", words, chars))
 }
 
-func (a *App) setSaveState(state string) {
+// setSaveState updates the red/amber/green save dot and its label.
+func (a *App) setSaveState(state int) {
+	a.saveState = state
+	if a.saveDot != nil {
+		for _, c := range []string{"save-saved", "save-unsaved", "save-saving"} {
+			a.saveDot.RemoveCSSClass(c)
+		}
+		switch state {
+		case saveUnsaved:
+			a.saveDot.AddCSSClass("save-unsaved")
+		case saveSaving:
+			a.saveDot.AddCSSClass("save-saving")
+		default:
+			a.saveDot.AddCSSClass("save-saved")
+		}
+	}
 	if a.saveLabel != nil {
-		a.saveLabel.SetText(state)
+		a.saveLabel.SetText(saveStateText(state))
+	}
+}
+
+func saveStateText(state int) string {
+	switch state {
+	case saveUnsaved:
+		return "Unsaved"
+	case saveSaving:
+		return "Saving…"
+	default:
+		return "Saved"
 	}
 }
 

@@ -12,8 +12,7 @@ import (
 const (
 	leftPanelWidth  = 220
 	rightPanelWidth = 280
-	railThreshold   = 120 // below this width the left panel collapses to an icon rail
-	leftMinWidth    = 64  // hard minimum: the drag can't go past the icon rail
+	leftMinWidth    = 150 // hard minimum so note names stay readable when dragged narrow
 )
 
 // buildWindow constructs the main window: a header bar plus three drag-resizable
@@ -25,7 +24,7 @@ func (a *App) buildWindow() {
 	a.win.SetDefaultSize(a.cfg.WindowWidth, a.cfg.WindowHeight)
 
 	header := adw.NewHeaderBar()
-	header.SetTitleWidget(adw.NewWindowTitle("Atlas Notes", ""))
+	header.SetTitleWidget(adw.NewWindowTitle("Atlas Notes", "v"+version))
 
 	leftToggle := gtk.NewToggleButton()
 	leftToggle.SetIconName("sidebar-show-symbolic")
@@ -92,11 +91,6 @@ func (a *App) buildWindow() {
 	outer.SetShrinkEndChild(false)
 	outer.SetWideHandle(true)
 	outer.SetPosition(leftPanelWidth)
-	outer.NotifyProperty("position", func() {
-		if a.tree != nil {
-			a.tree.SetCompact(outer.Position() < railThreshold)
-		}
-	})
 
 	centerWidth := a.cfg.WindowWidth - leftPanelWidth - rightPanelWidth
 	if centerWidth < 300 {

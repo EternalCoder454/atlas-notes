@@ -48,10 +48,21 @@ func (a *App) buildNoteHeader() *gtk.Box {
 	a.titleEntry.AddCSSClass("note-title")
 	a.titleEntry.ConnectActivate(a.onTitleActivate)
 
+	a.saveDot = gtk.NewBox(gtk.OrientationHorizontal, 0)
+	a.saveDot.SetSizeRequest(10, 10)
+	a.saveDot.SetVAlign(gtk.AlignCenter)
+	a.saveDot.AddCSSClass("save-dot")
+	a.saveDot.AddCSSClass("save-saved")
+
 	a.saveLabel = gtk.NewLabel("Saved")
 	a.saveLabel.AddCSSClass("save-indicator")
 
+	saveBox := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	saveBox.SetVAlign(gtk.AlignCenter)
+	saveBox.Append(a.saveDot)
+	saveBox.Append(a.saveLabel)
+
 	row.Append(a.titleEntry)
-	row.Append(a.saveLabel)
+	row.Append(saveBox)
 	return row
 }

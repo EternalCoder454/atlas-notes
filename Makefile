@@ -1,5 +1,9 @@
 BIN     := bin/atlas-notes
+VERSION ?= 0.1.0
 PREFIX  := $(HOME)/.local
+
+# Injected into the binary: the source dir (for the in-app updater) and version.
+LDFLAGS := -X 'atlas-notes/internal/app.buildDir=$(CURDIR)' -X 'atlas-notes/internal/app.version=$(VERSION)'
 BINDIR  := $(PREFIX)/bin
 APPDIR  := $(PREFIX)/share/applications
 ICONDIR := $(PREFIX)/share/icons/hicolor/scalable/apps
@@ -7,7 +11,7 @@ ICONDIR := $(PREFIX)/share/icons/hicolor/scalable/apps
 .PHONY: build run install uninstall clean
 
 build:
-	go build -ldflags "-X 'atlas-notes/internal/app.buildDir=$(CURDIR)'" -o $(BIN) .
+	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
 
 run: build
 	./$(BIN)

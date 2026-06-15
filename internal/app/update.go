@@ -158,7 +158,7 @@ func updateScript(src string) string {
 // buildInfo reports where this binary lives, when it was built, and which source
 // the updater will use — so the install/update path is always visible.
 func buildInfo() string {
-	var parts []string
+	parts := []string{"Atlas Notes v" + version}
 	if exe, err := installedBinary(); err == nil {
 		parts = append(parts, "Installed at: "+exe)
 		if st, serr := os.Stat(exe); serr == nil {

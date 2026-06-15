@@ -36,6 +36,25 @@
 	font-size: 0.85em;
 }
 
+/* Save indicator dot — intentional semantic colors (red/amber/green). */
+.save-dot {
+	border-radius: 9999px;
+	min-width: 10px;
+	min-height: 10px;
+}
+
+.save-dot.save-saved {
+	background-color: #2ec27e; /* green: saved */
+}
+
+.save-dot.save-unsaved {
+	background-color: #e01b24; /* red: unsaved changes */
+}
+
+.save-dot.save-saving {
+	background-color: #f5c211; /* amber: autosaving */
+}
+
 /* ---- Editor toolbar: compact, no shadow ---- */
 
 .editor-toolbar {
@@ -84,10 +103,11 @@
 	padding: 12px;
 }
 
-/* Current-file indicator at the top of the folder panel. */
-.current-note-indicator {
-	background-color: alpha(@accent_bg_color, 0.18);
-	border-radius: 6px;
+/* ---- Folder tree ---- */
+
+/* Pull rows close to the panel edge; depth indent is applied in code. */
+.navigation-sidebar {
+	padding: 2px 2px;
 }
 
 /* ---- Checklist items ---- */
