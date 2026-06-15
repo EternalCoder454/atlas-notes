@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,29 +14,47 @@ import (
 	"atlas-notes/internal/storage"
 )
 
-// aiTimeout bounds a single AI call. Ollama is local; 60s is plenty plus slack.
-const aiTimeout = 65 * time.Second
+// aiTimeout bounds a single (streaming) AI call. Ollama is local but a long
+// reply on a small machine can take a while.
+const aiTimeout = 3 * time.Minute
 
-// Sidebar is the always-visible right-hand AI assistant panel. Every AI call
-// runs on a goroutine and marshals its result back to the GTK main thread via
-// glib.IdleAdd, so the UI never blocks. Action buttons are built from config
-// (including Sort, which is a sort-mode action) and laid out in a FlowBox that
-// reflows to two columns when the panel is wide and one when it's narrow.
+// Sidebar is the always-visible right-hand AI assistant panel, modeled on the
+// Atlas Monitor assistant: an animated orb, the (editable) name, a model /
+// throughput caption, a Markdown-rendered answer that streams in, and an input
+// bar whose menu runs the configured note actions. A setup card appears when
+// Ollama is unreachable or the model isn't installed. Every AI call runs on a
+// goroutine and marshals back to the GTK main thread via glib.IdleAdd.
 type Sidebar struct {
 	client *ai.Client
 
-	widget      *gtk.Box
-	statusDot   *gtk.Box
-	modelLabel  *gtk.Label
-	actionsFlow *gtk.FlowBox
-	actionBtns  []*gtk.Button
-	sortBtns    []*gtk.Button
-	askEntry    *gtk.Entry
-	responseBuf *gtk.TextBuffer
-	spinner     *gtk.Spinner
+	widget     *gtk.Box
+	orb        *logoOrb
+	nameLabel  *gtk.Label
+	statusDot  *gtk.Box
+	statsLabel *gtk.Label
+	answer     *gtk.Label
+	askEntry   *gtk.Entry
+	sendBtn    *gtk.Button
+	menuBtn    *gtk.MenuButton
+	actionsPop *gtk.Popover
 
-	busy    bool
+	setupCard  *gtk.Box
+	setupTitle *gtk.Label
+	setupBody  *gtk.Label
+	setupCmd   *gtk.Label
+	copyBtn    *gtk.Button
+
+	model   string
+	name    string
 	actions []storage.AIAction
+
+	busy         bool
+	ready        bool
+	probing      bool
+	streamStart  time.Time
+	streamTokens int
+	respBuilder  strings.Builder
+	lastStats    ai.Stats
 
 	// GetContent returns the current note's markdown.
 	GetContent func() string
@@ -43,145 +62,272 @@ type Sidebar struct {
 	SetContent func(string)
 }
 
-// NewSidebar builds the AI panel and starts the Ollama status poll.
+// NewSidebar builds the AI panel and starts the Ollama readiness poll.
 func NewSidebar(client *ai.Client) *Sidebar {
-	s := &Sidebar{client: client}
+	s := &Sidebar{client: client, model: client.Model, name: storage.DefaultAssistantName, ready: true}
 
-	s.widget = gtk.NewBox(gtk.OrientationVertical, 8)
+	s.widget = gtk.NewBox(gtk.OrientationVertical, 10)
 	s.widget.AddCSSClass("ai-sidebar")
 	s.widget.SetVExpand(true)
-	s.widget.SetMarginTop(12)
+	s.widget.SetMarginTop(16)
 	s.widget.SetMarginBottom(12)
 	s.widget.SetMarginStart(12)
 	s.widget.SetMarginEnd(12)
 
-	title := gtk.NewLabel("AI Assistant")
-	title.SetXAlign(0)
-	title.AddCSSClass("title-4")
-	s.widget.Append(title)
+	// Animated avatar orb (Cairo; eases between idle and generating).
+	s.orb = newLogoOrb()
+	s.widget.Append(s.orb)
 
-	statusRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	// Name (editable via Settings).
+	s.nameLabel = gtk.NewLabel(s.name)
+	s.nameLabel.SetHAlign(gtk.AlignCenter)
+	s.nameLabel.AddCSSClass("assistant-name")
+	s.widget.Append(s.nameLabel)
+
+	// Status dot + model/throughput caption, centered.
+	statsRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	statsRow.SetHAlign(gtk.AlignCenter)
 	s.statusDot = gtk.NewBox(gtk.OrientationHorizontal, 0)
-	s.statusDot.SetSizeRequest(12, 12)
+	s.statusDot.SetSizeRequest(9, 9)
 	s.statusDot.SetVAlign(gtk.AlignCenter)
 	s.statusDot.AddCSSClass("status-dot")
 	s.statusDot.AddCSSClass("offline")
-	s.modelLabel = gtk.NewLabel(client.Model)
-	s.modelLabel.SetXAlign(0)
-	s.modelLabel.AddCSSClass("dim-label")
-	s.spinner = gtk.NewSpinner()
-	s.spinner.SetHExpand(true)
-	s.spinner.SetHAlign(gtk.AlignEnd)
-	statusRow.Append(s.statusDot)
-	statusRow.Append(s.modelLabel)
-	statusRow.Append(s.spinner)
-	s.widget.Append(statusRow)
+	s.statsLabel = gtk.NewLabel(s.model)
+	s.statsLabel.AddCSSClass("assistant-stats")
+	s.statsLabel.SetWrap(true)
+	s.statsLabel.SetJustify(gtk.JustifyCenter)
+	statsRow.Append(s.statusDot)
+	statsRow.Append(s.statsLabel)
+	s.widget.Append(statsRow)
+
+	// Setup card (hidden until a probe finds Ollama unreachable / model missing).
+	s.widget.Append(s.buildSetupCard())
 
 	s.widget.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
 
-	// Action shortcuts: a FlowBox reflows 1↔2 columns with the panel width.
-	s.actionsFlow = gtk.NewFlowBox()
-	s.actionsFlow.SetSelectionMode(gtk.SelectionNone)
-	s.actionsFlow.SetMaxChildrenPerLine(2)
-	s.actionsFlow.SetMinChildrenPerLine(1)
-	s.actionsFlow.SetColumnSpacing(6)
-	s.actionsFlow.SetRowSpacing(6)
-	s.actionsFlow.SetHomogeneous(true)
-	s.widget.Append(s.actionsFlow)
-
-	s.widget.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
-
-	askLabel := gtk.NewLabel("Ask about this note")
-	askLabel.SetXAlign(0)
-	s.widget.Append(askLabel)
-
-	s.askEntry = gtk.NewEntry()
-	s.askEntry.SetHExpand(true)
-	s.askEntry.SetPlaceholderText("Type a question, press Enter…")
-	s.askEntry.ConnectActivate(s.runAsk)
-	s.widget.Append(s.askEntry)
-
-	responseView := gtk.NewTextView()
-	responseView.SetEditable(false) // read-only, but text stays selectable
-	responseView.SetCursorVisible(false)
-	responseView.SetWrapMode(gtk.WrapWordChar)
-	responseView.SetLeftMargin(6)
-	responseView.SetRightMargin(6)
-	responseView.SetTopMargin(6)
-	responseView.SetBottomMargin(6)
-	responseView.AddCSSClass("ai-response")
-	s.responseBuf = responseView.Buffer()
+	// Answer: a Markdown-rendered label that streams in, in a scroller.
+	s.answer = gtk.NewLabel("")
+	s.answer.SetWrap(true)
+	s.answer.SetXAlign(0)
+	s.answer.SetYAlign(0)
+	s.answer.SetVAlign(gtk.AlignStart)
+	s.answer.SetSelectable(true)
+	s.answer.AddCSSClass("ai-answer")
+	s.setIdleAnswer()
+	answerBox := gtk.NewBox(gtk.OrientationVertical, 0)
+	answerBox.Append(s.answer)
 	scroll := gtk.NewScrolledWindow()
-	scroll.SetChild(responseView)
+	scroll.SetChild(answerBox)
+	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	scroll.SetVExpand(true)
 	s.widget.Append(scroll)
 
+	// Input bar: actions menu · question entry · send.
+	bar := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	bar.AddCSSClass("ai-input-bar")
+	s.menuBtn = gtk.NewMenuButton()
+	s.menuBtn.SetIconName("view-list-symbolic")
+	s.menuBtn.SetTooltipText("Note actions")
+	s.menuBtn.AddCSSClass("flat")
+	s.actionsPop = gtk.NewPopover()
+	s.menuBtn.SetPopover(s.actionsPop)
+	s.rebuildActionsMenu()
+	s.askEntry = gtk.NewEntry()
+	s.askEntry.SetHExpand(true)
+	s.askEntry.SetPlaceholderText(s.askPlaceholder())
+	s.askEntry.ConnectActivate(s.runAsk)
+	s.sendBtn = gtk.NewButtonWithLabel("Send")
+	s.sendBtn.AddCSSClass("suggested-action")
+	s.sendBtn.ConnectClicked(s.runAsk)
+	bar.Append(s.menuBtn)
+	bar.Append(s.askEntry)
+	bar.Append(s.sendBtn)
+	s.widget.Append(bar)
+
+	s.refreshStats()
 	s.startStatusPoll()
-	s.UpdateState()
 	return s
 }
 
 // Widget returns the panel's root widget.
 func (s *Sidebar) Widget() gtk.Widgetter { return s.widget }
 
-// SetActions rebuilds the action buttons from config.
+// SetActions stores the configured note actions and rebuilds the input-bar menu.
 func (s *Sidebar) SetActions(actions []storage.AIAction) {
 	s.actions = actions
-	s.actionsFlow.RemoveAll()
-	s.actionBtns = nil
-	s.sortBtns = nil
-	for _, act := range actions {
-		b := fullButton(act.Name, func() { s.runAction(act) })
-		s.actionBtns = append(s.actionBtns, b)
-		if act.Mode == storage.ActionModeSort {
-			s.sortBtns = append(s.sortBtns, b)
-		}
-		s.actionsFlow.Append(b)
-	}
-	s.UpdateState()
+	s.rebuildActionsMenu()
 }
 
-// SetModel updates the model label after a settings change.
+// SetModel updates the model shown in the caption after a settings change.
 func (s *Sidebar) SetModel(model string) {
-	if s.modelLabel != nil {
-		s.modelLabel.SetText(model)
+	s.model = model
+	s.refreshStats()
+}
+
+// SetName updates the assistant's display name (and the input placeholder).
+func (s *Sidebar) SetName(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = storage.DefaultAssistantName
+	}
+	s.name = name
+	if s.nameLabel != nil {
+		s.nameLabel.SetText(name)
+	}
+	if s.askEntry != nil {
+		s.askEntry.SetPlaceholderText(s.askPlaceholder())
 	}
 }
 
-// UpdateState enables sort-mode actions only when the note has checklist items
-// (and no AI call is in flight).
-func (s *Sidebar) UpdateState() {
-	content := ""
-	if s.GetContent != nil {
-		content = s.GetContent()
+func (s *Sidebar) askPlaceholder() string { return "Ask " + s.name + " about this note…" }
+
+// rebuildActionsMenu fills the actions popover with one entry per configured
+// action. Sort entries stay enabled — runAction reports when there's nothing to
+// sort.
+func (s *Sidebar) rebuildActionsMenu() {
+	if s.actionsPop == nil {
+		return
 	}
-	s.UpdateStateWith(content)
+	box := gtk.NewBox(gtk.OrientationVertical, 2)
+	box.SetMarginTop(4)
+	box.SetMarginBottom(4)
+	box.SetMarginStart(4)
+	box.SetMarginEnd(4)
+	if len(s.actions) == 0 {
+		empty := gtk.NewLabel("No actions configured")
+		empty.AddCSSClass("dim-label")
+		box.Append(empty)
+	}
+	for _, act := range s.actions {
+		act := act
+		b := gtk.NewButtonWithLabel(act.Name)
+		b.AddCSSClass("flat")
+		b.SetHAlign(gtk.AlignFill)
+		if l, ok := b.Child().(*gtk.Label); ok {
+			l.SetXAlign(0)
+		}
+		b.ConnectClicked(func() {
+			s.menuBtn.Popdown()
+			s.runAction(act)
+		})
+		box.Append(b)
+	}
+	s.actionsPop.SetChild(box)
 }
 
-// UpdateStateWith is UpdateState given already-fetched note content, so a caller
-// that already has the text doesn't reconstruct it again.
-func (s *Sidebar) UpdateStateWith(content string) {
-	hasItems := checklist.HasItems(content)
-	for _, b := range s.sortBtns {
-		b.SetSensitive(hasItems && !s.busy)
-	}
+// buildSetupCard constructs the (hidden) panel that tells a fresh user how to get
+// Ollama / the model running, filled in by onProbe.
+func (s *Sidebar) buildSetupCard() *gtk.Box {
+	card := gtk.NewBox(gtk.OrientationVertical, 6)
+	card.AddCSSClass("ai-setup-card")
+	card.SetVisible(false)
+
+	s.setupTitle = gtk.NewLabel("")
+	s.setupTitle.AddCSSClass("ai-setup-title")
+	s.setupTitle.SetXAlign(0)
+	s.setupTitle.SetWrap(true)
+	card.Append(s.setupTitle)
+
+	s.setupBody = gtk.NewLabel("")
+	s.setupBody.AddCSSClass("dim-label")
+	s.setupBody.SetXAlign(0)
+	s.setupBody.SetWrap(true)
+	card.Append(s.setupBody)
+
+	s.setupCmd = gtk.NewLabel("")
+	s.setupCmd.AddCSSClass("ai-setup-cmd")
+	s.setupCmd.SetXAlign(0)
+	s.setupCmd.SetWrap(true)
+	s.setupCmd.SetSelectable(true)
+	card.Append(s.setupCmd)
+
+	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	s.copyBtn = gtk.NewButtonWithLabel("Copy commands")
+	s.copyBtn.ConnectClicked(func() {
+		s.copyBtn.Clipboard().SetText(s.setupCmd.Text())
+		s.copyBtn.SetLabel("Copied")
+		coreglib.TimeoutAdd(1200, func() bool { s.copyBtn.SetLabel("Copy commands"); return false })
+	})
+	recheck := gtk.NewButtonWithLabel("Recheck")
+	recheck.ConnectClicked(func() {
+		if !s.probing {
+			s.setupBody.SetText("Checking for Ollama…")
+			s.probe()
+		}
+	})
+	btnRow.Append(s.copyBtn)
+	btnRow.Append(recheck)
+	card.Append(btnRow)
+
+	s.setupCard = card
+	return card
 }
 
 func (s *Sidebar) startStatusPoll() {
-	check := func() {
-		go func() {
-			online := s.client.Available()
-			coreglib.IdleAdd(func() bool {
-				s.setStatus(online)
-				return false
-			})
-		}()
-	}
-	check()
+	s.probe()
 	coreglib.TimeoutSecondsAdd(10, func() bool {
-		check()
+		s.probe()
 		return true // keep polling
 	})
+}
+
+// probe checks Ollama readiness (reachable + model installed) off the main
+// thread, then applies the result back on it.
+func (s *Sidebar) probe() {
+	if s.busy || s.probing {
+		return
+	}
+	s.probing = true
+	model := s.client.Model
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		models, err := s.client.Tags(ctx)
+		coreglib.IdleAdd(func() bool {
+			s.onProbe(model, models, err)
+			return false
+		})
+	}()
+}
+
+func (s *Sidebar) onProbe(model string, models []string, err error) {
+	s.probing = false
+	reachable := err == nil
+	s.ready = reachable && modelInstalled(models, model)
+	s.setStatus(reachable)
+
+	switch {
+	case !reachable:
+		s.setupTitle.SetText("The assistant needs Ollama")
+		s.setupBody.SetText("Atlas Notes couldn't reach Ollama, the local AI runtime that runs the model on your machine. Install it and pull the model — this card clears itself once it's ready.")
+		s.setupCmd.SetText("curl -fsSL https://ollama.com/install.sh | sh\nollama pull " + model)
+		s.setupCard.SetVisible(true)
+	case !s.ready:
+		s.setupTitle.SetText("Model not installed")
+		s.setupBody.SetText(fmt.Sprintf("Ollama is running, but %q isn't installed yet. Pull it once (a few GB) — this card clears when it's ready.", model))
+		s.setupCmd.SetText("ollama pull " + model)
+		s.setupCard.SetVisible(true)
+	default:
+		s.setupCard.SetVisible(false)
+	}
+
+	if !s.busy {
+		s.askEntry.SetSensitive(s.ready)
+		s.sendBtn.SetSensitive(s.ready)
+		s.menuBtn.SetSensitive(s.ready)
+	}
+}
+
+// modelInstalled reports whether want is among the installed tags, tolerating a
+// missing/explicit ":latest" suffix.
+func modelInstalled(models []string, want string) bool {
+	want = strings.TrimSuffix(want, ":latest")
+	for _, m := range models {
+		if strings.TrimSuffix(m, ":latest") == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Sidebar) setStatus(online bool) {
@@ -196,32 +342,88 @@ func (s *Sidebar) setStatus(online bool) {
 
 func (s *Sidebar) setBusy(busy bool) {
 	s.busy = busy
-	s.spinner.SetSpinning(busy)
-	for _, b := range s.actionBtns {
-		b.SetSensitive(!busy)
-	}
-	s.askEntry.SetSensitive(!busy)
-	s.UpdateState() // sort buttons also depend on content
+	s.orb.setActive(busy) // swell + brighten the orb while generating
+	enabled := !busy && s.ready
+	s.askEntry.SetSensitive(enabled)
+	s.sendBtn.SetSensitive(enabled)
+	s.menuBtn.SetSensitive(enabled)
+	s.refreshStats()
 }
 
-func (s *Sidebar) setResponse(text string) { s.responseBuf.SetText(text) }
+// refreshStats updates the caption under the name: live tokens/sec while
+// streaming, "thinking…" before the first token, the final throughput after, or
+// just the model when idle.
+func (s *Sidebar) refreshStats() {
+	if s.statsLabel == nil {
+		return
+	}
+	switch {
+	case s.busy && s.streamTokens > 0:
+		rate := 0.0
+		if el := time.Since(s.streamStart).Seconds(); el > 0 {
+			rate = float64(s.streamTokens) / el
+		}
+		s.statsLabel.SetText(fmt.Sprintf("%s · generating… %d tok, %.0f tok/s", s.model, s.streamTokens, rate))
+	case s.busy:
+		s.statsLabel.SetText(s.model + " · thinking…")
+	case s.lastStats.Tokens > 0:
+		s.statsLabel.SetText(s.model + " · " + s.lastStats.Summary())
+	default:
+		s.statsLabel.SetText(s.model)
+	}
+}
 
-// runText runs a string-returning AI call off the main thread.
-func (s *Sidebar) runText(call func(context.Context) (string, error), onResult func(string)) {
+func (s *Sidebar) setAnswerText(text string) { s.answer.SetText(text) }
+
+func (s *Sidebar) setAnswerMarkdown(md string) {
+	if strings.TrimSpace(md) == "" {
+		s.answer.SetText("")
+		return
+	}
+	s.answer.SetMarkup(markdownToPango(md))
+}
+
+// setIdleAnswer shows a faint hint before any question is asked.
+func (s *Sidebar) setIdleAnswer() {
+	s.answer.SetMarkup(`<span alpha='55%'>Ask a question about this note, or pick an action from the menu below.</span>`)
+}
+
+// runStream runs a streaming AI call. When echo is true, tokens append to the
+// answer area as they arrive; onResult receives the full text (to Markdown-
+// render, or apply to the note).
+func (s *Sidebar) runStream(echo bool, call func(context.Context, func(string)) (string, ai.Stats, error), onResult func(full string)) {
 	if s.busy {
 		return
 	}
 	s.setBusy(true)
+	s.respBuilder.Reset()
+	s.streamTokens = 0
+	s.streamStart = time.Now()
+	if echo {
+		s.answer.SetText("")
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), aiTimeout)
 		defer cancel()
-		res, err := call(ctx)
+		full, stats, err := call(ctx, func(tok string) {
+			coreglib.IdleAdd(func() bool {
+				s.streamTokens++
+				if echo {
+					s.respBuilder.WriteString(tok)
+					s.answer.SetText(s.respBuilder.String())
+				}
+				s.refreshStats()
+				return false
+			})
+		})
 		coreglib.IdleAdd(func() bool {
 			s.setBusy(false)
 			if err != nil {
-				s.setResponse("Error: " + err.Error())
+				s.setAnswerText("Error: " + err.Error())
 			} else {
-				onResult(res)
+				s.lastStats = stats
+				s.refreshStats()
+				onResult(full)
 			}
 			return false
 		})
@@ -239,27 +441,32 @@ func (s *Sidebar) runAction(action storage.AIAction) {
 	case storage.ActionModeSort:
 		items := checklist.Parse(content)
 		if len(items) == 0 {
+			s.setAnswerText("No checklist items to sort.")
 			return
 		}
 		s.runSort(content, items, action.Prompt)
 	case storage.ActionModeReplace:
-		s.runText(func(ctx context.Context) (string, error) {
-			return s.client.RunAction(ctx, action.Prompt, content)
-		}, func(res string) {
+		// Don't echo into the answer — the output replaces the note; show a
+		// confirmation when it's applied. The live caption still counts tokens.
+		s.runStream(false, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
+			return s.client.RunAction(ctx, action.Prompt, content, onToken)
+		}, func(full string) {
 			if s.SetContent != nil {
-				s.SetContent(res)
+				s.SetContent(full)
 			}
-			s.setResponse(action.Name + " applied.")
+			s.setAnswerText(action.Name + " applied.")
 		})
 	default: // show
-		s.runText(func(ctx context.Context) (string, error) {
-			return s.client.RunAction(ctx, action.Prompt, content)
-		}, s.setResponse)
+		s.runStream(true, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
+			return s.client.RunAction(ctx, action.Prompt, content, onToken)
+		}, func(full string) {
+			s.setAnswerMarkdown(full)
+		})
 	}
 }
 
 func (s *Sidebar) runAsk() {
-	if s.GetContent == nil {
+	if s.GetContent == nil || s.busy || !s.ready {
 		return
 	}
 	question := strings.TrimSpace(s.askEntry.Buffer().Text())
@@ -267,9 +474,12 @@ func (s *Sidebar) runAsk() {
 		return
 	}
 	content := s.GetContent()
-	s.runText(func(ctx context.Context) (string, error) {
-		return s.client.Ask(ctx, content, question)
-	}, s.setResponse)
+	s.askEntry.Buffer().SetText("", -1) // clear after capturing
+	s.runStream(true, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
+		return s.client.Ask(ctx, content, question, onToken)
+	}, func(full string) {
+		s.setAnswerMarkdown(full)
+	})
 }
 
 func (s *Sidebar) runSort(content string, items []checklist.Item, prompt string) {
@@ -277,20 +487,24 @@ func (s *Sidebar) runSort(content string, items []checklist.Item, prompt string)
 		return
 	}
 	s.setBusy(true)
+	s.streamTokens = 0
+	s.streamStart = time.Now()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), aiTimeout)
 		defer cancel()
-		sorted, err := s.client.SortPriorities(ctx, items, prompt)
+		sorted, stats, err := s.client.SortPriorities(ctx, items, prompt)
 		coreglib.IdleAdd(func() bool {
 			s.setBusy(false)
 			if err != nil {
-				s.setResponse("Error: " + err.Error())
+				s.setAnswerText("Error: " + err.Error())
 				return false
 			}
+			s.lastStats = stats
+			s.refreshStats()
 			if s.SetContent != nil {
 				s.SetContent(applySortedItems(content, sorted))
 			}
-			s.setResponse("Re-prioritised checklist.")
+			s.setAnswerText("Re-prioritised checklist.")
 			return false
 		})
 	}()
@@ -312,11 +526,4 @@ func applySortedItems(content string, sorted []checklist.Item) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-func fullButton(label string, onClick func()) *gtk.Button {
-	b := gtk.NewButtonWithLabel(label)
-	b.SetHExpand(true)
-	b.ConnectClicked(onClick)
-	return b
 }

@@ -67,6 +67,7 @@ func (a *App) buildWindow() {
 		a.sidebar.GetContent = a.editorContent
 		a.sidebar.SetContent = a.applyAIContent
 		a.sidebar.SetActions(a.cfg.Actions)
+		a.sidebar.SetName(a.cfg.AssistantName)
 		a.right.Append(a.sidebar.Widget())
 	} else {
 		a.right.Append(placeholder("AI Assistant"))

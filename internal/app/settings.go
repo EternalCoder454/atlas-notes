@@ -26,7 +26,7 @@ func (a *App) showSettings() {
 	dialog.SetContentWidth(680)
 	dialog.SetContentHeight(680)
 
-	modelEntry, sysView, summaryToggle, generalPage := a.buildGeneralPage()
+	nameEntry, modelEntry, sysView, summaryToggle, generalPage := a.buildGeneralPage()
 	rows, shortcutsPage := a.buildShortcutsPage()
 
 	stack := gtk.NewStack()
@@ -49,7 +49,7 @@ func (a *App) showSettings() {
 	saveBtn := gtk.NewButtonWithLabel("Save")
 	saveBtn.AddCSSClass("suggested-action")
 	saveBtn.ConnectClicked(func() {
-		a.applySettings(modelEntry, sysView, summaryToggle, *rows)
+		a.applySettings(nameEntry, modelEntry, sysView, summaryToggle, *rows)
 		dialog.Close()
 	})
 	header.PackEnd(saveBtn)
@@ -62,8 +62,14 @@ func (a *App) showSettings() {
 }
 
 // buildGeneralPage builds the "Model & Prompt" section.
-func (a *App) buildGeneralPage() (*gtk.Entry, *gtk.TextView, *gtk.CheckButton, gtk.Widgetter) {
+func (a *App) buildGeneralPage() (*gtk.Entry, *gtk.Entry, *gtk.TextView, *gtk.CheckButton, gtk.Widgetter) {
 	box := sectionBox()
+
+	nameGroup := groupCard("Assistant name")
+	nameEntry := gtk.NewEntry()
+	nameEntry.Buffer().SetText(a.cfg.AssistantName, -1)
+	nameGroup.Append(nameEntry)
+	box.Append(nameGroup)
 
 	modelGroup := groupCard("Ollama model")
 	modelEntry := gtk.NewEntry()
@@ -82,7 +88,7 @@ func (a *App) buildGeneralPage() (*gtk.Entry, *gtk.TextView, *gtk.CheckButton, g
 	treeGroup.Append(summary)
 	box.Append(treeGroup)
 
-	return modelEntry, sysView, summary, pageScroll(box)
+	return nameEntry, modelEntry, sysView, summary, pageScroll(box)
 }
 
 // groupCard returns a titled, card-styled container for a group of settings.
@@ -137,7 +143,11 @@ func (a *App) buildShortcutsPage() (*[]*actionRow, gtk.Widgetter) {
 
 // applySettings reads the dialog widgets into config, persists, and applies the
 // changes to the AI client and sidebar.
-func (a *App) applySettings(modelEntry *gtk.Entry, sysView *gtk.TextView, summaryToggle *gtk.CheckButton, rows []*actionRow) {
+func (a *App) applySettings(nameEntry, modelEntry *gtk.Entry, sysView *gtk.TextView, summaryToggle *gtk.CheckButton, rows []*actionRow) {
+	a.cfg.AssistantName = strings.TrimSpace(nameEntry.Buffer().Text())
+	if a.cfg.AssistantName == "" {
+		a.cfg.AssistantName = storage.DefaultAssistantName
+	}
 	a.cfg.Model = strings.TrimSpace(modelEntry.Buffer().Text())
 	if a.cfg.Model == "" {
 		a.cfg.Model = storage.DefaultModel
@@ -167,6 +177,7 @@ func (a *App) applySettings(modelEntry *gtk.Entry, sysView *gtk.TextView, summar
 		a.ai.SystemPrompt = a.cfg.SystemPrompt
 	}
 	if a.sidebar != nil {
+		a.sidebar.SetName(a.cfg.AssistantName)
 		a.sidebar.SetModel(a.cfg.Model)
 		a.sidebar.SetActions(a.cfg.Actions)
 	}

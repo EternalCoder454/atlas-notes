@@ -159,9 +159,6 @@ func (a *App) openNote(rel string) {
 	if a.tree != nil {
 		a.tree.SetCurrent(rel)
 	}
-	if a.sidebar != nil {
-		a.sidebar.UpdateState()
-	}
 }
 
 // onDeleted clears the editor when the note currently open (or a folder
@@ -185,9 +182,6 @@ func (a *App) onDeleted(rel string, isFolder bool) {
 	a.updateStats()
 	if a.tree != nil {
 		a.tree.SetCurrent("")
-	}
-	if a.sidebar != nil {
-		a.sidebar.UpdateState()
 	}
 }
 
@@ -239,11 +233,7 @@ func (a *App) onEditorReparsed() {
 	if a.editor == nil {
 		return
 	}
-	content := a.editor.Content()
-	a.updateStatsWith(content)
-	if a.sidebar != nil {
-		a.sidebar.UpdateStateWith(content)
-	}
+	a.updateStatsWith(a.editor.Content())
 }
 
 func (a *App) editorContent() string {
@@ -265,9 +255,6 @@ func (a *App) applyAIContent(content string) {
 		a.setSaveState(saveSaved)
 	}
 	a.updateStats()
-	if a.sidebar != nil {
-		a.sidebar.UpdateState()
-	}
 }
 
 // scheduleAutosave debounces the autosave: every edit bumps a generation counter

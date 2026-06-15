@@ -18,6 +18,9 @@ const (
 	ChannelBeta    = "beta"
 )
 
+// DefaultAssistantName is the AI assistant's display name when config omits one.
+const DefaultAssistantName = "Atlas"
+
 // Action modes control what happens to an AI action's result.
 const (
 	ActionModeShow    = "show"    // display the result in the AI panel
@@ -65,6 +68,7 @@ type Config struct {
 	WindowWidth   int    `json:"window_width"`
 	WindowHeight  int    `json:"window_height"`
 	Model         string `json:"model"`
+	AssistantName string `json:"assistant_name"`
 	UpdateChannel string `json:"update_channel"`
 
 	SystemPrompt        string     `json:"system_prompt"`
@@ -109,6 +113,7 @@ func DefaultConfig() Config {
 		WindowWidth:   1100,
 		WindowHeight:  720,
 		Model:         DefaultModel,
+		AssistantName: DefaultAssistantName,
 		UpdateChannel: ChannelRelease,
 		SystemPrompt:  DefaultSystemPrompt,
 		Actions:       defaultActions(),
@@ -137,6 +142,9 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.UpdateChannel == "" {
 		cfg.UpdateChannel = ChannelRelease
+	}
+	if cfg.AssistantName == "" {
+		cfg.AssistantName = DefaultAssistantName
 	}
 	if cfg.SystemPrompt == "" {
 		cfg.SystemPrompt = DefaultSystemPrompt
