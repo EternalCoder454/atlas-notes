@@ -12,6 +12,12 @@ const AppName = "atlas-notes"
 // DefaultModel is the Ollama model used when config omits one.
 const DefaultModel = "qwen2.5:3b"
 
+// Update channels: Release follows the main branch, Beta follows the beta branch.
+const (
+	ChannelRelease = "release"
+	ChannelBeta    = "beta"
+)
+
 // Action modes control what happens to an AI action's result.
 const (
 	ActionModeShow    = "show"    // display the result in the AI panel
@@ -54,11 +60,12 @@ func ensureSortAction(actions []AIAction) []AIAction {
 
 // Config holds user settings persisted to ~/.config/atlas-notes/config.json.
 type Config struct {
-	VaultPath    string `json:"vault_path"`
-	LastNote     string `json:"last_note"`
-	WindowWidth  int    `json:"window_width"`
-	WindowHeight int    `json:"window_height"`
-	Model        string `json:"model"`
+	VaultPath     string `json:"vault_path"`
+	LastNote      string `json:"last_note"`
+	WindowWidth   int    `json:"window_width"`
+	WindowHeight  int    `json:"window_height"`
+	Model         string `json:"model"`
+	UpdateChannel string `json:"update_channel"`
 
 	SystemPrompt        string     `json:"system_prompt"`
 	Actions             []AIAction `json:"actions"`
@@ -98,12 +105,13 @@ func DefaultDBPath() string { return filepath.Join(dataDir(), "index.db") }
 // DefaultConfig returns a Config populated with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		VaultPath:    DefaultVaultPath(),
-		WindowWidth:  1100,
-		WindowHeight: 720,
-		Model:        DefaultModel,
-		SystemPrompt: DefaultSystemPrompt,
-		Actions:      defaultActions(),
+		VaultPath:     DefaultVaultPath(),
+		WindowWidth:   1100,
+		WindowHeight:  720,
+		Model:         DefaultModel,
+		UpdateChannel: ChannelRelease,
+		SystemPrompt:  DefaultSystemPrompt,
+		Actions:       defaultActions(),
 	}
 }
 
@@ -126,6 +134,9 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.Model == "" {
 		cfg.Model = DefaultModel
+	}
+	if cfg.UpdateChannel == "" {
+		cfg.UpdateChannel = ChannelRelease
 	}
 	if cfg.SystemPrompt == "" {
 		cfg.SystemPrompt = DefaultSystemPrompt
