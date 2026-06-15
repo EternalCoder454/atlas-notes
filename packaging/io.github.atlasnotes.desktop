@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Atlas Notes
+GenericName=Notes
+Comment=Local-first notes and checklists with local AI
+Exec=@BIN@ %U
+Icon=atlas-notes
+Terminal=false
+Categories=Office;TextEditor;
+Keywords=notes;checklist;markdown;todo;tasks;ollama;
+StartupNotify=true
+StartupWMClass=io.github.atlasnotes

@@ -1,0 +1,123 @@
+/*
+ * Atlas Notes styles.
+ *
+ * Colors use libadwaita named colors (@view_bg_color, @sidebar_bg_color, …) so
+ * they automatically follow the system light/dark preference. The only
+ * hardcoded colors are the intentional semantic indicators: the Ollama status
+ * dot (green/red) and the checklist priority bars (red/amber/green).
+ */
+
+/* ---- Panels ---- */
+
+.left-panel {
+	background-color: @sidebar_bg_color;
+	border-right: 1px solid alpha(@window_fg_color, 0.10);
+}
+
+.center-panel {
+	background-color: @view_bg_color;
+}
+
+.right-panel {
+	background-color: @sidebar_bg_color;
+	border-left: 1px solid alpha(@window_fg_color, 0.10);
+}
+
+/* ---- Note header & status ---- */
+
+.note-title {
+	font-weight: bold;
+	font-size: 1.1em;
+}
+
+.save-indicator,
+.status-bar {
+	color: alpha(@window_fg_color, 0.55);
+	font-size: 0.85em;
+}
+
+/* ---- Editor toolbar: compact, no shadow ---- */
+
+.editor-toolbar {
+	box-shadow: none;
+}
+
+.editor-toolbar button {
+	min-height: 26px;
+	min-width: 30px;
+	padding: 2px 8px;
+}
+
+.atlas-editor {
+	font-size: 1.05em;
+}
+
+/* ---- AI sidebar ---- */
+
+.ai-response {
+	background-color: @card_bg_color;
+	border-radius: 6px;
+}
+
+/* Ollama status dot — intentional semantic colors. */
+.status-dot {
+	border-radius: 9999px;
+	min-width: 12px;
+	min-height: 12px;
+}
+
+.status-dot.online {
+	background-color: #2ec27e; /* green: connected */
+}
+
+.status-dot.offline {
+	background-color: #e01b24; /* red: not running */
+}
+
+/* ---- Settings dialog ---- */
+
+.settings-group,
+.ai-action {
+	background-color: @card_bg_color;
+	border: 1px solid alpha(@window_fg_color, 0.07);
+	border-radius: 12px;
+	padding: 12px;
+}
+
+/* Current-file indicator at the top of the folder panel. */
+.current-note-indicator {
+	background-color: alpha(@accent_bg_color, 0.18);
+	border-radius: 6px;
+}
+
+/* ---- Checklist items ---- */
+
+.checklist-item {
+	margin: 0;
+}
+
+/* Tighten the embedded checkbox so it lines up with the text. */
+.checklist-item checkbutton {
+	min-height: 0;
+	min-width: 0;
+	padding: 0;
+}
+
+/* ---- Checklist priority bars — intentional semantic colors. ---- */
+
+.priority-bar {
+	border-radius: 2px;
+	min-width: 4px;
+}
+
+.checklist-item .priority-bar.priority-high {
+	background-color: #e01b24; /* red */
+}
+
+.checklist-item .priority-bar.priority-medium {
+	background-color: #f5c211; /* amber */
+}
+
+.checklist-item .priority-bar.priority-low {
+	background-color: #2ec27e; /* green */
+}

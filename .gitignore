@@ -1,0 +1,10 @@
+# Build output
+/bin/
+
+# Local Claude Code tooling (machine-specific paths / hooks)
+/.claude/
+
+# Go
+*.test
+*.out
+*.prof
