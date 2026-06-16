@@ -25,10 +25,20 @@ func pangoEscape(s string) string {
 // is the tags this function adds.
 func markdownToPango(md string) string {
 	lines := strings.Split(strings.TrimRight(md, "\n"), "\n")
-	for i, line := range lines {
-		lines[i] = mdLine(line)
+	out := make([]string, 0, len(lines))
+	inCode := false
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inCode = !inCode // drop the fence line, toggle code mode
+			continue
+		}
+		if inCode {
+			out = append(out, "<tt>"+pangoEscape(line)+"</tt>")
+			continue
+		}
+		out = append(out, mdLine(line))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(out, "\n")
 }
 
 func mdLine(line string) string {

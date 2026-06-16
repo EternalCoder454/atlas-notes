@@ -26,6 +26,7 @@ func TestUpgradePrompts(t *testing.T) {
 		SystemPrompt: oldSystemPrompt,
 		Actions: []AIAction{
 			{Name: "Summarize Note", Mode: ActionModeShow, Prompt: oldSummarizePrompt},
+			{Name: "Clean & Format", Mode: ActionModeReplace, Prompt: cleanPromptV031},
 			{Name: "Custom", Mode: ActionModeShow, Prompt: "do my own thing {content}"},
 			{Name: "Sort Priorities", Mode: ActionModeSort, Prompt: oldSortPrompt},
 		},
@@ -37,10 +38,13 @@ func TestUpgradePrompts(t *testing.T) {
 	if cfg.Actions[0].Prompt != defaultSummarizePrompt {
 		t.Error("summarize prompt not upgraded")
 	}
-	if cfg.Actions[1].Prompt != "do my own thing {content}" {
+	if cfg.Actions[1].Prompt != defaultCleanPrompt {
+		t.Error("clean prompt not upgraded (chained from v0.3.1)")
+	}
+	if cfg.Actions[2].Prompt != "do my own thing {content}" {
 		t.Error("custom action prompt should be left untouched")
 	}
-	if cfg.Actions[2].Prompt != DefaultSortPrompt {
+	if cfg.Actions[3].Prompt != DefaultSortPrompt {
 		t.Error("sort prompt not upgraded")
 	}
 }
