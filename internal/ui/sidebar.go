@@ -37,6 +37,7 @@ type Sidebar struct {
 	sendBtn    *gtk.Button
 	menuBtn    *gtk.MenuButton
 	actionsPop *gtk.Popover
+	editToggle *gtk.ToggleButton
 
 	setupCard  *gtk.Box
 	setupTitle *gtk.Label
@@ -132,14 +133,20 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.actionsPop = gtk.NewPopover()
 	s.menuBtn.SetPopover(s.actionsPop)
 	s.rebuildActionsMenu()
+	s.editToggle = gtk.NewToggleButton()
+	s.editToggle.SetIconName("document-edit-symbolic")
+	s.editToggle.SetTooltipText("Edit mode — apply the reply to the note instead of answering")
+	s.editToggle.AddCSSClass("flat")
+	s.editToggle.ConnectToggled(s.onModeToggled)
 	s.askEntry = gtk.NewEntry()
 	s.askEntry.SetHExpand(true)
-	s.askEntry.SetPlaceholderText(s.askPlaceholder())
-	s.askEntry.ConnectActivate(s.runAsk)
+	s.askEntry.SetPlaceholderText(s.placeholder())
+	s.askEntry.ConnectActivate(s.onSend)
 	s.sendBtn = gtk.NewButtonWithLabel("Send")
 	s.sendBtn.AddCSSClass("suggested-action")
-	s.sendBtn.ConnectClicked(s.runAsk)
+	s.sendBtn.ConnectClicked(s.onSend)
 	bar.Append(s.menuBtn)
+	bar.Append(s.editToggle)
 	bar.Append(s.askEntry)
 	bar.Append(s.sendBtn)
 	s.widget.Append(bar)
@@ -175,11 +182,40 @@ func (s *Sidebar) SetName(name string) {
 		s.nameLabel.SetText(name)
 	}
 	if s.askEntry != nil {
-		s.askEntry.SetPlaceholderText(s.askPlaceholder())
+		s.askEntry.SetPlaceholderText(s.placeholder())
 	}
 }
 
-func (s *Sidebar) askPlaceholder() string { return "Ask " + s.name + " about this note…" }
+// placeholder is the input hint, which reflects Ask vs Edit mode.
+func (s *Sidebar) placeholder() string {
+	if s.editToggle != nil && s.editToggle.Active() {
+		return "Tell " + s.name + " how to edit this note…"
+	}
+	return "Ask " + s.name + " about this note…"
+}
+
+// onModeToggled updates the input hint and Send label for Ask vs Edit mode.
+func (s *Sidebar) onModeToggled() {
+	if s.askEntry != nil {
+		s.askEntry.SetPlaceholderText(s.placeholder())
+	}
+	if s.sendBtn != nil {
+		if s.editToggle.Active() {
+			s.sendBtn.SetLabel("Edit")
+		} else {
+			s.sendBtn.SetLabel("Send")
+		}
+	}
+}
+
+// onSend routes the entry: a question in Ask mode, a note edit in Edit mode.
+func (s *Sidebar) onSend() {
+	if s.editToggle != nil && s.editToggle.Active() {
+		s.runEdit()
+	} else {
+		s.runAsk()
+	}
+}
 
 // rebuildActionsMenu fills the actions popover with one entry per configured
 // action. Sort entries stay enabled — runAction reports when there's nothing to
@@ -315,6 +351,7 @@ func (s *Sidebar) onProbe(model string, models []string, err error) {
 		s.askEntry.SetSensitive(s.ready)
 		s.sendBtn.SetSensitive(s.ready)
 		s.menuBtn.SetSensitive(s.ready)
+		s.editToggle.SetSensitive(s.ready)
 	}
 }
 
@@ -347,6 +384,7 @@ func (s *Sidebar) setBusy(busy bool) {
 	s.askEntry.SetSensitive(enabled)
 	s.sendBtn.SetSensitive(enabled)
 	s.menuBtn.SetSensitive(enabled)
+	s.editToggle.SetSensitive(enabled)
 	s.refreshStats()
 }
 
@@ -385,7 +423,7 @@ func (s *Sidebar) setAnswerMarkdown(md string) {
 
 // setIdleAnswer shows a faint hint before any question is asked.
 func (s *Sidebar) setIdleAnswer() {
-	s.answer.SetMarkup(`<span alpha='55%'>Ask a question about this note, or pick an action from the menu below.</span>`)
+	s.answer.SetMarkup(`<span alpha='55%'>Ask a question about this note, run an action from the menu, or turn on edit mode (the pencil) to change the note with an instruction.</span>`)
 }
 
 // runStream runs a streaming AI call. When echo is true, tokens append to the
@@ -479,6 +517,31 @@ func (s *Sidebar) runAsk() {
 		return s.client.Ask(ctx, content, question, onToken)
 	}, func(full string) {
 		s.setAnswerMarkdown(full)
+	})
+}
+
+// runEdit applies a free-form instruction to the current note: the assistant
+// returns the full updated note, which replaces the content. The reply isn't
+// echoed (it's the note); a confirmation is shown instead.
+func (s *Sidebar) runEdit() {
+	if s.GetContent == nil || s.SetContent == nil || s.busy || !s.ready {
+		return
+	}
+	instruction := strings.TrimSpace(s.askEntry.Buffer().Text())
+	if instruction == "" {
+		return
+	}
+	content := s.GetContent()
+	s.askEntry.Buffer().SetText("", -1) // clear after capturing
+	s.runStream(false, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
+		return s.client.EditNote(ctx, content, instruction, onToken)
+	}, func(full string) {
+		if strings.TrimSpace(full) == "" {
+			s.setAnswerText("The assistant returned nothing; the note is unchanged.")
+			return
+		}
+		s.SetContent(full)
+		s.setAnswerText("Note updated.")
 	})
 }
 

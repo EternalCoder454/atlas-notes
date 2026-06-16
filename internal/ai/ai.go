@@ -97,10 +97,11 @@ func (c *Client) Tags(ctx context.Context) ([]string, error) {
 }
 
 type generateRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	System string `json:"system"`
-	Stream bool   `json:"stream"`
+	Model   string         `json:"model"`
+	Prompt  string         `json:"prompt"`
+	System  string         `json:"system"`
+	Stream  bool           `json:"stream"`
+	Options map[string]any `json:"options,omitempty"`
 }
 
 type generateResponse struct {
@@ -139,17 +140,21 @@ func statsFrom(gr generateResponse) Stats {
 // generate performs a streaming /api/generate call. onToken (if non-nil) is
 // invoked on this goroutine with each chunk as it arrives. It returns the full
 // response text and the throughput stats from Ollama's final chunk.
-func (c *Client) generate(ctx context.Context, prompt string, onToken func(string)) (string, Stats, error) {
+func (c *Client) generate(ctx context.Context, prompt string, temperature float64, onToken func(string)) (string, Stats, error) {
 	sys := c.SystemPrompt
 	if sys == "" {
 		sys = DefaultSystemPrompt
 	}
-	body, err := json.Marshal(generateRequest{
+	reqBody := generateRequest{
 		Model:  c.Model,
 		Prompt: prompt,
 		System: sys,
 		Stream: true,
-	})
+	}
+	if temperature > 0 {
+		reqBody.Options = map[string]any{"temperature": temperature}
+	}
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", Stats{}, err
 	}
@@ -205,12 +210,20 @@ func (c *Client) generate(ctx context.Context, prompt string, onToken func(strin
 // RunAction runs a user-defined action: it substitutes {content} in the prompt
 // template with the note text and streams the model's response.
 func (c *Client) RunAction(ctx context.Context, promptTemplate, content string, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, strings.ReplaceAll(promptTemplate, "{content}", content), onToken)
+	return c.generate(ctx, strings.ReplaceAll(promptTemplate, "{content}", content), 0, onToken)
 }
 
 // Ask answers a question using only the supplied note.
 func (c *Client) Ask(ctx context.Context, content, question string, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, fmt.Sprintf("Answer the question using only the note below. If the note does not contain the answer, say so in one sentence. Be concise.\n\nQuestion: %s\n\nNote:\n%s", question, content), onToken)
+	return c.generate(ctx, fmt.Sprintf("Answer the question using only the note below. If the note does not contain the answer, say so in one sentence. Be concise.\n\nQuestion: %s\n\nNote:\n%s", question, content), 0, onToken)
+}
+
+// EditNote applies a free-form instruction to the note and returns the complete
+// updated note, for the assistant's "edit the note" mode. A low temperature keeps
+// it faithful — reproducing the note and changing only what the instruction asks.
+func (c *Client) EditNote(ctx context.Context, content, instruction string, onToken func(string)) (string, Stats, error) {
+	prompt := fmt.Sprintf("Apply the instruction to the note below, then output the ENTIRE updated note. Reproduce every original line exactly — all headings, paragraphs, blank lines, and existing '- [ ]' / '- [x]' items — and change only what the instruction requires. Write any new task as a '- [ ] ' checkbox. Output only the note, with no commentary.\n\nInstruction: %s\n\nNote:\n%s", instruction, content)
+	return c.generate(ctx, prompt, 0.2, onToken)
 }
 
 // SortPriorities asks the model to reorder and re-prioritise the items, then
@@ -228,7 +241,7 @@ func (c *Client) SortPriorities(ctx context.Context, items []checklist.Item, pro
 	}
 	prompt := strings.ReplaceAll(promptTemplate, "{items}", sb.String())
 
-	raw, stats, err := c.generate(ctx, prompt, nil)
+	raw, stats, err := c.generate(ctx, prompt, 0, nil)
 	if err != nil {
 		return nil, Stats{}, err
 	}
