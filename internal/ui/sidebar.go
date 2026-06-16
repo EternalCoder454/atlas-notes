@@ -536,12 +536,15 @@ func (s *Sidebar) runEdit() {
 	s.runStream(false, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
 		return s.client.EditNote(ctx, content, instruction, onToken)
 	}, func(full string) {
-		if strings.TrimSpace(full) == "" {
+		switch {
+		case strings.TrimSpace(full) == "":
 			s.setAnswerText("The assistant returned nothing; the note is unchanged.")
-			return
+		case strings.TrimSpace(full) == strings.TrimSpace(content):
+			s.setAnswerText("No change made. To reformat the whole note, use Clean & Format from the menu.")
+		default:
+			s.SetContent(full)
+			s.setAnswerText("Note updated.")
 		}
-		s.SetContent(full)
-		s.setAnswerText("Note updated.")
 	})
 }
 

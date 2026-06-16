@@ -151,7 +151,9 @@ func (c *Client) generate(ctx context.Context, prompt string, temperature float6
 		System: sys,
 		Stream: true,
 	}
-	if temperature > 0 {
+	// temperature < 0 uses the model's default; >= 0 is sent explicitly
+	// (0 = greedy/deterministic, which keeps note edits faithful).
+	if temperature >= 0 {
 		reqBody.Options = map[string]any{"temperature": temperature}
 	}
 	body, err := json.Marshal(reqBody)
@@ -210,12 +212,12 @@ func (c *Client) generate(ctx context.Context, prompt string, temperature float6
 // RunAction runs a user-defined action: it substitutes {content} in the prompt
 // template with the note text and streams the model's response.
 func (c *Client) RunAction(ctx context.Context, promptTemplate, content string, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, strings.ReplaceAll(promptTemplate, "{content}", content), 0, onToken)
+	return c.generate(ctx, strings.ReplaceAll(promptTemplate, "{content}", content), -1, onToken)
 }
 
 // Ask answers a question using only the supplied note.
 func (c *Client) Ask(ctx context.Context, content, question string, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, fmt.Sprintf("Answer the question using only the note below. If the note does not contain the answer, say so in one sentence. Be concise.\n\nQuestion: %s\n\nNote:\n%s", question, content), 0, onToken)
+	return c.generate(ctx, fmt.Sprintf("Answer the question using only the note below. If the note does not contain the answer, say so in one sentence. Be concise.\n\nQuestion: %s\n\nNote:\n%s", question, content), -1, onToken)
 }
 
 // EditNote applies a free-form instruction to the note and returns the complete
@@ -223,7 +225,7 @@ func (c *Client) Ask(ctx context.Context, content, question string, onToken func
 // it faithful — reproducing the note and changing only what the instruction asks.
 func (c *Client) EditNote(ctx context.Context, content, instruction string, onToken func(string)) (string, Stats, error) {
 	prompt := fmt.Sprintf("Apply the instruction to the note below, then output the ENTIRE updated note. Reproduce every original line exactly — all headings, paragraphs, blank lines, and existing '- [ ]' / '- [x]' items — and change only what the instruction requires. Write any new task as a '- [ ] ' checkbox. Output only the note, with no commentary.\n\nInstruction: %s\n\nNote:\n%s", instruction, content)
-	return c.generate(ctx, prompt, 0.2, onToken)
+	return c.generate(ctx, prompt, 0, onToken) // greedy: faithful, deterministic edits
 }
 
 // SortPriorities asks the model to reorder and re-prioritise the items, then
@@ -241,7 +243,7 @@ func (c *Client) SortPriorities(ctx context.Context, items []checklist.Item, pro
 	}
 	prompt := strings.ReplaceAll(promptTemplate, "{items}", sb.String())
 
-	raw, stats, err := c.generate(ctx, prompt, 0, nil)
+	raw, stats, err := c.generate(ctx, prompt, -1, nil)
 	if err != nil {
 		return nil, Stats{}, err
 	}
