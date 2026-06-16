@@ -211,8 +211,8 @@ func (c *Client) generate(ctx context.Context, prompt string, temperature float6
 
 // RunAction runs a user-defined action: it substitutes {content} in the prompt
 // template with the note text and streams the model's response.
-func (c *Client) RunAction(ctx context.Context, promptTemplate, content string, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, strings.ReplaceAll(promptTemplate, "{content}", content), -1, onToken)
+func (c *Client) RunAction(ctx context.Context, promptTemplate, content string, temperature float64, onToken func(string)) (string, Stats, error) {
+	return c.generate(ctx, strings.ReplaceAll(promptTemplate, "{content}", content), temperature, onToken)
 }
 
 // Ask answers a question using only the supplied note.

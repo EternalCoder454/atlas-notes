@@ -35,7 +35,7 @@ const (
 
 	defaultSummarizePrompt = "Summarize the key points of this note, shorter than the note itself — a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
 
-	defaultCleanPrompt = "Clean up and format this note using Markdown, keeping its meaning and facts intact. Fix grammar and spelling. Add a '# ' heading if the note has a clear title, use **bold** for key terms, and use '- ' bullet or '1. ' numbered lists only where the note is genuinely listing items or steps — keep ordinary sentences as paragraphs. Do NOT add task checkboxes; copy any existing '- [ ]' or '- [x]' lines through unchanged, and do not add new content. Output only the formatted note.\n\n{content}"
+	defaultCleanPrompt = "Reformat this note as clean, well-structured Markdown. Fix grammar and spelling, keep the '# ' title, use **bold** for the lead-in label and the key terms of each point, and use '- ' bullet lists for any series of features, items, or steps. Keep narrative paragraphs as paragraphs, preserve every fact (do not invent or drop content), and copy any existing '- [ ]' / '- [x]' task lines through unchanged (never add new checkboxes). Output only the formatted note.\n\n{content}"
 
 	DefaultSortPrompt = "Re-prioritize this checklist. For every item, assign a priority of \"high\", \"medium\", or \"low\" based on urgency and impact, and an \"order\" ranking the items from most urgent (1) to least. Return ONLY a JSON array, one object per item, copying each item's text exactly:\n[{\"text\":\"...\",\"priority\":\"high\",\"order\":1}, ...]\n\n{items}"
 )
@@ -49,6 +49,7 @@ const (
 	oldSortPrompt      = "You are given a checklist. Re-evaluate and reorder items by urgency. Assign priority (high/medium/low) to each. Return a JSON array: [{\"text\":\"...\",\"priority\":\"high\",\"order\":1}, ...]. Return only valid JSON, no explanation:\n\n{items}"
 	cleanPromptV2      = "Fix grammar, improve clarity, and clean the markdown formatting of this note. Return only the corrected note content, no explanation:\n\n{content}"
 	cleanPromptV031    = "Rewrite this note with correct grammar and spelling and tidy Markdown formatting. Fix only mistakes: preserve the meaning and the facts, keep the author's distinct points separate, and do not add information. Keep prose as prose and lists as lists, and keep existing headings. Output only the corrected note.\n\n{content}"
+	cleanPromptV032    = "Clean up and format this note using Markdown, keeping its meaning and facts intact. Fix grammar and spelling. Add a '# ' heading if the note has a clear title, use **bold** for key terms, and use '- ' bullet or '1. ' numbered lists only where the note is genuinely listing items or steps — keep ordinary sentences as paragraphs. Do NOT add task checkboxes; copy any existing '- [ ]' or '- [x]' lines through unchanged, and do not add new content. Output only the formatted note.\n\n{content}"
 )
 
 // AIAction is a user-configurable AI button shown in the sidebar.
@@ -189,6 +190,7 @@ func supersededPrompts() map[string]string {
 		oldSortPrompt:      DefaultSortPrompt,
 		cleanPromptV2:      defaultCleanPrompt,
 		cleanPromptV031:    defaultCleanPrompt,
+		cleanPromptV032:    defaultCleanPrompt,
 	}
 }
 

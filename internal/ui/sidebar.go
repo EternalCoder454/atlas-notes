@@ -486,8 +486,10 @@ func (s *Sidebar) runAction(action storage.AIAction) {
 	case storage.ActionModeReplace:
 		// Don't echo into the answer — the output replaces the note; show a
 		// confirmation when it's applied. The live caption still counts tokens.
+		// A little temperature helps the model apply Markdown structure (bold,
+		// lists) when reformatting; the prompt keeps it faithful.
 		s.runStream(false, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
-			return s.client.RunAction(ctx, action.Prompt, content, onToken)
+			return s.client.RunAction(ctx, action.Prompt, content, 0.4, onToken)
 		}, func(full string) {
 			if s.SetContent != nil {
 				s.SetContent(full)
@@ -496,7 +498,7 @@ func (s *Sidebar) runAction(action storage.AIAction) {
 		})
 	default: // show
 		s.runStream(true, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
-			return s.client.RunAction(ctx, action.Prompt, content, onToken)
+			return s.client.RunAction(ctx, action.Prompt, content, -1, onToken)
 		}, func(full string) {
 			s.setAnswerMarkdown(full)
 		})
