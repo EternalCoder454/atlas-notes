@@ -5,6 +5,17 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-15
+
+### Added
+- **Edit mode for the assistant.** Toggle the pencil button in the input bar, type
+  an instruction (e.g. "add a checkbox to record a demo video" or "mark the SEO
+  task done"), and Atlas rewrites the **actual note** instead of just answering —
+  adding `- [ ]` checkboxes on request and preserving the rest of the note. (Ask
+  mode, for questions answered in the panel, is still the default.)
+
+[0.4.0]: https://github.com/EternalCoder454/atlas-notes/releases/tag/v0.4.0
+
 ## [0.3.2] - 2026-06-15
 
 ### Changed
