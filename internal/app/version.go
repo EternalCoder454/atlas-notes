@@ -5,4 +5,4 @@ package app
 //	-ldflags "-X 'atlas-notes/internal/app.version=<v>'"
 //
 // and defaults to the value in the Makefile's VERSION.
-var version = "0.4.1"
+var version = "0.4.2"

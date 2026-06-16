@@ -5,6 +5,19 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-06-15
+
+### Fixed
+- **Edit mode is now reliable.** Note edits run the model deterministically
+  (temperature 0), so instructions like "add a checkbox to record a demo video"
+  or "mark the SEO task done" are applied faithfully — no inventing tasks, echoing
+  the instruction into the note, or dropping content.
+- When an edit instruction makes no change (e.g. asking to reformat the whole
+  note — that's Clean & Format's job), the assistant says so and points you there,
+  instead of falsely reporting "Note updated".
+
+[0.4.2]: https://github.com/EternalCoder454/atlas-notes/releases/tag/v0.4.2
+
 ## [0.4.1] - 2026-06-15
 
 ### Added
