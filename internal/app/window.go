@@ -102,9 +102,12 @@ func (a *App) buildWindow() {
 	leftToggle.ConnectToggled(func() { a.left.SetVisible(leftToggle.Active()) })
 	rightToggle.ConnectToggled(func() { a.right.SetVisible(rightToggle.Active()) })
 
+	a.toastOverlay = adw.NewToastOverlay()
+	a.toastOverlay.SetChild(outer)
+
 	toolbar := adw.NewToolbarView()
 	toolbar.AddTopBar(header)
-	toolbar.SetContent(outer)
+	toolbar.SetContent(a.toastOverlay)
 
 	a.win.SetContent(toolbar)
 

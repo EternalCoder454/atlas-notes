@@ -69,6 +69,10 @@ type App struct {
 	autosaveGen  int
 	saveInFlight bool           // an async save is running
 	saveWG       sync.WaitGroup // tracks the in-flight async save goroutine
+
+	toastOverlay  *adw.ToastOverlay
+	aiUndoContent string // note content before the last AI change (one-step undo)
+	aiUndoNote    string // which note aiUndoContent belongs to
 }
 
 // New constructs the application without starting the main loop. css is the
@@ -249,12 +253,42 @@ func (a *App) applyAIContent(content string) {
 	if a.editor == nil {
 		return
 	}
+	a.aiUndoContent = a.editor.Content() // snapshot for one-step undo
+	a.aiUndoNote = a.currentNote
 	a.editor.SetContent(content)
 	a.dirty = true
 	if a.flushDirty() {
 		a.setSaveState(saveSaved)
 	}
 	a.updateStats()
+	a.showUndoToast()
+}
+
+// showUndoToast offers a one-step undo of the AI change just applied to the note.
+func (a *App) showUndoToast() {
+	if a.toastOverlay == nil {
+		return
+	}
+	toast := adw.NewToast("Note updated by Atlas")
+	toast.SetButtonLabel("Undo")
+	toast.SetTimeout(6)
+	toast.ConnectButtonClicked(a.undoAIContent)
+	a.toastOverlay.AddToast(toast)
+}
+
+// undoAIContent restores the note to its content from just before the last AI
+// change, as long as the same note is still open.
+func (a *App) undoAIContent() {
+	if a.editor == nil || a.currentNote != a.aiUndoNote {
+		return
+	}
+	a.editor.SetContent(a.aiUndoContent)
+	a.dirty = true
+	if a.flushDirty() {
+		a.setSaveState(saveSaved)
+	}
+	a.updateStats()
+	a.aiUndoContent, a.aiUndoNote = "", ""
 }
 
 // scheduleAutosave debounces the autosave: every edit bumps a generation counter
