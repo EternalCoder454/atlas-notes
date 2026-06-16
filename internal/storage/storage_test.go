@@ -19,6 +19,32 @@ func testStore(t *testing.T) *Store {
 	return s
 }
 
+// TestUpgradePrompts upgrades unmodified old default prompts to the current
+// defaults and leaves user-customized prompts untouched.
+func TestUpgradePrompts(t *testing.T) {
+	cfg := Config{
+		SystemPrompt: oldSystemPrompt,
+		Actions: []AIAction{
+			{Name: "Summarize Note", Mode: ActionModeShow, Prompt: oldSummarizePrompt},
+			{Name: "Custom", Mode: ActionModeShow, Prompt: "do my own thing {content}"},
+			{Name: "Sort Priorities", Mode: ActionModeSort, Prompt: oldSortPrompt},
+		},
+	}
+	upgradePrompts(&cfg)
+	if cfg.SystemPrompt != DefaultSystemPrompt {
+		t.Error("system prompt not upgraded")
+	}
+	if cfg.Actions[0].Prompt != defaultSummarizePrompt {
+		t.Error("summarize prompt not upgraded")
+	}
+	if cfg.Actions[1].Prompt != "do my own thing {content}" {
+		t.Error("custom action prompt should be left untouched")
+	}
+	if cfg.Actions[2].Prompt != DefaultSortPrompt {
+		t.Error("sort prompt not upgraded")
+	}
+}
+
 // TestConcurrentWrites exercises the store's write mutex: many goroutines write
 // and read distinct notes at once (meaningful under `go test -race`). Each note's
 // final content is its last revision, so a torn or lost write is caught.

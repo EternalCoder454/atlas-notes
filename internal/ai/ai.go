@@ -210,7 +210,7 @@ func (c *Client) RunAction(ctx context.Context, promptTemplate, content string, 
 
 // Ask answers a question using only the supplied note.
 func (c *Client) Ask(ctx context.Context, content, question string, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, fmt.Sprintf("Using only the note below, answer this question: %s\n\nNote:\n%s", question, content), onToken)
+	return c.generate(ctx, fmt.Sprintf("Answer the question using only the note below. If the note does not contain the answer, say so in one sentence. Be concise.\n\nQuestion: %s\n\nNote:\n%s", question, content), onToken)
 }
 
 // SortPriorities asks the model to reorder and re-prioritise the items, then
@@ -274,12 +274,33 @@ func mergeSortResponse(raw string, original []checklist.Item) ([]checklist.Item,
 		}
 		out = append(out, it)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Order < out[j].Order })
+	// Sort by priority first — small models grade priorities reliably but often
+	// leave "order" in document order, so this is what actually re-prioritizes the
+	// list — then by the model's order within a priority.
+	sort.SliceStable(out, func(i, j int) bool {
+		if ri, rj := priorityRank(out[i].Priority), priorityRank(out[j].Priority); ri != rj {
+			return ri < rj
+		}
+		return out[i].Order < out[j].Order
+	})
 	// Renumber to a clean 1..n sequence after sorting.
 	for i := range out {
 		out[i].Order = i + 1
 	}
 	return out, nil
+}
+
+func priorityRank(p checklist.Priority) int {
+	switch p {
+	case checklist.PriorityHigh:
+		return 0
+	case checklist.PriorityMedium:
+		return 1
+	case checklist.PriorityLow:
+		return 2
+	default:
+		return 3
+	}
 }
 
 func normalizeText(s string) string {

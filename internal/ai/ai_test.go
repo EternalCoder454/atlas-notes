@@ -56,3 +56,28 @@ func TestMergeSortResponse(t *testing.T) {
 		}
 	}
 }
+
+// TestMergeSortByPriority verifies the result is sorted by priority even when the
+// model leaves "order" in document order (the common small-model behavior).
+func TestMergeSortByPriority(t *testing.T) {
+	original := []checklist.Item{
+		{Text: "Buy milk"},
+		{Text: "Fix prod bug"},
+		{Text: "Read book"},
+	}
+	raw := `[
+	  {"text":"Buy milk","priority":"low","order":1},
+	  {"text":"Fix prod bug","priority":"high","order":2},
+	  {"text":"Read book","priority":"medium","order":3}
+	]`
+	out, err := mergeSortResponse(raw, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Fix prod bug", "Read book", "Buy milk"} // high, medium, low
+	for i, w := range want {
+		if out[i].Text != w {
+			t.Errorf("out[%d] = %q want %q", i, out[i].Text, w)
+		}
+	}
+}

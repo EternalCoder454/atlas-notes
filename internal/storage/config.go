@@ -28,11 +28,26 @@ const (
 	ActionModeSort    = "sort"    // reorder/re-prioritise the note's checklist
 )
 
-// Default AI prompts. {content} is replaced with the note text; {items} with the
-// checklist items text.
+// Default AI prompts ({content} = note text, {items} = checklist text), tuned for
+// small local models: concise, faithful to the note, and free of preamble.
 const (
-	DefaultSystemPrompt = "You are a concise assistant. You only have access to the note provided. Do not reference external information. Be brief and precise."
-	DefaultSortPrompt   = "You are given a checklist. Re-evaluate and reorder items by urgency. Assign priority (high/medium/low) to each. Return a JSON array: [{\"text\":\"...\",\"priority\":\"high\",\"order\":1}, ...]. Return only valid JSON, no explanation:\n\n{items}"
+	DefaultSystemPrompt = "You are the assistant inside Atlas Notes, a note-taking app. You work only with the user's current note; never invent facts, names, numbers, or sources that aren't in it. Be clear, concise, and faithful to the note's meaning. Output only the result itself — no preamble, no sign-off, no commentary about what you did."
+
+	defaultSummarizePrompt = "Summarize the key points of this note, shorter than the note itself — a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
+
+	defaultCleanPrompt = "Rewrite this note with correct grammar and spelling and tidy Markdown formatting. Fix only mistakes: preserve the meaning and the facts, keep the author's distinct points separate, and do not add information. Keep prose as prose and lists as lists, and keep existing headings. Output only the corrected note.\n\n{content}"
+
+	DefaultSortPrompt = "Re-prioritize this checklist. For every item, assign a priority of \"high\", \"medium\", or \"low\" based on urgency and impact, and an \"order\" ranking the items from most urgent (1) to least. Return ONLY a JSON array, one object per item, copying each item's text exactly:\n[{\"text\":\"...\",\"priority\":\"high\",\"order\":1}, ...]\n\n{items}"
+)
+
+// Previous built-in default prompts. LoadConfig upgrades these to the current
+// defaults so prompt improvements reach existing installs, while leaving any
+// prompt the user has customized untouched.
+const (
+	oldSystemPrompt    = "You are a concise assistant. You only have access to the note provided. Do not reference external information. Be brief and precise."
+	oldSummarizePrompt = "Summarize the following note in 3-5 sentences:\n\n{content}"
+	oldCleanPrompt     = "Fix grammar, improve clarity, and clean the markdown formatting of this note. Return only the corrected note content, no explanation:\n\n{content}"
+	oldSortPrompt      = "You are given a checklist. Re-evaluate and reorder items by urgency. Assign priority (high/medium/low) to each. Return a JSON array: [{\"text\":\"...\",\"priority\":\"high\",\"order\":1}, ...]. Return only valid JSON, no explanation:\n\n{items}"
 )
 
 // AIAction is a user-configurable AI button shown in the sidebar.
@@ -44,8 +59,8 @@ type AIAction struct {
 
 func defaultActions() []AIAction {
 	return []AIAction{
-		{Name: "Summarize Note", Mode: ActionModeShow, Prompt: "Summarize the following note in 3-5 sentences:\n\n{content}"},
-		{Name: "Clean & Format", Mode: ActionModeReplace, Prompt: "Fix grammar, improve clarity, and clean the markdown formatting of this note. Return only the corrected note content, no explanation:\n\n{content}"},
+		{Name: "Summarize Note", Mode: ActionModeShow, Prompt: defaultSummarizePrompt},
+		{Name: "Clean & Format", Mode: ActionModeReplace, Prompt: defaultCleanPrompt},
 		{Name: "Sort Priorities", Mode: ActionModeSort, Prompt: DefaultSortPrompt},
 	}
 }
@@ -160,7 +175,27 @@ func LoadConfig() (Config, error) {
 	if cfg.WindowHeight == 0 {
 		cfg.WindowHeight = 720
 	}
+	upgradePrompts(&cfg)
 	return cfg, nil
+}
+
+// upgradePrompts replaces any prompt still equal to a previous built-in default
+// with the current default, so prompt improvements reach existing installs
+// without overwriting prompts the user has customized.
+func upgradePrompts(cfg *Config) {
+	if cfg.SystemPrompt == oldSystemPrompt {
+		cfg.SystemPrompt = DefaultSystemPrompt
+	}
+	for i := range cfg.Actions {
+		switch cfg.Actions[i].Prompt {
+		case oldSummarizePrompt:
+			cfg.Actions[i].Prompt = defaultSummarizePrompt
+		case oldCleanPrompt:
+			cfg.Actions[i].Prompt = defaultCleanPrompt
+		case oldSortPrompt:
+			cfg.Actions[i].Prompt = DefaultSortPrompt
+		}
+	}
 }
 
 // SaveConfig atomically writes cfg to config.json.
