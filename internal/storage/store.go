@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/klauspost/compress/zstd"
 	_ "modernc.org/sqlite"
 )
+
+// encoderWorkers caps the compressor's worker pool (see Open).
+const encoderWorkers = 2
 
 // maxNoteBytes bounds how large a note may be once decompressed.
 const maxNoteBytes = 128 << 20 // 128 MiB
@@ -53,12 +57,21 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 
 	// Level 3 ("SpeedDefault" in klauspost terms): fast with a good ratio.
 	//
-	// Codec concurrency is left at the library default (one worker per CPU).
-	// Capping it was measured and rejected: four workers saved about 2 MB of
-	// resident memory but made decoding a note roughly twice as slow, and the
-	// smaller heap it left behind made the garbage collector run often enough
-	// to show up in unrelated work.
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	// The compressor's worker pool is capped. Writing a note is a background
+	// operation on a few kilobytes, so extra workers buy nothing, while the
+	// library allocates per-worker state for every CPU on the machine — over
+	// 40 MB of heap on a 32-core desktop, for a note-taking app.
+	//
+	// The decompressor keeps the library default. Capping that too was measured
+	// and rejected: it made opening a note about twice as slow, and that is the
+	// one path the user waits on.
+	workers := runtime.GOMAXPROCS(0)
+	if workers > encoderWorkers {
+		workers = encoderWorkers
+	}
+	enc, err := zstd.NewWriter(nil,
+		zstd.WithEncoderLevel(zstd.SpeedDefault),
+		zstd.WithEncoderConcurrency(workers))
 	if err != nil {
 		return nil, err
 	}

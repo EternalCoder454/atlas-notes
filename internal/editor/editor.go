@@ -6,6 +6,7 @@ package editor
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
@@ -301,13 +302,19 @@ func (e *Editor) tagRange(from, to, cursorLine int) {
 
 	lineNum := from
 	for _, line := range strings.Split(text, "\n") {
-		runeLen := len([]rune(line))
-		// A completed task reads as done (struck through, receded).
-		if runeLen > 0 && strings.HasPrefix(line, anchorChar) && e.anchorChecked(lineNum) {
-			e.applyTag("done", lineNum, 1, runeLen)
+		// A completed task reads as done (struck through, receded). Only a
+		// line that starts with an anchor can be one, and only then is the
+		// line's length in characters needed.
+		if strings.HasPrefix(line, anchorChar) && e.anchorChecked(lineNum) {
+			e.applyTag("done", lineNum, 1, utf8.RuneCountInString(line))
 		}
+		// Spans come back within the line's bounds (enforced by the fuzz test
+		// over parseLineSpans), and an offset past the end simply fails to
+		// resolve to an iterator, so no clamping is done here: measuring the
+		// line in characters for every render pass was costing more than the
+		// parse itself.
 		for _, sp := range parseLineSpans(line, lineNum == cursorLine) {
-			e.applyTag(sp.tag, lineNum, clamp(sp.start, runeLen), clamp(sp.end, runeLen))
+			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
 		}
 		lineNum++
 	}

@@ -41,6 +41,7 @@ type Sidebar struct {
 
 	suggestions *gtk.FlowBox
 
+	setupSlot  *gtk.Box
 	setupCard  *gtk.Box
 	setupTitle *gtk.Label
 	setupBody  *gtk.Label
@@ -104,8 +105,10 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	statsRow.Append(s.statsLabel)
 	s.widget.Append(statsRow)
 
-	// Setup card (hidden until a probe finds Ollama unreachable / model missing).
-	s.widget.Append(s.buildSetupCard())
+	// The setup card is built on demand: it only appears when a probe finds
+	// Ollama unreachable or the model missing.
+	s.setupSlot = gtk.NewBox(gtk.OrientationVertical, 0)
+	s.widget.Append(s.setupSlot)
 
 	s.widget.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
 
@@ -135,9 +138,16 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.menuBtn.SetIconName("view-list-symbolic")
 	s.menuBtn.SetTooltipText("Note actions")
 	s.menuBtn.AddCSSClass("flat")
-	s.actionsPop = gtk.NewPopover()
-	s.menuBtn.SetPopover(s.actionsPop)
-	s.rebuildActionsMenu()
+	// The menu's contents are built the first time it is opened: at startup
+	// every widget costs layout and paint time for something most launches
+	// never show.
+	s.menuBtn.SetCreatePopupFunc(func(*gtk.MenuButton) {
+		if s.actionsPop == nil {
+			s.actionsPop = gtk.NewPopover()
+			s.menuBtn.SetPopover(s.actionsPop)
+		}
+		s.rebuildActionsMenu()
+	})
 	s.editToggle = gtk.NewToggleButton()
 	s.editToggle.SetIconName("document-edit-symbolic")
 	s.editToggle.SetTooltipText("Edit mode — apply the reply to the note instead of answering")
@@ -166,10 +176,13 @@ func NewSidebar(client *ai.Client) *Sidebar {
 // Widget returns the panel's root widget.
 func (s *Sidebar) Widget() gtk.Widgetter { return s.widget }
 
-// SetActions stores the configured note actions and rebuilds the input-bar menu.
+// SetActions stores the configured note actions. The menu itself is rebuilt
+// the next time it is opened.
 func (s *Sidebar) SetActions(actions []storage.AIAction) {
 	s.actions = actions
-	s.rebuildActionsMenu()
+	if s.actionsPop != nil {
+		s.rebuildActionsMenu()
+	}
 }
 
 // SetModel updates the model shown in the caption after a settings change.
@@ -363,6 +376,9 @@ func (s *Sidebar) probe() {
 func (s *Sidebar) onProbe(model string, models []string, err error) {
 	s.probing = false
 	reachable := err == nil
+	if (!reachable || !modelInstalled(models, model)) && s.setupCard == nil {
+		s.setupSlot.Append(s.buildSetupCard())
+	}
 	if reachable {
 		s.pollSeconds = pollMinSeconds
 	} else if s.pollSeconds < pollMaxSeconds {
@@ -386,7 +402,9 @@ func (s *Sidebar) onProbe(model string, models []string, err error) {
 		s.setupCmd.SetText("ollama pull " + model)
 		s.setupCard.SetVisible(true)
 	default:
-		s.setupCard.SetVisible(false)
+		if s.setupCard != nil {
+			s.setupCard.SetVisible(false)
+		}
 	}
 
 	if !s.busy {

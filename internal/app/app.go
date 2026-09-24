@@ -3,7 +3,9 @@
 package app
 
 import (
+	"hash/fnv"
 	"log"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -82,6 +84,10 @@ type App struct {
 	saveState       int
 	autosaveGen     int
 	autosavePending bool           // an autosave timer is in flight
+	statsDirty      bool           // the footer counts are out of date
+	statsPending    bool           // a footer refresh is scheduled
+	savedNote       string         // note the hash below belongs to
+	savedHash       uint64         // hash of what is on disk, to skip no-op writes
 	saveInFlight    bool           // an async save is running
 	saveWG          sync.WaitGroup // tracks the in-flight async save goroutine
 
@@ -90,11 +96,20 @@ type App struct {
 	aiUndoNote    string // which note aiUndoContent belongs to
 }
 
+func init() { stopCPUProfile = startCPUProfile() }
+
 // New constructs the application without starting the main loop. css is the
 // embedded stylesheet applied at activation.
 func New(css string) *App {
+	// Atlas Notes is single-instance: launching it again raises the window that
+	// is already open. Measurement and screenshot runs opt out, so they neither
+	// hand off to — nor disturb — a copy the user happens to be using.
+	flags := gio.ApplicationFlagsNone
+	if benchMode != "" || traceOn || os.Getenv("ATLAS_DEV_VIEW") != "" {
+		flags = gio.ApplicationNonUnique
+	}
 	return &App{
-		adw: adw.NewApplication(appID, gio.ApplicationFlagsNone),
+		adw: adw.NewApplication(appID, flags),
 		css: css,
 	}
 }
@@ -154,6 +169,11 @@ func (a *App) activate() {
 	a.openInitialNote()
 	mark("initial-note")
 
+	// Everything below happens after the window is up.
+	coreglib.IdleAdd(func() bool {
+		a.buildSidebar()
+		return false
+	})
 	a.scheduleReindex()
 	a.runBench()
 	a.runDevView()
@@ -191,7 +211,7 @@ func (a *App) scheduleReindex() {
 			log.Printf("atlas-notes: welcome note: %v", err)
 		}
 		if after, _ := a.store.CountNotes(); after != before && a.tree != nil {
-			a.tree.Refresh()
+			a.tree.ForceRefresh()
 			a.refreshWelcome()
 		}
 		return false
@@ -242,6 +262,7 @@ func (a *App) openNote(rel string) {
 	a.currentNote = rel
 	a.dirty = false
 	a.cfg.LastNote = rel
+	a.rememberSaved(rel, content) // what is on disk right now
 	a.editor.SetContent(content)
 	a.showEditorPage()
 	a.refreshHeader()
@@ -310,14 +331,34 @@ func (a *App) onEditorChanged() {
 	a.scheduleAutosave()
 }
 
-// onEditorReparsed runs on the editor's 50ms debounce (not per keystroke), so the
-// word/character count and the sort-button state recompute once typing pauses.
-// The document text is reconstructed once here and shared by both.
+// onEditorReparsed runs after each render pass. It only flags the footer as
+// stale: recomputing it means pulling the whole document out of the text buffer
+// and walking it twice, which measured as 82% of the cost of a keystroke on a
+// 50 KB note. A word count does not need to be that fresh.
 func (a *App) onEditorReparsed() {
-	if a.editor == nil {
+	a.scheduleStats()
+}
+
+// statsDelayMs is how long the footer may lag behind the text.
+const statsDelayMs = 400
+
+// scheduleStats coalesces footer refreshes onto a single timer, re-armed while
+// typing continues (see scheduleAutosave for why one timer rather than one per
+// edit).
+func (a *App) scheduleStats() {
+	a.statsDirty = true
+	if a.statsPending {
 		return
 	}
-	a.updateStatsWith(a.editor.Content())
+	a.statsPending = true
+	coreglib.TimeoutAdd(statsDelayMs, func() bool {
+		a.statsPending = false
+		if a.statsDirty {
+			a.statsDirty = false
+			a.updateStats()
+		}
+		return false
+	})
 }
 
 func (a *App) editorContent() string {
@@ -413,6 +454,11 @@ func (a *App) saveCurrent() {
 	}
 	rel := a.currentNote
 	content := a.editor.Content()
+	if a.contentUnchanged(rel, content) {
+		a.dirty = false
+		a.setSaveState(saveSaved)
+		return
+	}
 	a.dirty = false
 	a.saveInFlight = true
 	a.setSaveState(saveSaving)
@@ -435,6 +481,7 @@ func (a *App) saveCurrent() {
 				return false
 			}
 			a.setSaveState(saveSaved)
+			a.rememberSaved(rel, content)
 			if a.dirty { // edits arrived while the write was in flight
 				a.scheduleAutosave()
 			}
@@ -456,13 +503,39 @@ func (a *App) flushDirty() bool {
 	if !a.dirty {
 		return false
 	}
-	if err := a.store.WriteNote(a.currentNote, a.editor.Content()); err != nil {
+	content := a.editor.Content()
+	if a.contentUnchanged(a.currentNote, content) {
+		a.dirty = false
+		return false
+	}
+	if err := a.store.WriteNote(a.currentNote, content); err != nil {
 		log.Printf("atlas-notes: save %q: %v", a.currentNote, err)
 		a.setSaveState(saveUnsaved)
 		return false
 	}
 	a.dirty = false
+	a.rememberSaved(a.currentNote, content)
 	return true
+}
+
+// contentUnchanged reports whether content is byte-for-byte what is already on
+// disk for rel. Autosave fires on a timer, and editing that ends where it
+// started — typing and deleting again, ticking a box twice — would otherwise
+// recompress and rewrite the file, touch its modification time and disturb the
+// vault index for no change at all.
+func (a *App) contentUnchanged(rel, content string) bool {
+	return a.savedNote == rel && a.savedHash == hashContent(content)
+}
+
+// rememberSaved records what is now on disk for rel.
+func (a *App) rememberSaved(rel, content string) {
+	a.savedNote, a.savedHash = rel, hashContent(content)
+}
+
+func hashContent(s string) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return h.Sum64()
 }
 
 // onTitleActivate renames the current note when the title entry is committed.
@@ -488,12 +561,13 @@ func (a *App) onTitleActivate() {
 	a.setSaveState(saveSaved)
 	if a.tree != nil {
 		a.tree.SetCurrent(newRel)
-		a.tree.Refresh()
+		a.tree.ForceRefresh()
 	}
 }
 
 func (a *App) updateStats() {
 	if a.editor != nil {
+		a.statsDirty = false
 		a.updateStatsWith(a.editor.Content())
 	}
 }

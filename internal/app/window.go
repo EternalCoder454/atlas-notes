@@ -24,6 +24,7 @@ func (a *App) buildWindow() {
 	a.win.AddCSSClass("atlas-window")
 
 	a.registerActions()
+	mark("actions")
 
 	header := adw.NewHeaderBar()
 	header.AddCSSClass("atlas-header")
@@ -74,21 +75,17 @@ func (a *App) buildWindow() {
 		a.left.Append(placeholder("Vault unavailable"))
 	}
 
+	mark("header+tree")
+
 	// Center: welcome screen / editor.
 	a.center = a.buildCenter()
+	mark("center")
 
-	// Right panel: the assistant.
+	// Right panel: the assistant. Its contents are filled in just after the
+	// window is on screen (see buildSidebar): the panel is a third of the
+	// window to lay out and paint — including a Cairo-drawn orb — and none of
+	// it is needed to show the note the user came back to.
 	a.right = newPanel("right-panel")
-	if a.ai != nil {
-		a.sidebar = ui.NewSidebar(a.ai)
-		a.sidebar.GetContent = a.editorContent
-		a.sidebar.SetContent = a.applyAIContent
-		a.sidebar.SetActions(a.cfg.Actions)
-		a.sidebar.SetName(a.cfg.AssistantName)
-		a.right.Append(a.sidebar.Widget())
-	} else {
-		a.right.Append(placeholder("Assistant unavailable"))
-	}
 
 	// Nested resizable panes: [ left | [ center | right ] ].
 	inner := gtk.NewPaned(gtk.OrientationHorizontal)
@@ -129,6 +126,25 @@ func (a *App) buildWindow() {
 	toolbar.SetContent(a.toastOverlay)
 
 	a.win.SetContent(toolbar)
+}
+
+// buildSidebar fills in the assistant panel. It runs from an idle callback
+// after the first frame, so the window is interactive before the panel exists.
+func (a *App) buildSidebar() {
+	if a.sidebar != nil || a.right == nil {
+		return
+	}
+	if a.ai == nil {
+		a.right.Append(placeholder("Assistant unavailable"))
+		return
+	}
+	a.sidebar = ui.NewSidebar(a.ai)
+	a.sidebar.GetContent = a.editorContent
+	a.sidebar.SetContent = a.applyAIContent
+	a.sidebar.SetActions(a.cfg.Actions)
+	a.sidebar.SetName(a.cfg.AssistantName)
+	a.right.Append(a.sidebar.Widget())
+	mark("sidebar")
 }
 
 // buildMainMenu is the primary (hamburger) menu: everything the app can do that

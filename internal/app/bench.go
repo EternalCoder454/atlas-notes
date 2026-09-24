@@ -30,6 +30,7 @@ import (
 //	ATLAS_BENCH=soak=N   N edit/save/switch cycles with the main loop running,
 //	                     reporting memory at checkpoints (leak hunting), quit
 //	ATLAS_PPROF=file     write a Go heap profile when the run finishes
+//	ATLAS_CPUPROF=file   record a CPU profile for the whole run
 
 var (
 	benchMode   = os.Getenv("ATLAS_BENCH")
@@ -228,6 +229,12 @@ func (a *App) runBench() {
 			}
 			a.benchOpen(n)
 			a.emitReport()
+		case "search":
+			if n <= 0 {
+				n = 200
+			}
+			a.benchSearch(n)
+			a.emitReport()
 		case "anchors":
 			if n <= 0 {
 				n = 5000
@@ -375,6 +382,23 @@ func (a *App) benchSoak(total int) {
 	coreglib.IdleAdd(step)
 }
 
+// benchSearch measures what typing in the vault's search field costs: each
+// keystroke re-filters the vault and rebuilds the list of matches.
+func (a *App) benchSearch(n int) {
+	if a.tree == nil {
+		return
+	}
+	queries := []string{"n", "no", "not", "note", "note ", "note 0", "note 01", "note 012", ""}
+	durs := make([]float64, 0, n)
+	for i := 0; i < n; i++ {
+		t := time.Now()
+		a.tree.SetSearch(queries[i%len(queries)])
+		durs = append(durs, float64(time.Since(t).Microseconds())/1000)
+	}
+	benchReport["search_keystrokes"] = n
+	benchReport["search_ms"] = latency(durs)
+}
+
 // benchAnchors measures what one embedded-checkbox position costs: a text
 // child anchor created, used, and deleted again. It is the floor under the
 // editor's memory behaviour, since a task line cannot be rendered without one.
@@ -443,6 +467,32 @@ func latency(ms []float64) map[string]float64 {
 	}
 }
 
+// startCPUProfile begins recording a CPU profile (ATLAS_CPUPROF) for the run.
+// The returned function stops it.
+func startCPUProfile() func() {
+	path := os.Getenv("ATLAS_CPUPROF")
+	if path == "" {
+		return func() {}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atlas-notes: cpu profile: %v\n", err)
+		return func() {}
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		fmt.Fprintf(os.Stderr, "atlas-notes: cpu profile: %v\n", err)
+		f.Close()
+		return func() {}
+	}
+	return func() {
+		pprof.StopCPUProfile()
+		f.Close()
+	}
+}
+
+// stopCPUProfile is installed by the first mark() so profiling covers startup.
+var stopCPUProfile = func() {}
+
 // writeHeapProfile dumps a Go heap profile (ATLAS_PPROF), so a soak run's
 // memory growth can be attributed to the code that allocated it.
 func writeHeapProfile() {
@@ -464,6 +514,7 @@ func writeHeapProfile() {
 
 // emitReport prints the JSON report on stdout and quits the app.
 func (a *App) emitReport() {
+	stopCPUProfile()
 	writeHeapProfile()
 	benchReport["phases"] = phaseMarks
 	if len(phaseMarks) > 0 {

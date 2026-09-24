@@ -29,6 +29,14 @@ import (
 // stock GtkTreeExpander indent, so nested notes sit closer to the panel edge.
 const indentStep = 12
 
+// vaultEntry is a note as the search field needs it.
+type vaultEntry struct {
+	meta        storage.NoteMeta
+	name        string // base name
+	lowerName   string
+	lowerFolder string
+}
+
 // node is one row in the vault tree: a folder or a note.
 type node struct {
 	name     string // display name
@@ -55,6 +63,10 @@ type Tree struct {
 
 	cachedFolders []string
 	cachedNotes   []storage.NoteMeta
+	// entries is the searchable form of cachedNotes: names already split and
+	// lower-cased, so filtering does no allocation per keystroke.
+	entries    []vaultEntry
+	cacheValid bool
 	// childIndex groups the cached entries by parent folder. GTK asks for a
 	// folder's children every time it probes a row for expandability, and
 	// scanning the whole vault for each of those calls made opening a large
@@ -280,8 +292,11 @@ func (t *Tree) Refresh() {
 	t.refresh(false)
 }
 
-// ForceRefresh rebuilds the tree even when its contents look unchanged.
+// ForceRefresh re-reads the vault and rebuilds the tree. Every path that
+// changes the vault goes through it, so the cached copy above can be trusted
+// in between.
 func (t *Tree) ForceRefresh() {
+	t.cacheValid = false
 	t.refresh(true)
 }
 
@@ -347,16 +362,15 @@ func (t *Tree) vaultSignature() string {
 // matches first (name prefix, then position in the name).
 func (t *Tree) matchingNotes() []*node {
 	var out []*node
-	for _, n := range t.cachedNotes {
-		name := path.Base(n.Path)
-		lower := strings.ToLower(name)
-		idx := strings.Index(lower, t.query)
-		if idx < 0 && !strings.Contains(strings.ToLower(n.Folder), t.query) {
+	for i := range t.entries {
+		e := &t.entries[i]
+		idx := strings.Index(e.lowerName, t.query)
+		if idx < 0 && !strings.Contains(e.lowerFolder, t.query) {
 			continue
 		}
 		out = append(out, &node{
-			name: name, rel: n.Path, folder: n.Folder,
-			created: n.CreatedAt, modified: n.ModifiedAt, rank: idx,
+			name: e.name, rel: e.meta.Path, folder: e.meta.Folder,
+			created: e.meta.CreatedAt, modified: e.meta.ModifiedAt, rank: idx,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -410,9 +424,28 @@ func (t *Tree) updateEmptyState(n int) {
 // reloadCache snapshots the folder and note lists once, so childrenOf (which
 // GTK calls per folder while probing expandability) doesn't re-walk the
 // filesystem each time — the main cause of slow post-rename refreshes.
+// reloadCache re-reads the vault, unless the copy in hand is still good. The
+// vault only changes when the app changes it, so typing in the search field —
+// which refreshes on every keystroke — reuses this instead of walking the
+// filesystem and re-querying the index each time.
 func (t *Tree) reloadCache() {
+	if t.cacheValid {
+		return
+	}
+	t.cacheValid = true
 	t.cachedFolders, _ = t.store.ListFolders()
 	t.cachedNotes, _ = t.store.ListNotes()
+
+	t.entries = make([]vaultEntry, 0, len(t.cachedNotes))
+	for _, n := range t.cachedNotes {
+		base := path.Base(n.Path)
+		t.entries = append(t.entries, vaultEntry{
+			meta:        n,
+			name:        base,
+			lowerName:   strings.ToLower(base),
+			lowerFolder: strings.ToLower(n.Folder),
+		})
+	}
 
 	t.childIndex = make(map[string][]*node, len(t.cachedFolders)+1)
 	for _, f := range t.cachedFolders {
@@ -547,7 +580,7 @@ func (t *Tree) moveInto(srcRel, folderRel string) bool {
 	if t.OnMoved != nil {
 		t.OnMoved(srcRel, newRel)
 	}
-	t.Refresh()
+	t.ForceRefresh()
 	return true
 }
 
@@ -860,7 +893,7 @@ func (t *Tree) promptNewNote(folder string) {
 			log.Printf("atlas-notes: new note: %v", err)
 			return
 		}
-		t.Refresh()
+		t.ForceRefresh()
 		t.notifyChanged()
 		if t.OnOpenNote != nil {
 			t.OnOpenNote(rel)
@@ -874,7 +907,7 @@ func (t *Tree) promptNewFolder(folder string) {
 			log.Printf("atlas-notes: new folder: %v", err)
 			return
 		}
-		t.Refresh()
+		t.ForceRefresh()
 	})
 }
 
@@ -899,7 +932,7 @@ func (t *Tree) promptRename(n *node) {
 				t.OnMoved(n.rel, newRel) // keep the open note in sync
 			}
 		}
-		t.Refresh()
+		t.ForceRefresh()
 	})
 }
 
@@ -930,7 +963,7 @@ func (t *Tree) promptDelete(n *node) {
 		} else if t.OnDeleted != nil {
 			t.OnDeleted(n.rel, n.isFolder)
 		}
-		t.Refresh()
+		t.ForceRefresh()
 		t.notifyChanged()
 	})
 }

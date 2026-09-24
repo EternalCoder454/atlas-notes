@@ -241,7 +241,7 @@ func (a *App) openGuide() {
 	}
 	if err := a.store.WriteNote(guideNote, storage.GuideMarkdown()); err == nil {
 		if a.tree != nil {
-			a.tree.Refresh()
+			a.tree.ForceRefresh()
 		}
 		a.openNote(guideNote)
 	}

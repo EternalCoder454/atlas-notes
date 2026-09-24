@@ -88,7 +88,7 @@ func (a *App) createNote(body, base string) {
 		return
 	}
 	if a.tree != nil {
-		a.tree.Refresh()
+		a.tree.ForceRefresh()
 	}
 	a.openNote(rel)
 	if a.titleEntry != nil {

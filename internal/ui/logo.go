@@ -117,23 +117,32 @@ func (o *Orb) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
 	lr, lg, lb := 0.86, 0.74, 1.0  // light core
 
 	// Halo: concentric translucent fills fading outward (the ambient glow).
-	const haloN = 9
+	// The resting orb uses fewer rings — it is drawn on every window that
+	// opens, and at idle alpha the extra steps are not visible anyway.
+	haloN := 5
+	if a > 0.02 {
+		haloN = 9
+	}
 	for i := haloN; i >= 1; i-- {
-		f := float64(i) / haloN
+		f := float64(i) / float64(haloN)
 		cr.SetSourceRGBA(pr, pg, pb, (0.05+0.06*a)*(1-f*0.85))
 		cr.Arc(cx, cy, coreR+(R*1.15-coreR)*f, 0, 2*math.Pi)
 		cr.Fill()
 	}
 
-	// Ripples: rings expanding out and fading (faster/brighter when generating).
-	const nRip = 3
-	speed := 0.16 + 0.30*a
-	cr.SetLineWidth(s * 0.012)
-	for k := 0; k < nRip; k++ {
-		frac := math.Mod(t*speed+float64(k)/nRip, 1)
-		cr.SetSourceRGBA(pr, pg, pb, (1-frac)*(0.16+0.20*a))
-		cr.Arc(cx, cy, R*(0.85+0.45*frac), 0, 2*math.Pi)
-		cr.Stroke()
+	// Ripples: rings expanding out and fading, while the model is working.
+	// A resting orb does not draw them: they are static at that point, so all
+	// they cost is paint time on every frame the window produces.
+	if a > 0.02 {
+		const nRip = 3
+		speed := 0.16 + 0.30*a
+		cr.SetLineWidth(s * 0.012)
+		for k := 0; k < nRip; k++ {
+			frac := math.Mod(t*speed+float64(k)/nRip, 1)
+			cr.SetSourceRGBA(pr, pg, pb, (1-frac)*(0.16+0.20*a))
+			cr.Arc(cx, cy, R*(0.85+0.45*frac), 0, 2*math.Pi)
+			cr.Stroke()
+		}
 	}
 
 	// Outer ring, breathing slightly.
@@ -145,9 +154,12 @@ func (o *Orb) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
 	// Nucleus: a wobbling blob — subtle when idle, lively while generating.
 	amp := 0.10 + 0.22*a
 	pulse := 1 + (0.04+0.10*a)*math.Sin(t*(1.6+1.0*a))
-	const pts = 40
+	pts := 40
+	if a <= 0.02 {
+		pts = 24 // the resting blob wobbles less, so it needs fewer points
+	}
 	for i := 0; i <= pts; i++ {
-		ang := 2 * math.Pi * float64(i) / pts
+		ang := 2 * math.Pi * float64(i) / float64(pts)
 		wob := 0.55*math.Sin(3*ang+t*1.3) + 0.30*math.Sin(5*ang-t*0.9) + 0.15*math.Sin(2*ang+t*1.9)
 		rr := coreR * pulse * (1 + amp*wob*0.5)
 		x, y := cx+rr*math.Cos(ang), cy+rr*math.Sin(ang)

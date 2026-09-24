@@ -53,10 +53,12 @@ func FuzzBulletPrefix(f *testing.F) {
 		if !utf8.ValidString(line) {
 			return
 		}
-		runes := []rune(line)
-		off := bulletPrefix(runes)
-		if off < 0 || off > len(runes) {
-			t.Fatalf("bulletPrefix(%q) = %d, out of range for %d runes", line, off, len(runes))
+		off := bulletPrefix(line)
+		if off < 0 || off > len(line) {
+			t.Fatalf("bulletPrefix(%q) = %d, out of range for %d bytes", line, off, len(line))
+		}
+		if off > 0 && !utf8.ValidString(line[off:]) {
+			t.Fatalf("bulletPrefix(%q) = %d split a character", line, off)
 		}
 	})
 }

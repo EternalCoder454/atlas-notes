@@ -5,6 +5,66 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-09-24
+
+A performance pass driven by profiles rather than guesswork: CPU profiles of
+typing, startup and idle, plus heap profiles of a long editing session.
+
+### Performance
+Against v0.4.3, interleaved runs, median of three:
+
+| | v0.4.3 | v0.5.2 |
+| --- | --- | --- |
+| Keystroke + render, 50 KB note | 1.2 ms mean · 1.6 p95 | **0.07 ms · 0.16** (−94%) |
+| Keystroke + render, small note | — | −54% |
+| Launch, 2000-note vault | 156 ms | **91 ms** (−42%) |
+| — read syscalls / data read | 4768 · 2.0 MB | **718 · 0.74 MB** (−85% / −63%) |
+| Launch, small vault | 77 ms | 78 ms (was +30% before this pass) |
+| Open a note, 2000-note vault | 0.4 ms mean · 0.6 p95 | **0.3 ms · 0.3** (−26% / −40%) |
+| Search keystroke, 2000-note vault | — | **2.5 ms → 0.08 ms** (−97%) |
+| Idle CPU, system time | 14 ms/6 s | **7 ms/6 s** (−53%) |
+| Memory over a 1500-cycle session | +1284 MB | **+48 MB** (−96%) |
+| Go heap during an editing session | 53.7 MB | **6.0 MB** |
+
+What changed:
+
+- **The status bar was costing more than the editor.** Recomputing the word,
+  character and task counts pulled the whole document out of the text buffer
+  and walked it twice — on every keystroke. It was 82% of the cost of typing a
+  character into a 50 KB note. The footer now refreshes on its own short timer.
+- **The markdown scanner no longer converts each line to a rune slice.** Every
+  marker it looks for is ASCII, and a UTF-8 continuation byte can't be mistaken
+  for one, so it scans bytes and converts the few offsets it emits — and only
+  when the line actually contains multi-byte text. Lines with no inline markup
+  skip the scan altogether.
+- **Searching the vault no longer re-reads it.** Each keystroke walked the
+  vault directory, re-queried the index and lower-cased every note's name. The
+  vault is snapshotted instead, in the form the filter needs, and re-read only
+  when something changes it.
+- **The assistant panel is built after the window is on screen.** It is a third
+  of the window to lay out and paint, including a Cairo-drawn orb, and none of
+  it is needed to show the note you came back to. This removes the startup cost
+  the new interface had added on small vaults.
+- **The compressor no longer allocates a worker per CPU core** — over 40 MB of
+  heap on a many-core machine, for files a few kilobytes long. The decompressor
+  keeps the default, because that is the path you wait on when opening a note.
+- **A save that would not change the file is skipped.** Typing and deleting
+  again, or ticking a box twice, no longer recompresses and rewrites the note,
+  touches its modification time, or disturbs the vault index.
+- Smaller: icon-theme lookups are memoized, the assistant's action menu and
+  setup card are built on first use, and the resting orb draws a simpler frame.
+
+### Fixed
+- Benchmark and screenshot runs no longer hand off to a running copy of Atlas
+  Notes (and can no longer disturb it), which had been silently swallowing
+  measurements.
+
+### Added
+- `ATLAS_CPUPROF=file` records a CPU profile; `ATLAS_BENCH=search=N` measures
+  the vault search. Both documented in the README.
+
+[0.5.2]: https://github.com/EternalCoder454/atlas-notes/releases/tag/v0.5.2
+
 ## [0.5.1] - 2026-09-24
 
 A testing pass — fuzzing, soak runs, a race detector run and a look at the

@@ -122,13 +122,23 @@ type formatButton struct {
 	action               func()
 }
 
+// iconCache memoizes icon-theme lookups. Each one is a query into GTK through
+// cgo, and the toolbar and home screen ask about a dozen icons while the window
+// is being built.
+var iconCache = map[string]bool{}
+
 // hasIcon reports whether the current icon theme can draw name.
 func hasIcon(name string) bool {
+	if known, ok := iconCache[name]; ok {
+		return known
+	}
 	display := gdk.DisplayGetDefault()
 	if display == nil {
 		return false
 	}
-	return gtk.IconThemeGetForDisplay(display).HasIcon(name)
+	known := gtk.IconThemeGetForDisplay(display).HasIcon(name)
+	iconCache[name] = known
+	return known
 }
 
 // buildFormatBar is the formatting toolbar. Everything it offers was previously
