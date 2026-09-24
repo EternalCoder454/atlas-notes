@@ -36,6 +36,7 @@ func (a *App) registerActions() {
 		{"home", []string{"<Control>h"}, a.showWelcome},
 		{"toggle-vault", []string{"F9"}, func() { a.toggle(a.leftToggle) }},
 		{"toggle-assistant", []string{"F10"}, func() { a.toggle(a.rightToggle) }},
+		{"lock-now", []string{"<Control><Shift>l"}, a.lockNow},
 		{"settings", []string{"<Control>comma"}, a.showSettings},
 		{"shortcuts", []string{"<Control>question", "<Control>slash"}, a.showShortcuts},
 		{"about", nil, a.showAbout},
@@ -189,6 +190,7 @@ func (a *App) showShortcuts() {
 			{"Ctrl+Shift+T", "Turn the line into a task"},
 		}},
 		{"App", []shortcutRow{
+			{"Ctrl+Shift+L", "Lock protected notes now"},
 			{"Ctrl+,", "Settings"},
 			{"Ctrl+?", "This list"},
 		}},

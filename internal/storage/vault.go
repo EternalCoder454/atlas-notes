@@ -141,6 +141,7 @@ func (s *Store) Reindex() error {
 	type entry struct {
 		rel      string
 		modified time.Time
+		locked   bool
 	}
 	var changed []entry
 	seen := make(map[string]bool, len(known))
@@ -149,7 +150,14 @@ func (s *Store) Reindex() error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(p, noteExt) {
+		if d.IsDir() {
+			return nil
+		}
+		// Both forms of a note are indexed. Which extension a file carries is
+		// what says whether it is locked, so the scan reads it off the name
+		// rather than opening anything.
+		locked := strings.HasSuffix(p, lockedExt)
+		if !locked && !strings.HasSuffix(p, noteExt) {
 			return nil
 		}
 		rel, rerr := filepath.Rel(s.VaultPath, p)
@@ -165,7 +173,7 @@ func (s *Store) Reindex() error {
 		if prev, ok := known[rel]; ok && prev == modified.Unix() {
 			return nil // unchanged since the last run
 		}
-		changed = append(changed, entry{rel, modified})
+		changed = append(changed, entry{rel, modified, locked})
 		return nil
 	})
 	if err != nil {
@@ -200,7 +208,7 @@ func (s *Store) Reindex() error {
 				folder = ""
 			}
 			unix := e.modified.Unix()
-			if _, err := stmt.Exec(e.rel, folder, unix, unix); err != nil {
+			if _, err := stmt.Exec(e.rel, folder, unix, unix, boolToInt(e.locked)); err != nil {
 				return err
 			}
 		}

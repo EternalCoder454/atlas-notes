@@ -64,7 +64,6 @@ func installedBinary() (string, error) {
 func (a *App) buildAppPage() gtk.Widgetter {
 	box := sectionBox()
 
-	box.Append(fieldLabel("Update Atlas Notes"))
 	desc := gtk.NewLabel("Automatically check and install updates from GitHub.")
 	desc.SetXAlign(0)
 	desc.SetWrap(true)
@@ -106,6 +105,27 @@ func (a *App) buildAppPage() gtk.Widgetter {
 	})
 	box.Append(check)
 
+	box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+	box.Append(fieldLabel("Password protection"))
+	lockDesc := gtk.NewLabel("Right-click a note or folder in the vault panel to protect it. " +
+		"One password covers everything you protect.")
+	lockDesc.SetXAlign(0)
+	lockDesc.SetWrap(true)
+	lockDesc.AddCSSClass("dim-label")
+	box.Append(lockDesc)
+
+	changeBtn := gtk.NewButtonWithLabel("Change Password…")
+	changeBtn.SetHAlign(gtk.AlignStart)
+	changeBtn.SetMarginTop(8)
+	changeBtn.SetSensitive(a.store != nil && a.store.HasPassword())
+	if !changeBtn.Sensitive() {
+		changeBtn.SetTooltipText("No password has been set yet.")
+	}
+	changeBtn.ConnectClicked(a.promptChangePassword)
+	box.Append(changeBtn)
+
+	box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+	box.Append(fieldLabel("Update Atlas Notes"))
 	updateBtn := gtk.NewButtonWithLabel("Update & Restart")
 	updateBtn.AddCSSClass("suggested-action")
 	updateBtn.SetHAlign(gtk.AlignStart)

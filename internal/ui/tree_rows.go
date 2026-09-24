@@ -98,9 +98,23 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 	caption.AddCSSClass("row-caption")
 	caption.SetEllipsize(pango.EllipsizeStart)
 	caption.SetVisible(false)
+
+	// Badges sit at the end of the row: a star for a favourite, a padlock for
+	// something encrypted. Both are built once and shown or hidden per row,
+	// because every widget the bindings wrap stays resident once created.
+	star := gtk.NewImageFromIconName("atlas-star-symbolic")
+	star.AddCSSClass("row-badge")
+	star.AddCSSClass("row-star")
+	star.SetVisible(false)
+	lock := gtk.NewImageFromIconName("atlas-lock-symbolic")
+	lock.AddCSSClass("row-badge")
+	lock.SetVisible(false)
+
 	box.Append(icon)
 	box.Append(label)
 	box.Append(caption)
+	box.Append(star)
+	box.Append(lock)
 	expander.SetChild(box)
 
 	// Drag a note row onto a folder row to move it into that folder.
@@ -193,6 +207,12 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 				caption.SetVisible(true)
 			} else {
 				caption.SetVisible(false)
+			}
+			if star, ok := caption.NextSibling().(*gtk.Image); ok {
+				star.SetVisible(n.starred)
+				if lock, ok := star.NextSibling().(*gtk.Image); ok {
+					lock.SetVisible(n.locked)
+				}
 			}
 		}
 	}

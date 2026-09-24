@@ -8,6 +8,8 @@ import (
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+
+	"atlas-notes/internal/storage"
 )
 
 // Everything about the note that is currently open: loading it, following it
@@ -22,8 +24,15 @@ func (a *App) openNote(rel string) {
 	}
 	a.flushDirty()
 	content, err := a.store.ReadNote(rel)
+	if err == storage.ErrLocked {
+		// Not a failure: the note is protected and the password has not been
+		// given yet. Ask, then open it.
+		a.ensureUnlocked(func() { a.openNote(rel) })
+		return
+	}
 	if err != nil {
 		log.Printf("atlas-notes: open note %q: %v", rel, err)
+		a.toast("Couldn't open that note: " + err.Error())
 		return
 	}
 	a.currentNote = rel
@@ -43,6 +52,7 @@ func (a *App) openNote(rel string) {
 // containing it) is deleted, so a stale note isn't left on screen. Clearing
 // currentNote also stops a pending autosave from re-creating the file.
 func (a *App) onDeleted(rel string, isFolder bool) {
+	a.forgetFavourite(rel, isFolder)
 	affected := a.currentNote != "" &&
 		(a.currentNote == rel || (isFolder && strings.HasPrefix(a.currentNote, rel+"/")))
 	if !affected {

@@ -52,6 +52,27 @@ func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
 	if n != nil {
 		box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
 		add("Rename", false, func() { t.promptRename(n) })
+
+		star := "Add to Favourites"
+		if n.starred {
+			star = "Remove from Favourites"
+		}
+		add(star, false, func() {
+			if t.OnToggleStar != nil {
+				t.OnToggleStar(n.rel, n.isFolder)
+			}
+		})
+
+		// Locking the vault root is not offered: it would be every note, and
+		// "lock everything" is a decision that belongs in Settings, not in a
+		// right-click on a row.
+		switch {
+		case n.locked && t.OnUnlock != nil:
+			add("Remove Password…", false, func() { t.OnUnlock(n.rel, n.isFolder) })
+		case !n.locked && t.OnLock != nil:
+			add("Protect with Password…", false, func() { t.OnLock(n.rel, n.isFolder) })
+		}
+
 		add("Delete", true, func() { t.promptDelete(n) })
 	}
 

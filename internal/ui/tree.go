@@ -42,6 +42,8 @@ type node struct {
 	rank     int // search-match position; unused outside search results
 	created  time.Time
 	modified time.Time
+	locked   bool // stored encrypted, or a folder whose notes are
+	starred  bool // marked a favourite
 }
 
 // Tree is the left-panel vault browser: a GtkListView tree. Items are created,
@@ -58,6 +60,10 @@ type Tree struct {
 	rootModel *gioutil.ListModel[*node]
 
 	cachedFolders []string
+	// lockedFolders is which folders are password-protected, read once per
+	// cache reload. Asking the store means a stat per folder, and both the row
+	// builder and the refresh signature want the answer for every one of them.
+	lockedFolders map[string]bool
 	// entries is the vault's notes in the form the panel needs them: names
 	// already split out and lower-cased, so filtering allocates nothing per
 	// keystroke.
@@ -100,9 +106,29 @@ type Tree struct {
 	// OnChanged is invoked after the vault's contents change, so the rest of the
 	// app (the home screen's recent list) can refresh.
 	OnChanged func()
+	// IsStarred reports whether a note or folder is a favourite. Favourites are
+	// a preference rather than vault content, so the panel asks rather than
+	// storing them.
+	IsStarred func(rel string, isFolder bool) bool
+	// OnToggleStar is invoked to add or remove a favourite.
+	OnToggleStar func(rel string, isFolder bool)
+	// OnLock and OnUnlock are invoked to encrypt or decrypt a note or folder.
+	// They live in the application because locking has to ask for a password,
+	// which is a dialog the panel has no business owning.
+	OnLock   func(rel string, isFolder bool)
+	OnUnlock func(rel string, isFolder bool)
 }
 
-// NewTree builds the vault tree panel.
+// starred is IsStarred with the nil check, so callers read plainly.
+func (t *Tree) starred(rel string, isFolder bool) bool {
+	return t.IsStarred != nil && t.IsStarred(rel, isFolder)
+}
+
+// NewTree builds the vault tree panel. It does not populate itself: a row
+// shows whether its note is a favourite, which the panel learns through
+// IsStarred, so the caller wires its callbacks and then calls Refresh. Filling
+// the cache in here would bake in "nothing is a favourite" before anything had
+// a chance to say otherwise.
 func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *Tree {
 	t := &Tree{
 		store:          store,
@@ -147,7 +173,6 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 	t.emptyState = t.buildEmptyState()
 	t.widget.Append(t.emptyState)
 
-	t.Refresh()
 	return t
 }
 
@@ -333,13 +358,18 @@ func (t *Tree) refresh(force bool) {
 func (t *Tree) vaultSignature() string {
 	h := fnv.New64a()
 	fmt.Fprintf(h, "q=%s r=%v\n", t.query, t.sortRecent)
+	// Lock and favourite state is part of what a row shows, so a change to
+	// either has to reach the signature — otherwise Refresh sees no difference
+	// and the badge the user just asked for never appears.
 	for _, f := range t.cachedFolders {
 		h.Write([]byte(f))
+		fmt.Fprintf(h, "|%v%v", t.lockedFolders[f], t.starred(f, true))
 		h.Write([]byte{0})
 	}
 	for i := range t.entries {
 		e := &t.entries[i]
 		h.Write([]byte(e.meta.Path))
+		fmt.Fprintf(h, "|%v%v", e.meta.Locked, t.starred(e.meta.Path, false))
 		if t.sortRecent {
 			fmt.Fprintf(h, "|%d", e.meta.ModifiedAt.Unix())
 		}
@@ -407,8 +437,13 @@ func sameNode(a, b *node) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
+	// Everything a row draws has to be compared here. A field left out is a
+	// change that never reaches the screen: the rows are diffed against the
+	// model, and two nodes that compare equal are not re-bound, so locking a
+	// note or starring it would update the cache and change nothing visible.
 	return a.rel == b.rel && a.isFolder == b.isFolder && a.name == b.name &&
-		a.folder == b.folder && a.modified.Equal(b.modified)
+		a.folder == b.folder && a.modified.Equal(b.modified) &&
+		a.locked == b.locked && a.starred == b.starred
 }
 
 // updateHeader keeps the note count beside the panel title current.
@@ -461,12 +496,21 @@ func (t *Tree) reloadCache() {
 	t.cachedFolders, _ = t.store.ListFolders()
 	notes, _ := t.store.ListNotes()
 
+	t.lockedFolders = make(map[string]bool, len(t.cachedFolders))
+	for _, f := range t.cachedFolders {
+		if t.store.IsFolderLocked(f) {
+			t.lockedFolders[f] = true
+		}
+	}
+
 	t.entries = make([]vaultEntry, 0, len(notes))
 	t.childIndex = make(map[string][]*node, len(t.cachedFolders)+1)
 	for _, f := range t.cachedFolders {
 		parent := parentFolder(f)
 		t.childIndex[parent] = append(t.childIndex[parent], &node{
 			name: path.Base(f), rel: f, isFolder: true,
+			locked:  t.lockedFolders[f],
+			starred: t.starred(f, true),
 		})
 	}
 	for _, n := range notes {
@@ -480,6 +524,8 @@ func (t *Tree) reloadCache() {
 		t.childIndex[n.Folder] = append(t.childIndex[n.Folder], &node{
 			name: base, rel: n.Path, folder: n.Folder,
 			created: n.CreatedAt, modified: n.ModifiedAt,
+			locked:  n.Locked,
+			starred: t.starred(n.Path, false),
 		})
 	}
 	for _, children := range t.childIndex {

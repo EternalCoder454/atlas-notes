@@ -113,6 +113,12 @@ type Config struct {
 	// over it.
 	CheckUpdates bool `json:"check_updates"`
 
+	// Favourites are a preference rather than vault content: they live here
+	// rather than in the vault, so they follow the person rather than a copy
+	// of the notes. A vault synced to another machine does not carry them.
+	FavouriteNotes   []string `json:"favourite_notes"`
+	FavouriteFolders []string `json:"favourite_folders"`
+
 	SystemPrompt        string     `json:"system_prompt"`
 	Actions             []AIAction `json:"actions"`
 	EnableTreeSummaries bool       `json:"enable_tree_summaries"`

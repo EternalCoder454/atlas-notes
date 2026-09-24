@@ -5,6 +5,71 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Password-protected notes and folders.** Right-click a note or folder in the
+  vault panel and choose *Protect with Password*. One password covers
+  everything protected; it is asked for once a session.
+
+  It is encryption, not a flag. A protected note is stored as ciphertext under
+  a `.md.enc` extension: unreadable by Atlas Notes without the password, and
+  unreadable by `zstd -d`, a text editor, a backup tool or a sync client with
+  or without it. The key is derived with Argon2id (64 MiB, t=3) and the bytes
+  are sealed with XChaCha20-Poly1305, which authenticates — a tampered file
+  fails to open rather than opening to garbage. The vault keeps a salt and a
+  verifier beside the notes, so a vault copied to another machine still opens
+  with its own password. The password itself is never stored, logged or put in
+  a message.
+
+  There is no recovery, and the dialog says so before it takes a password: a
+  way back in for someone who forgot it is a way in for everyone else.
+
+  A note's name, folder and dates stay visible, so it can be found in order to
+  be unlocked; only the content is hidden, including the home screen's
+  previews. Search matches names and never sees a protected body. Protecting a
+  folder encrypts what is in it, and a note created in it afterwards is written
+  encrypted from the start — never saved in the clear and encrypted after.
+  Removing protection needs the password too, so it cannot be stripped off an
+  unlocked machine.
+
+- **Favourites.** Star a note or folder from the same menu. Favourites are a
+  preference rather than vault content, so they live in `config.json` and stay
+  on the machine rather than following a synced vault.
+
+- **Lock Notes Now** (**Ctrl+Shift+L**), which forgets the password for the
+  session. Without it the only way to re-lock would be to quit.
+
+- `internal/vaultlock`, the cryptography on its own: no GTK, no files, no
+  notes. It turns a password into a key and seals and opens bytes.
+
+### Fixed
+- **A row could not change once drawn.** The vault panel diffs new rows against
+  the ones on screen and skips those that compare equal, and the comparison
+  looked at the name, folder and modification time — so a change to anything
+  else about a row updated the cache and changed nothing visible. Locking or
+  starring something would have done exactly that.
+- **The panel filled itself before it was told how.** `NewTree` populated its
+  cache in the constructor, before the caller could say which notes are
+  favourites, so the first thing drawn always said "none of them". It now fills
+  itself when asked, after its callbacks are set.
+
+### Verified
+The property that matters is tested directly rather than asserted: after
+locking, the note's text is not present anywhere under the vault, in any file.
+The same check covers saving a locked note, creating one in a locked folder,
+and deleting one. Every single-byte change to a sealed note fails to open, 200
+seals under one key produce 200 distinct nonces, and two vaults with the same
+password derive different keys. Tests, `go vet`, `staticcheck`, `deadcode` and
+`gofmt` are clean; the race detector passes; the stability battery is 7/7; and
+2,000 randomized operations against a vault containing locked notes and a
+locked folder, with GLib criticals fatal, produced no warnings.
+
+Typing, opening and startup are unchanged. An earlier reading suggested typing
+had slowed by 2.5x; it had not — the benchmark's vault grows as the benchmark
+types into it, and the comparison was against a smaller document. Measured
+against a frozen one, keystroke latency is 0.058 ms before and 0.060 ms after.
+
 ## [0.5.6] - 2026-09-24
 
 An interface pass over the words the app uses and where it puts its status.

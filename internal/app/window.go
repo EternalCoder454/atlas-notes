@@ -75,7 +75,11 @@ func (a *App) buildWindow() {
 		a.tree.OnDeleted = a.onDeleted
 		a.tree.OnMoved = a.onMoved
 		a.tree.OnChanged = a.refreshWelcome
-		a.tree.SetSummariesEnabled(a.cfg.EnableTreeSummaries)
+		a.tree.IsStarred = a.isStarred
+		a.tree.OnToggleStar = a.toggleStar
+		a.tree.OnLock = a.lockItem
+		a.tree.OnUnlock = a.unlockItem
+		a.tree.SetSummariesEnabled(a.cfg.EnableTreeSummaries) // fills the panel
 		a.left.Append(a.tree.Widget())
 	} else {
 		a.left.Append(placeholder("Vault unavailable"))
@@ -171,6 +175,7 @@ func (a *App) buildMainMenu() *gio.Menu {
 	menu.AppendSection("", current)
 
 	view := gio.NewMenu()
+	view.Append("Lock Notes Now", "app.lock-now")
 	view.Append("Home Screen", "app.home")
 	view.Append("Toggle Vault Panel", "app.toggle-vault")
 	view.Append("Toggle Assistant", "app.toggle-assistant")

@@ -60,6 +60,8 @@ func (a *App) runDevView() {
 			a.showIconSheet()
 		case "home":
 			a.showWelcome()
+		case "locks":
+			a.devLockState()
 		case "update":
 			a.showUpdateFound(&update.Release{
 				Version: "0.5.5",
@@ -126,4 +128,37 @@ func (a *App) showIconSheet() {
 	}
 	a.centerStack.AddNamed(row, "iconsheet")
 	a.centerStack.SetVisibleChildName("iconsheet")
+}
+
+// devLockState sets a password, protects a note and a folder, and stars a
+// couple of things, so a capture can show what the vault panel does with them.
+// It exists for the screenshot tooling; nothing calls it in a normal run.
+func (a *App) devLockState() {
+	if a.store == nil {
+		return
+	}
+	if !a.store.HasPassword() {
+		if err := a.store.SetPassword("screenshot"); err != nil {
+			log.Printf("atlas-notes: dev lock: %v", err)
+			return
+		}
+	}
+	notes, err := a.store.ListNotes()
+	if err != nil || len(notes) < 4 {
+		log.Printf("atlas-notes: dev lock: not enough notes (%v)", err)
+		return
+	}
+	if err := a.store.LockNote(notes[1].Path); err != nil {
+		log.Printf("atlas-notes: dev lock note: %v", err)
+	}
+	if folders, ferr := a.store.ListFolders(); ferr == nil && len(folders) > 0 {
+		if err := a.store.LockFolder(folders[0]); err != nil {
+			log.Printf("atlas-notes: dev lock folder: %v", err)
+		}
+		a.cfg.FavouriteFolders = []string{folders[0]}
+	}
+	a.cfg.FavouriteNotes = []string{notes[0].Path, notes[2].Path}
+	if a.tree != nil {
+		a.tree.ForceRefresh()
+	}
 }

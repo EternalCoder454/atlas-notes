@@ -15,6 +15,8 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	_ "modernc.org/sqlite"
+
+	"atlas-notes/internal/vaultlock"
 )
 
 // encoderWorkers caps the compressor's worker pool (see Open).
@@ -32,6 +34,13 @@ type Store struct {
 	db  *sql.DB
 	enc *zstd.Encoder
 	dec *zstd.Decoder
+
+	// lockMu guards the vault's password state. It is separate from writeMu
+	// because IsUnlocked is asked on every note row the tree draws, while
+	// writeMu is held for the length of a file write.
+	lockMu  sync.Mutex
+	lockCfg *vaultlock.Config
+	lockKey vaultlock.Key
 
 	// writeMu serializes mutating operations (note/folder writes, renames,
 	// deletes) so they are safe to call from a background goroutine — e.g. the
@@ -106,6 +115,14 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	}
 
 	s := &Store{VaultPath: vaultPath, db: db, enc: enc, dec: dec}
+	// A vault with no locked notes has no lock file, which is not an error.
+	// One that cannot be read is: it would leave locked notes unopenable while
+	// the app behaved as though nothing were wrong.
+	if cfg, lerr := s.loadLockConfig(); lerr != nil {
+		log.Printf("atlas-notes: vault lock configuration: %v", lerr)
+	} else {
+		s.lockCfg = cfg
+	}
 	if err := s.migrate(); err != nil {
 		// The index is a cache; the notes on disk are the source of truth. A
 		// database that cannot be opened — truncated by a full disk, damaged by
@@ -185,6 +202,10 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder);
 `
 
+// lockedColumn is added separately: a vault indexed by an earlier version has
+// the table already, and ALTER TABLE is how it gains the column.
+const lockedColumn = `ALTER TABLE notes ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`
+
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -193,5 +214,8 @@ func (s *Store) migrate() error {
 	// ignored because the column already exists on up-to-date databases.
 	s.db.Exec(`ALTER TABLE notes ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`)
 	s.db.Exec(`UPDATE notes SET created_at = modified_at WHERE created_at = 0`)
+	// Likewise for the locked flag. The vault scan fills it in from what is
+	// actually on disk, so an older index needs no backfill here.
+	s.db.Exec(lockedColumn)
 	return nil
 }

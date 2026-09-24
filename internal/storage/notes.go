@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"atlas-notes/internal/vaultlock"
 )
 
 const noteExt = ".md.zst"
@@ -19,6 +21,7 @@ type NoteMeta struct {
 	Folder     string // parent folder, "" for root
 	ModifiedAt time.Time
 	CreatedAt  time.Time
+	Locked     bool // stored encrypted; its content needs the vault password
 }
 
 // atomicWrite writes data to path durably: temp file in the same directory,
@@ -54,7 +57,11 @@ func atomicWrite(path string, data []byte) error {
 // function straight from the title field, the tree's rename prompt and a
 // synced vault's own filenames, so this is the one place that has to hold.
 func normalizeRel(rel string) string {
+	// Either extension a note can carry is stripped, so a locked note and the
+	// same note unlocked are one identifier. Without this a locked note would
+	// be indexed, shown and opened as "Note.md.enc".
 	rel = strings.TrimSuffix(rel, noteExt)
+	rel = strings.TrimSuffix(rel, lockedExt)
 	rel = filepath.ToSlash(rel)
 	var segments []string
 	for _, seg := range strings.Split(rel, "/") {
@@ -124,6 +131,11 @@ func (s *Store) notePathSafe(rel string) (string, error) {
 
 // WriteNote compresses and atomically writes content, then refreshes the index.
 // Safe to call from any goroutine (see Store.writeMu).
+//
+// A note that is already locked stays locked, and a new note created inside a
+// locked folder is written locked from the start — it must never touch the
+// disk in the clear first and be encrypted afterwards, because the plaintext
+// would have been there in between.
 func (s *Store) WriteNote(rel, content string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -136,23 +148,79 @@ func (s *Store) WriteNote(rel, content string) error {
 		return err
 	}
 	compressed := s.enc.EncodeAll([]byte(content), nil)
-	if err := atomicWrite(abs, compressed); err != nil {
+
+	locked := s.IsNoteLocked(rel) || s.lockedByFolder(rel)
+	if !locked {
+		if err := atomicWrite(abs, compressed); err != nil {
+			return err
+		}
+		return s.indexNote(rel, time.Now(), false)
+	}
+
+	key, err := s.key()
+	if err != nil {
 		return err
 	}
-	return s.indexNote(rel, time.Now())
+	sealed, err := vaultlock.Seal(key, compressed)
+	if err != nil {
+		return err
+	}
+	lockedAbs, err := s.lockedPathSafe(rel)
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(lockedAbs, sealed); err != nil {
+		return err
+	}
+	// A note that was unlocked and has landed in a locked folder leaves its
+	// plaintext behind otherwise.
+	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("saved, but the unencrypted copy is still there: %w", err)
+	}
+	return s.indexNote(rel, time.Now(), true)
 }
 
-// ReadNote reads and decompresses a note's markdown.
+// ReadNote reads a note's markdown, decrypting it first when it is locked.
+// A locked note read without the password fails with ErrLocked, which is the
+// interface's cue to ask for it rather than an error to report.
 func (s *Store) ReadNote(rel string) (string, error) {
 	abs, err := s.notePathSafe(rel)
 	if err != nil {
 		return "", err
 	}
 	data, err := os.ReadFile(abs)
+	if os.IsNotExist(err) {
+		return s.readLockedNote(rel)
+	}
 	if err != nil {
 		return "", err
 	}
 	out, err := s.dec.DecodeAll(data, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// readLockedNote is ReadNote for the encrypted form.
+func (s *Store) readLockedNote(rel string) (string, error) {
+	abs, err := s.lockedPathSafe(rel)
+	if err != nil {
+		return "", err
+	}
+	sealed, err := os.ReadFile(abs)
+	if err != nil {
+		return "", err // including "not found": the note simply is not there
+	}
+	key, kerr := s.key()
+	if kerr != nil {
+		return "", kerr
+	}
+	compressed, err := vaultlock.Open(key, sealed)
+	if err != nil {
+		return "", err
+	}
+	out, err := s.dec.DecodeAll(compressed, nil)
 	if err != nil {
 		return "", err
 	}
@@ -170,6 +238,13 @@ func (s *Store) DeleteNote(rel string) error {
 	}
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	// A locked note lives under the other extension; delete has to find it
+	// either way, or "deleting" one would leave the encrypted file behind.
+	if lockedAbs, lerr := s.lockedPathSafe(rel); lerr == nil {
+		if err := os.Remove(lockedAbs); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
 	_, err = s.db.Exec(`DELETE FROM notes WHERE path = ?`, rel)
 	return err
@@ -193,7 +268,21 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 		return err
 	}
 	if err := os.Rename(oldAbs, newAbs); err != nil {
-		return err
+		if !os.IsNotExist(err) {
+			return err
+		}
+		// Not there in the clear: it is a locked note.
+		oldLocked, lerr := s.lockedPathSafe(oldRel)
+		if lerr != nil {
+			return lerr
+		}
+		newLocked, lerr := s.lockedPathSafe(newRel)
+		if lerr != nil {
+			return lerr
+		}
+		if err := os.Rename(oldLocked, newLocked); err != nil {
+			return err
+		}
 	}
 	folder := path.Dir(newRel)
 	if folder == "." {
@@ -206,26 +295,59 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 // upsertNoteSQL inserts or refreshes one note's metadata row. Reindex prepares
 // it once and reuses it for the whole vault.
 const upsertNoteSQL = `
-	INSERT INTO notes(path, folder, modified_at, created_at)
-	VALUES(?,?,?,?)
+	INSERT INTO notes(path, folder, modified_at, created_at, locked)
+	VALUES(?,?,?,?,?)
 	ON CONFLICT(path) DO UPDATE SET
 		folder      = excluded.folder,
-		modified_at = excluded.modified_at`
+		modified_at = excluded.modified_at,
+		locked      = excluded.locked`
 
 // indexNote upserts a note's metadata row.
-func (s *Store) indexNote(rel string, modified time.Time) error {
+func (s *Store) indexNote(rel string, modified time.Time, locked bool) error {
 	folder := path.Dir(rel)
 	if folder == "." {
 		folder = ""
 	}
 	unix := modified.Unix()
-	_, err := s.db.Exec(upsertNoteSQL, rel, folder, unix, unix)
+	_, err := s.db.Exec(upsertNoteSQL, rel, folder, unix, unix, boolToInt(locked))
 	return err
+}
+
+// setIndexLocked records that a note changed between locked and unlocked,
+// without touching its timestamps: locking a note does not edit it.
+func (s *Store) setIndexLocked(rel string, locked bool) error {
+	_, err := s.db.Exec(`UPDATE notes SET locked = ? WHERE path = ?`, boolToInt(locked), rel)
+	return err
+}
+
+// LockedNotes lists every note stored encrypted, by vault-relative path.
+func (s *Store) LockedNotes() ([]string, error) {
+	rows, err := s.db.Query(`SELECT path FROM notes WHERE locked = 1 ORDER BY path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ListNotes returns all indexed notes ordered by folder then title.
 func (s *Store) ListNotes() ([]NoteMeta, error) {
-	rows, err := s.db.Query(`SELECT path, folder, modified_at, created_at FROM notes ORDER BY folder, path`)
+	rows, err := s.db.Query(`SELECT path, folder, modified_at, created_at, locked FROM notes ORDER BY folder, path`)
 	if err != nil {
 		return nil, err
 	}
@@ -234,11 +356,13 @@ func (s *Store) ListNotes() ([]NoteMeta, error) {
 	for rows.Next() {
 		var m NoteMeta
 		var modified, created int64
-		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created); err != nil {
+		var locked int
+		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created, &locked); err != nil {
 			return nil, err
 		}
 		m.ModifiedAt = time.Unix(modified, 0)
 		m.CreatedAt = time.Unix(created, 0)
+		m.Locked = locked != 0
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -266,7 +390,7 @@ func (s *Store) UniqueName(folder, base string) string {
 // welcome screen uses it to offer a way straight back into recent work.
 func (s *Store) RecentNotes(limit int) ([]NoteMeta, error) {
 	rows, err := s.db.Query(`
-		SELECT path, folder, modified_at, created_at
+		SELECT path, folder, modified_at, created_at, locked
 		FROM notes ORDER BY modified_at DESC, path LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -276,11 +400,13 @@ func (s *Store) RecentNotes(limit int) ([]NoteMeta, error) {
 	for rows.Next() {
 		var m NoteMeta
 		var modified, created int64
-		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created); err != nil {
+		var locked int
+		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created, &locked); err != nil {
 			return nil, err
 		}
 		m.ModifiedAt = time.Unix(modified, 0)
 		m.CreatedAt = time.Unix(created, 0)
+		m.Locked = locked != 0
 		out = append(out, m)
 	}
 	return out, rows.Err()

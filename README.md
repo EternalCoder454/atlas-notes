@@ -30,6 +30,10 @@ packages are installed.
   item). The header tracks how many are done.
 - **Find anything.** Search the whole vault by name from the side panel
   (**Ctrl+K**); every command has a keyboard shortcut, listed under **Ctrl+?**.
+  Star a note or folder to mark it a favourite.
+- **Password-protect what matters.** Right-click a note or folder → *Protect
+  with Password*. It is encrypted on disk, not merely hidden: see
+  [Password protection](#password-protection).
 - **Local AI that never blocks the UI.** Summarize, Clean & Format, re-sort a
   checklist by priority, or ask a free-form question — all via a local
   [Ollama](https://ollama.com) model, each call on a background thread. The AI is
@@ -108,6 +112,41 @@ text and `{items}` with the checklist (for Sort actions). Each action has a mode
 - **Replace note** — overwrite the note with the result (Clean & Format).
 - **Sort checklist** — reorder/re-prioritize the checklist (Sort Priorities).
 
+## Password protection
+
+Right-click a note or folder in the vault panel and choose **Protect with
+Password**. The first time, you are asked to set a password for the vault; one
+password covers everything you protect.
+
+**It is encryption, not a setting.** A protected note is stored as ciphertext
+under a `.md.enc` extension. Its content cannot be read by Atlas Notes without
+the password, and it cannot be read by anything else either — `zstd -d`, a text
+editor, a backup tool or a sync client all see random bytes. The key is derived
+from your password with Argon2id and held in memory only while the app is
+unlocked; the vault stores a salt and a verifier, never the password.
+
+**There is no recovery.** If you forget the password, the notes it protects
+cannot be opened again, by this app or any other. That is what makes the
+protection real, and the dialog says so before it takes a password.
+
+What stays visible: a protected note's **name, folder and dates**, so you can
+find it in order to unlock it. Search matches names — it never sees the body of
+a protected note. What is hidden is the content, including the previews on the
+home screen.
+
+- **Protecting a folder** encrypts every note in it, and notes you add to it
+  later are encrypted from the moment they are written — never saved in the
+  clear first.
+- **Unlocking** asks for the password once and lasts until you quit, or until
+  you choose **Lock Notes Now** (**Ctrl+Shift+L**).
+- **Removing protection** needs the password too, so nobody can strip it off an
+  unlocked machine.
+- **Changing it** is Settings → **App** → *Change Password*, which re-encrypts
+  every protected note.
+
+The assistant never sees a note you have not unlocked — it only ever reads what
+is open in the editor.
+
 ## Where your notes live
 
 Atlas Notes follows the XDG base directories (override with `XDG_DATA_HOME` /
@@ -179,6 +218,7 @@ on first run:
 | `enable_tree_summaries` | show a 1-sentence AI summary when hovering a note |
 | `update_channel` | `release` (the `main` branch) or `beta` |
 | `check_updates` | look for a new version on launch (default `true`) |
+| `favourite_notes` / `favourite_folders` | starred items; a preference, so they stay on this machine |
 | `font_rendering` | `auto` (default), `crisp` (hinted — sharper at 1080p) or `smooth` (GTK default — for HiDPI) |
 | `last_note` | note reopened on launch |
 | `window_width` / `window_height` | remembered window size |
@@ -289,6 +329,7 @@ atlas-notes/
     ├── storage/  # vault I/O, zstd, atomic writes, SQLite index, config
     ├── checklist/# pure checklist model (parse / serialize / sort)
     ├── update/   # is there a newer version? (no GTK, no install logic)
+    ├── vaultlock/# Argon2id + XChaCha20-Poly1305 (no GTK, no files)
     ├── ai/       # Ollama HTTP client
     └── ui/       # vault panel (tree*.go) + assistant panel (sidebar*.go)
 ```
