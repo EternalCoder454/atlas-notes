@@ -11,4 +11,4 @@ package app
 // number, and the launch-time update check compares it against what has been
 // published — so a stale default here would offer every user an update they
 // already have.
-var version = "0.5.5"
+var version = "0.5.6"

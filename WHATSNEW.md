@@ -4,6 +4,14 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each — the detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.5.6
+- Every icon comes from one set now, so nothing looks out of place
+- Recent notes on the home screen show a preview of what's in them
+- The assistant's suggested questions fit side by side instead of stacking up
+- Word count, task progress and whether a note is saved all sit in the bottom bar
+- Settings uses plainer wording, and tucks away the file paths you rarely need
+- The message about installing Ollama is much shorter
+
 ## 0.5.5
 - Atlas Notes now tells you when a new version is out, and can install it for you
 - You can turn that check off in Settings, under App
