@@ -157,12 +157,16 @@ func (e *Editor) takeRow(it checklist.Item) *itemRow {
 	return row
 }
 
-// releaseRow unparents a row and keeps it for the next task line.
+// releaseRow unparents a row and keeps it for the next task line. The parent
+// check matters: a row can reach here after GTK has already taken it off the
+// view, and removing it twice is a warning.
 func (e *Editor) releaseRow(row *itemRow) {
 	if row == nil {
 		return
 	}
-	e.view.Remove(row.box)
+	if row.box.Parent() != nil {
+		e.view.Remove(row.box)
+	}
 	if len(e.rowPool) < maxPooledRows {
 		e.rowPool = append(e.rowPool, row)
 	}

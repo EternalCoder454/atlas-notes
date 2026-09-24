@@ -5,7 +5,6 @@ package app
 import (
 	"hash/fnv"
 	"log"
-	"os"
 	"path"
 	"strings"
 	"sync"
@@ -105,7 +104,7 @@ func New(css string) *App {
 	// is already open. Measurement and screenshot runs opt out, so they neither
 	// hand off to — nor disturb — a copy the user happens to be using.
 	flags := gio.ApplicationFlagsNone
-	if benchMode != "" || traceOn || os.Getenv("ATLAS_DEV_VIEW") != "" {
+	if devRun() {
 		flags = gio.ApplicationNonUnique
 	}
 	return &App{
@@ -157,6 +156,7 @@ func (a *App) activate() {
 	a.ai = ai.NewClient(cfg.Model, cfg.SystemPrompt)
 
 	a.loadCSS()
+	installIcons()
 	a.applyFontRendering()
 	mark("css")
 	a.buildWindow()

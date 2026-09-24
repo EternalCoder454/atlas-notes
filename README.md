@@ -204,6 +204,7 @@ inert unless one of these is set:
 | `ATLAS_BENCH=open=100` | open notes round-robin, report per-note latency |
 | `ATLAS_BENCH=search=200` | type in the vault's search field, report per-keystroke latency |
 | `ATLAS_BENCH=soak=1500` | run an editing session against the live UI, reporting memory at checkpoints |
+| `ATLAS_BENCH=chaos=2000` | drive the whole UI through randomized operations, for stability testing |
 | `ATLAS_PPROF=heap.out` | write a Go heap profile at the end of the run |
 | `ATLAS_CPUPROF=cpu.out` | record a CPU profile for the whole run |
 
@@ -240,6 +241,7 @@ then `sudo systemctl restart ollama`). Confirm with `ollama ps` (it should show
 atlas-notes/
 ├── main.go                   # AdwApplication entry point; embeds style.css
 ├── assets/                   # style.css + app icon
+├── internal/app/icons/       # symbolic icons the desktop theme has no icon for
 ├── packaging/                # .desktop entry
 ├── scripts/install-fedora.sh # one-command Fedora install/update
 └── internal/

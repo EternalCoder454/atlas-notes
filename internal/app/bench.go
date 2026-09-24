@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -28,7 +29,10 @@ import (
 //	ATLAS_BENCH=editor=N N type+reparse cycles on the open note, report latency, quit
 //	ATLAS_BENCH=open=N   open notes round-robin N times, report latency
 //	ATLAS_BENCH=soak=N   N edit/save/switch cycles with the main loop running,
-//	                     reporting memory at checkpoints (leak hunting), quit
+//	                     reporting memory at checkpoints (leak hunting)
+//	ATLAS_BENCH=chaos=N  N randomized operations across the whole UI — creating,
+//	                     renaming and deleting notes and folders, searching,
+//	                     editing, toggling panels — for stability testing, quit
 //	ATLAS_PPROF=file     write a Go heap profile when the run finishes
 //	ATLAS_CPUPROF=file   record a CPU profile for the whole run
 
@@ -235,6 +239,30 @@ func (a *App) runBench() {
 			}
 			a.benchSearch(n)
 			a.emitReport()
+		case "icons":
+			// Report which of the icon names the UI wants are actually in the
+			// theme, so the toolbar never has to guess.
+			names := strings.Split(os.Getenv("ATLAS_ICON_NAMES"), ",")
+			found := map[string]string{}
+			theme := gtk.IconThemeGetForDisplay(gdk.DisplayGetDefault())
+			for _, n := range names {
+				n = strings.TrimSpace(n)
+				if n == "" {
+					continue
+				}
+				if !hasIcon(n) {
+					found[n] = "(missing)"
+					continue
+				}
+				paintable := theme.LookupIcon(n, nil, 16, 1, gtk.TextDirNone, 0)
+				if f := paintable.File(); f != nil {
+					found[n] = f.Path()
+				} else {
+					found[n] = "(no file)"
+				}
+			}
+			benchReport["icons"] = found
+			a.emitReport()
 		case "anchors":
 			if n <= 0 {
 				n = 5000
@@ -247,6 +275,11 @@ func (a *App) runBench() {
 			}
 			benchWidgets(n)
 			a.emitReport()
+		case "chaos":
+			if n <= 0 {
+				n = 2000
+			}
+			a.benchChaos(n)
 		case "soak":
 			if n <= 0 {
 				n = 500
@@ -438,6 +471,106 @@ func benchWidgets(n int) {
 	benchReport["widgets_rss_before_kb"] = before.RSSKB
 	benchReport["widgets_rss_after_kb"] = after.RSSKB
 	benchReport["widgets_bytes_each"] = float64(after.RSSKB-before.RSSKB) * 1024 / float64(n)
+}
+
+// benchChaos drives the app the way an impatient user would, in a random but
+// reproducible order: create, rename, delete, search, type, tick boxes, switch
+// notes, toggle panels, jump home. It is a stability test — anything that
+// panics, corrupts state or upsets GTK shows up as a crash or a warning rather
+// than as a number.
+func (a *App) benchChaos(total int) {
+	if a.store == nil || a.editor == nil {
+		a.emitReport()
+		return
+	}
+	rng := rand.New(rand.NewSource(1337))
+	const batch = 10
+	done := 0
+	counts := map[string]int{}
+
+	var step func() bool
+	step = func() bool {
+		for i := 0; i < batch && done < total; i, done = i+1, done+1 {
+			notes, _ := a.store.ListNotes()
+			pick := func() string {
+				if len(notes) == 0 {
+					return ""
+				}
+				return notes[rng.Intn(len(notes))].Path
+			}
+			switch op := rng.Intn(14); op {
+			case 0:
+				counts["new-note"]++
+				a.actionNewNote()
+			case 1:
+				counts["new-checklist"]++
+				a.actionNewChecklist()
+			case 2:
+				if rel := pick(); rel != "" {
+					counts["open"]++
+					a.openNote(rel)
+				}
+			case 3:
+				counts["type"]++
+				a.editor.InsertAtCursor("chaos ")
+				a.editor.Reparse()
+			case 4:
+				counts["task"]++
+				a.editor.ToggleTask()
+			case 5:
+				counts["format"]++
+				a.editor.ToggleBold()
+			case 6:
+				counts["heading"]++
+				a.editor.SetHeading(rng.Intn(3))
+			case 7:
+				counts["save"]++
+				a.saveCurrent()
+			case 8:
+				counts["search"]++
+				if a.tree != nil {
+					a.tree.SetSearch([]string{"note", "chaos", "", "zzz", "0"}[rng.Intn(5)])
+				}
+			case 9:
+				counts["home"]++
+				a.showWelcome()
+			case 10:
+				counts["panels"]++
+				a.toggle(a.leftToggle)
+				a.toggle(a.rightToggle)
+			case 11:
+				if rel := pick(); rel != "" && len(notes) > 3 {
+					counts["rename"]++
+					a.store.RenameNote(rel, rel+" r")
+					a.tree.ForceRefresh()
+					a.onMoved(rel, rel+" r")
+				}
+			case 12:
+				if rel := pick(); rel != "" && len(notes) > 5 {
+					counts["delete"]++
+					a.store.DeleteNote(rel)
+					a.tree.ForceRefresh()
+					a.onDeleted(rel, false)
+				}
+			case 13:
+				counts["undo-ai"]++
+				a.applyAIContent("# Rewritten by chaos\n\n- [ ] one\n")
+				a.undoAIContent()
+			}
+		}
+		if done >= total {
+			a.flushDirty()
+			benchReport["chaos_ops"] = total
+			benchReport["chaos_mix"] = counts
+			if n, err := a.store.CountNotes(); err == nil {
+				benchReport["chaos_notes_left"] = n
+			}
+			a.emitReport()
+			return false
+		}
+		return true
+	}
+	coreglib.IdleAdd(step)
 }
 
 // latency reduces a set of durations to mean / p50 / p95 / max.

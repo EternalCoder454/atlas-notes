@@ -5,6 +5,58 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-09-24
+
+Consistent icons, and a stability pass that drove the app at random until
+something broke.
+
+### Changed
+- **The toolbar's icons are now one set.** The desktop icon theme has no icon
+  for a heading, inline code, a quote or a divider, so those buttons fell back
+  to letters and punctuation — bold "H1", a pilcrow, an em dash — sitting next
+  to the theme's icons at a different weight and size. Atlas Notes now carries
+  its own symbolic icons for those, drawn on Adwaita's 16px grid, so the whole
+  bar reads as one family and recolors with the theme in light and dark.
+- **The assistant's button in the header is the assistant's own mark** — the
+  orb from the panel it opens — rather than a second sidebar arrow.
+- Bundled icons are unpacked into the app's data directory on first run and
+  registered with the icon theme, so they work from any build without an
+  install step. Buttons still fall back to text if a theme ever hides them.
+
+### Fixed
+- **Memory no longer balloons when notes are created, renamed or deleted.** The
+  vault tree rebuilt its entire list — and with it a widget per row — on every
+  change. Two thousand mixed operations grew the process to 1.9 GB; the list is
+  now updated in place, touching only the rows that differ, and the same run
+  settles at 102 MB.
+- **A damaged index database is rebuilt instead of disabling the vault.** An
+  index that could not be opened (truncated by a full disk, mangled by a sync
+  client) used to leave the app running with no notes at all and no way out but
+  deleting the file by hand. It is moved aside — kept, not deleted — and rebuilt
+  from the notes, which are the source of truth.
+- Removing a checklist row that GTK had already taken off the editor logged a
+  warning; the row's parent is checked first.
+
+### Added
+- `ATLAS_BENCH=chaos=N` drives the app through N randomized operations —
+  creating, renaming and deleting notes, searching, typing, ticking boxes,
+  switching notes, toggling panels, undoing AI edits — for stability testing.
+  Both bugs above were found with it.
+
+### Testing
+- 10,000 randomized operations: no crashes, no GTK warnings (with GLib
+  criticals made fatal), goroutines flat, memory stable.
+- A battery of hostile conditions, all survived: a read-only vault, a corrupt
+  index, a missing vault directory, an unreadable config, the vault deleted
+  mid-session, and two copies of the app on one vault at once.
+- A vault of deliberately awkward notes — a 200,000-word line, 3,000 tasks,
+  unterminated markers, control characters, mixed line endings, emoji, a
+  50,000-character word — opens and edits without complaint.
+- Fuzzing of all three parsers (165 s this round), the race detector across
+  every package, and a 1,500-cycle soak: +52 MB, flat.
+
+[0.5.3]: https://github.com/EternalCoder454/atlas-notes/releases/tag/v0.5.3
+
 ## [0.5.2] - 2026-09-24
 
 A performance pass driven by profiles rather than guesswork: CPU profiles of

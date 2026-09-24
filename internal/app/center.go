@@ -152,16 +152,16 @@ func (a *App) buildFormatBar() *gtk.Box {
 		{"format-text-bold-symbolic", "B", "Bold (Ctrl+B)", func() { a.withEditor((*editor.Editor).ToggleBold) }},
 		{"format-text-italic-symbolic", "I", "Italic (Ctrl+I)", func() { a.withEditor((*editor.Editor).ToggleItalic) }},
 		{"format-text-strikethrough-symbolic", "S", "Strikethrough", func() { a.withEditor((*editor.Editor).ToggleStrike) }},
-		{"format-text-code-symbolic", "</>", "Inline code (Ctrl+E)", func() { a.withEditor((*editor.Editor).ToggleCode) }},
+		{"atlas-code-symbolic", "</>", "Inline code (Ctrl+E)", func() { a.withEditor((*editor.Editor).ToggleCode) }},
 	}, {
-		{"", "H1", "Heading (Ctrl+1)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(1) }) }},
-		{"", "H2", "Subheading (Ctrl+2)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(2) }) }},
-		{"", "¶", "Plain text (Ctrl+0)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(0) }) }},
+		{"atlas-heading1-symbolic", "H1", "Heading (Ctrl+1)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(1) }) }},
+		{"atlas-heading2-symbolic", "H2", "Subheading (Ctrl+2)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(2) }) }},
+		{"atlas-paragraph-symbolic", "¶", "Plain text (Ctrl+0)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(0) }) }},
 	}, {
-		{"view-list-symbolic", "•", "Bullet list", func() { a.withEditor((*editor.Editor).ToggleBullet) }},
-		{"object-select-symbolic", "☑", "Task (Ctrl+Shift+T)", func() { a.withEditor((*editor.Editor).ToggleTask) }},
-		{"format-justify-left-symbolic", "❝", "Quote", func() { a.withEditor((*editor.Editor).ToggleQuote) }},
-		{"", "—", "Divider", func() { a.withEditor((*editor.Editor).InsertDivider) }},
+		{"atlas-bullet-list-symbolic", "•", "Bullet list", func() { a.withEditor((*editor.Editor).ToggleBullet) }},
+		{"atlas-task-symbolic", "☑", "Task (Ctrl+Shift+T)", func() { a.withEditor((*editor.Editor).ToggleTask) }},
+		{"atlas-quote-symbolic", "❝", "Quote", func() { a.withEditor((*editor.Editor).ToggleQuote) }},
+		{"atlas-divider-symbolic", "—", "Divider", func() { a.withEditor((*editor.Editor).InsertDivider) }},
 	}}
 
 	for i, group := range groups {
@@ -172,7 +172,7 @@ func (a *App) buildFormatBar() *gtk.Box {
 		}
 		for _, b := range group {
 			var btn *gtk.Button
-			if b.icon != "" && hasIcon(b.icon) {
+			if hasIcon(b.icon) {
 				btn = gtk.NewButtonFromIconName(b.icon)
 			} else {
 				btn = gtk.NewButtonWithLabel(b.label)

@@ -308,24 +308,17 @@ func (t *Tree) refresh(force bool) {
 	} else {
 		t.signature = sig
 	}
-	if n := t.rootModel.Len(); n > 0 {
-		t.rootModel.Splice(0, n)
-	}
 
 	if t.query != "" {
 		// Searching flattens the tree: every matching note, wherever it lives.
 		matches := t.matchingNotes()
-		for _, c := range matches {
-			t.rootModel.Append(c)
-		}
+		syncModel(t.rootModel, matches)
 		t.updateHeader(len(matches))
 		t.updateEmptyState(len(matches))
 		return
 	}
 
-	for _, c := range t.childrenOf("") {
-		t.rootModel.Append(c)
-	}
+	syncModel(t.rootModel, t.childrenOf(""))
 	t.restoreExpanded(expanded)
 	if t.currentRel != "" {
 		t.revealAndSelect(t.currentRel)
@@ -383,6 +376,42 @@ func (t *Tree) matchingNotes() []*node {
 		return strings.ToLower(out[i].name) < strings.ToLower(out[j].name)
 	})
 	return out
+}
+
+// syncModel brings a list model in line with want, touching only the rows that
+// actually differ.
+//
+// Replacing the contents wholesale is the obvious way to do this and the
+// expensive one: GTK rebuilds a row widget for every entry, and every object
+// the bindings wrap stays resident afterwards — a rename in a 300-note vault
+// cost megabytes. Matching the unchanged head and tail first means a rename,
+// a new note or a deletion splices one row.
+func syncModel(m *gioutil.ListModel[*node], want []*node) {
+	have := m.Len()
+	head := 0
+	for head < have && head < len(want) && sameNode(m.At(head), want[head]) {
+		head++
+	}
+	tail := 0
+	for tail < have-head && tail < len(want)-head &&
+		sameNode(m.At(have-1-tail), want[len(want)-1-tail]) {
+		tail++
+	}
+	removals := have - head - tail
+	additions := want[head : len(want)-tail]
+	if removals == 0 && len(additions) == 0 {
+		return
+	}
+	m.Splice(head, removals, additions...)
+}
+
+// sameNode reports whether two rows show the same thing.
+func sameNode(a, b *node) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.rel == b.rel && a.isFolder == b.isFolder && a.name == b.name &&
+		a.folder == b.folder && a.modified.Equal(b.modified)
 }
 
 // updateHeader keeps the note count beside the panel title current.
@@ -667,12 +696,7 @@ func (t *Tree) createChildModel(item *coreglib.Object) *gio.ListModel {
 		}
 		t.childModels[n.rel] = m
 	}
-	if prev := m.Len(); prev > 0 {
-		m.Splice(0, prev)
-	}
-	for _, c := range children {
-		m.Append(c)
-	}
+	syncModel(m, children)
 	return m.ListModel
 }
 

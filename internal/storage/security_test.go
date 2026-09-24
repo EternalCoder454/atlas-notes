@@ -212,3 +212,56 @@ func TestDecompressionBombIsBounded(t *testing.T) {
 	}
 	t.Logf("rejected as expected: %v", err)
 }
+
+// TestCorruptIndexRebuilds covers the case where the index database itself is
+// damaged. It is only a cache of what the vault holds, so the app must replace
+// it and carry on rather than come up with no vault at all.
+func TestCorruptIndexRebuilds(t *testing.T) {
+	dir := t.TempDir()
+	vault := filepath.Join(dir, "vault")
+	dbPath := filepath.Join(dir, "index.db")
+
+	s, err := Open(vault, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"One", "Two", "Three"} {
+		if err := s.WriteNote(name, "# "+name+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+
+	// Something scribbles over the database.
+	if err := os.WriteFile(dbPath, []byte("this is definitely not a database"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, err := Open(vault, dbPath)
+	if err != nil {
+		t.Fatalf("Open with a corrupt index: %v", err)
+	}
+	defer s2.Close()
+
+	if err := s2.Reindex(); err != nil {
+		t.Fatalf("Reindex after replacing the index: %v", err)
+	}
+	if n, err := s2.CountNotes(); err != nil || n != 3 {
+		t.Fatalf("after rebuilding: %d notes (err %v), want 3", n, err)
+	}
+	if body, err := s2.ReadNote("Two"); err != nil || body != "# Two\n" {
+		t.Fatalf("note unreadable after rebuild: %q %v", body, err)
+	}
+
+	// The damaged file is kept for inspection rather than deleted.
+	entries, _ := os.ReadDir(dir)
+	var kept bool
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".broken-") {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Error("the damaged index was not kept aside")
+	}
+}

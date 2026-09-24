@@ -60,7 +60,7 @@ func (a *App) buildWelcome() *gtk.Widget {
 		action                       func()
 	}{
 		{"document-new-symbolic", "New note", "Start writing straight away", "Ctrl+N", a.actionNewNote},
-		{"object-select-symbolic", "New checklist", "A note that starts with tasks", "Ctrl+T", a.actionNewChecklist},
+		{"atlas-task-symbolic", "New checklist", "A note that starts with tasks", "Ctrl+T", a.actionNewChecklist},
 		{"system-search-symbolic", "Find a note", "Search titles across the vault", "Ctrl+K", a.actionFocusSearch},
 		{"help-about-symbolic", "Read the guide", "Markdown, tasks and the assistant", "", a.openGuide},
 	}

@@ -19,7 +19,11 @@ const (
 // header bar or with a keyboard shortcut.
 func (a *App) buildWindow() {
 	a.win = adw.NewApplicationWindow(&a.adw.Application)
-	a.win.SetTitle("Atlas Notes")
+	if fixedWindowTitle {
+		a.win.SetTitle(devCaptureTitle)
+	} else {
+		a.win.SetTitle("Atlas Notes")
+	}
 	a.win.SetDefaultSize(a.cfg.WindowWidth, a.cfg.WindowHeight)
 	a.win.AddCSSClass("atlas-window")
 
@@ -55,7 +59,9 @@ func (a *App) buildWindow() {
 	header.PackEnd(menuBtn)
 
 	a.rightToggle = gtk.NewToggleButton()
-	a.rightToggle.SetIconName("sidebar-show-right-symbolic")
+	// The assistant's own mark rather than a second sidebar arrow: the button
+	// toggles the assistant, and the panel it opens carries the same shape.
+	a.rightToggle.SetIconName(iconName("atlas-assistant-symbolic", "sidebar-show-right-symbolic"))
 	a.rightToggle.SetActive(true)
 	a.rightToggle.SetTooltipText("Show or hide the assistant (F10)")
 	header.PackEnd(a.rightToggle)
@@ -179,6 +185,16 @@ func (a *App) buildMainMenu() *gio.Menu {
 	return menu
 }
 
+// iconName returns preferred when the icon theme has it, and fallback when it
+// does not — bundled icons are unpacked at startup, but a theme can always
+// surprise us.
+func iconName(preferred, fallback string) string {
+	if hasIcon(preferred) {
+		return preferred
+	}
+	return fallback
+}
+
 // panePosition falls back to a default when the stored width is unset or absurd.
 func panePosition(stored, fallback int) int {
 	if stored < 120 || stored > 900 {
@@ -196,7 +212,9 @@ func (a *App) setWindowSubtitle(note string) {
 	if note == "" {
 		a.windowTitle.SetTitle("Atlas Notes")
 		a.windowTitle.SetSubtitle("")
-		a.win.SetTitle("Atlas Notes")
+		if !fixedWindowTitle {
+			a.win.SetTitle("Atlas Notes")
+		}
 		return
 	}
 	a.windowTitle.SetTitle(note)

@@ -6,10 +6,12 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 	_ "modernc.org/sqlite"
@@ -96,21 +98,63 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)" +
 		"&_pragma=synchronous(normal)&_pragma=foreign_keys(on)" +
 		"&_pragma=cache_size(-8000)&_pragma=temp_store(memory)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := openIndex(dsn)
 	if err != nil {
 		enc.Close()
 		dec.Close()
 		return nil, err
 	}
-	// SQLite serializes writers; a single connection avoids "database is locked".
-	db.SetMaxOpenConns(1)
 
 	s := &Store{VaultPath: vaultPath, db: db, enc: enc, dec: dec}
 	if err := s.migrate(); err != nil {
-		s.Close()
-		return nil, err
+		// The index is a cache; the notes on disk are the source of truth. A
+		// database that cannot be opened — truncated by a full disk, damaged by
+		// a sync client, written by a newer version — used to leave the app
+		// with no vault at all and no way out but deleting the file by hand.
+		// Move it aside and start a fresh one instead; the next scan refills it.
+		db.Close()
+		if qerr := quarantineIndex(dbPath); qerr != nil {
+			s.enc.Close()
+			s.dec.Close()
+			return nil, fmt.Errorf("index unusable (%w) and could not be replaced: %w", err, qerr)
+		}
+		log.Printf("atlas-notes: index was unusable (%v); rebuilding it from the vault", err)
+		if db, err = openIndex(dsn); err != nil {
+			s.enc.Close()
+			s.dec.Close()
+			return nil, err
+		}
+		s.db = db
+		if err := s.migrate(); err != nil {
+			s.Close()
+			return nil, err
+		}
 	}
 	return s, nil
+}
+
+// openIndex opens the SQLite index with a single connection: SQLite serializes
+// writers, and one connection avoids "database is locked".
+func openIndex(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}
+
+// quarantineIndex moves a damaged index (and its journal files) out of the way,
+// keeping it for inspection rather than deleting it.
+func quarantineIndex(dbPath string) error {
+	suffix := time.Now().Format(".broken-20060102-150405")
+	if err := os.Rename(dbPath, dbPath+suffix); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, side := range []string{"-wal", "-shm"} {
+		os.Remove(dbPath + side)
+	}
+	return nil
 }
 
 // Close releases the database and codec resources, waiting for any in-flight
