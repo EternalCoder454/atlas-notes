@@ -24,6 +24,20 @@ type Editor struct {
 	reparseScheduled bool
 	loading          bool
 
+	// Dirty range: the lines edited since the last render pass. Re-tagging the
+	// whole document on every keystroke is what made typing in a long note
+	// expensive, so a pass only touches these lines plus the caret's own line
+	// (whose markers reveal) and the line it just left.
+	dirtyFrom  int
+	dirtyTo    int
+	fullDirty  bool
+	lastCursor int
+	hasAnchors bool // whether any checklist widget is embedded in the buffer
+	// revealCaret gates showing markdown markers on the caret's line. A freshly
+	// opened note renders fully clean; the markers appear once the caret is
+	// actually moved or something is typed.
+	revealCaret bool
+
 	// OnChanged fires after a user edit (suppressed during SetContent).
 	OnChanged func()
 	// OnReparsed fires once per debounced reparse (and after SetContent), letting
@@ -35,7 +49,7 @@ type Editor struct {
 
 // New builds the editor component.
 func New() *Editor {
-	e := &Editor{tags: map[string]*gtk.TextTag{}}
+	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1}
 
 	e.view = gtk.NewTextView()
 	e.view.SetWrapMode(gtk.WrapWordChar)
@@ -54,6 +68,17 @@ func New() *Editor {
 	e.scroll.SetVExpand(true)
 	e.scroll.SetHExpand(true)
 
+	// Record which lines an edit touched, so the render pass can be incremental.
+	// These fire before the change is applied, which is exactly when the old
+	// line numbers are still valid.
+	e.buffer.ConnectInsertText(func(location *gtk.TextIter, text string, _ int) {
+		line := location.Line()
+		e.markDirty(line, line+strings.Count(text, "\n"))
+	})
+	e.buffer.ConnectDeleteRange(func(start, end *gtk.TextIter) {
+		e.markDirty(start.Line(), end.Line())
+	})
+
 	e.buffer.ConnectChanged(func() {
 		if e.loading {
 			return
@@ -64,9 +89,13 @@ func New() *Editor {
 		}
 	})
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
-		if mark.Name() == "insert" {
-			e.scheduleReparse()
+		if mark.Name() != "insert" {
+			return
 		}
+		if !e.loading {
+			e.revealCaret = true
+		}
+		e.scheduleReparse()
 	})
 
 	return e
@@ -75,14 +104,42 @@ func New() *Editor {
 // Widget returns the scrollable editor widget.
 func (e *Editor) Widget() gtk.Widgetter { return e.scroll }
 
+// createTags defines the rendered look of each markdown construct. Spacing is
+// part of the styling: headings get air above them and list items hang their
+// text off a left margin, so a note reads like a document rather than a wall of
+// monospaced source.
 func (e *Editor) createTags() {
-	e.newTag("heading1", map[string]any{"scale": 1.6, "weight": int(pango.WeightBold)})
-	e.newTag("heading2", map[string]any{"scale": 1.3, "weight": int(pango.WeightBold)})
-	e.newTag("heading3", map[string]any{"scale": 1.15, "weight": int(pango.WeightBold)})
+	e.newTag("heading1", map[string]any{
+		"scale": 1.7, "weight": int(pango.WeightBold),
+		"pixels-above-lines": 18, "pixels-below-lines": 8,
+	})
+	e.newTag("heading2", map[string]any{
+		"scale": 1.32, "weight": int(pango.WeightBold),
+		"pixels-above-lines": 16, "pixels-below-lines": 6,
+	})
+	e.newTag("heading3", map[string]any{
+		"scale": 1.14, "weight": int(pango.WeightBold),
+		"pixels-above-lines": 12, "pixels-below-lines": 4,
+	})
+	e.newTag("heading4", map[string]any{
+		"scale": 1.0, "weight": int(pango.WeightBold),
+		"pixels-above-lines": 10, "pixels-below-lines": 2,
+	})
 	e.newTag("bold", map[string]any{"weight": int(pango.WeightBold)})
 	e.newTag("italic", map[string]any{"style": pango.StyleItalic})
-	e.newTag("code", map[string]any{"family": "monospace"})
+	e.newTag("strike", map[string]any{"strikethrough": true})
+	e.newTag("code", map[string]any{"family": "monospace", "scale": 0.94})
 	e.newTag("invisible", map[string]any{"invisible": true})
+	// Recessive markers (list bullets, quote bars) stay visible but quiet; a
+	// mid-gray reads correctly against both the light and the dark theme.
+	e.newTag("marker", map[string]any{"foreground": "#9a9a9a"})
+	e.newTag("listitem", map[string]any{"indent": -14, "left-margin": 30, "pixels-below-lines": 3})
+	e.newTag("quote", map[string]any{
+		"left-margin": 26, "style": pango.StyleItalic, "foreground": "#9a9a9a",
+	})
+	e.newTag("divider", map[string]any{"foreground": "#9a9a9a", "scale": 0.8})
+	// A finished task reads as done: struck through and receded.
+	e.newTag("done", map[string]any{"strikethrough": true, "foreground": "#9a9a9a"})
 }
 
 func (e *Editor) newTag(name string, props map[string]any) {
@@ -94,19 +151,68 @@ func (e *Editor) newTag(name string, props map[string]any) {
 	e.tags[name] = tag
 }
 
-// SetContent replaces the text without firing OnChanged, then re-renders.
+// SetContent replaces the text without firing OnChanged, then re-renders. The
+// caret is placed at the top, so opening a note shows its beginning.
 func (e *Editor) SetContent(s string) {
 	e.loading = true
 	e.buffer.SetText(s)
 	e.loading = false
-	e.renderChecklists(-1) // convert every "- [ ] " line to a checkbox
+	e.hasAnchors = false
+	start, _ := e.buffer.Bounds()
+	e.loading = true
+	e.buffer.PlaceCursor(start)
+	e.loading = false
+	e.revealCaret = false
+	e.lastCursor = 0
+	// One full pass: reparse renders every "- [ ] " line as a checkbox and
+	// applies the tags. (This used to run the checklist pass twice.)
+	e.markAllDirty()
 	e.reparse()
+	// Scroll back to the top once the new text has been laid out: a note should
+	// open at its beginning, not wherever the last one was scrolled to.
+	coreglib.IdleAdd(func() bool {
+		e.scroll.VAdjustment().SetValue(0)
+		return false
+	})
+}
+
+// markDirty widens the range of lines the next render pass must re-tag.
+func (e *Editor) markDirty(from, to int) {
+	if from > to {
+		from, to = to, from
+	}
+	if e.fullDirty {
+		return
+	}
+	if e.dirtyFrom < 0 {
+		e.dirtyFrom, e.dirtyTo = from, to
+		return
+	}
+	if from < e.dirtyFrom {
+		e.dirtyFrom = from
+	}
+	if to > e.dirtyTo {
+		e.dirtyTo = to
+	}
+}
+
+// markAllDirty forces the next pass to re-tag the whole document.
+func (e *Editor) markAllDirty() { e.fullDirty = true }
+
+// clearDirty resets the range after a render pass.
+func (e *Editor) clearDirty() {
+	e.fullDirty = false
+	e.dirtyFrom, e.dirtyTo = -1, -1
 }
 
 // Content returns the full markdown text, reconstructing "- [ ]/[x] " prefixes
 // from the embedded checkboxes and stripping the anchor characters.
 func (e *Editor) Content() string {
-	lines := strings.Split(e.rawText(), "\n")
+	raw := e.rawText()
+	if !e.hasAnchors && !strings.Contains(raw, anchorChar) {
+		return raw // no embedded checkboxes: the buffer text is the document
+	}
+	lines := strings.Split(raw, "\n")
 	for i, line := range lines {
 		r := []rune(line)
 		if len(r) == 0 || r[0] != '￼' {
@@ -142,41 +248,99 @@ func (e *Editor) scheduleReparse() {
 	})
 }
 
-// reparse converts any new checklist lines (except the one being edited) and
-// re-applies all formatting tags. With the 50ms debounce it only runs after
-// typing/caret movement pauses, so idle CPU stays low.
+// reparse re-renders the document. It only touches the lines edited since the
+// last pass, plus the caret's line and the line it left — those two change
+// appearance because markdown markers are revealed on the line being edited.
+// A pass after a single keystroke therefore costs the same in a 200-line note
+// as in a 5-line one.
 func (e *Editor) reparse() {
 	cursorLine := -1
 	if ins := e.buffer.IterAtMark(e.buffer.GetInsert()); ins != nil {
 		cursorLine = ins.Line()
 	}
-	e.renderChecklists(cursorLine)
 
-	start, end := e.buffer.Bounds()
-	e.buffer.RemoveAllTags(start, end)
-	text := e.buffer.Slice(start, end, true) // Slice keeps offsets aligned with TextIter
-
-	for lineNum, line := range strings.Split(text, "\n") {
-		runeLen := len([]rune(line))
-		for _, sp := range parseLineSpans(line, lineNum == cursorLine) {
-			s, en := clamp(sp.start, runeLen), clamp(sp.end, runeLen)
-			if en <= s {
-				continue
-			}
-			si, ok1 := e.buffer.IterAtLineOffset(lineNum, s)
-			ei, ok2 := e.buffer.IterAtLineOffset(lineNum, en)
-			if !ok1 || !ok2 {
-				continue
-			}
-			if tag := e.tags[sp.tag]; tag != nil {
-				e.buffer.ApplyTag(tag, si, ei)
-			}
-		}
+	revealLine := -1
+	if e.revealCaret {
+		revealLine = cursorLine
 	}
+
+	lastLine := e.buffer.LineCount() - 1
+	from, to := e.dirtyFrom, e.dirtyTo
+	if e.fullDirty || from < 0 {
+		from, to = 0, lastLine
+	} else {
+		from = minInt(from, minInt(cursorLine, e.lastCursor))
+		to = maxInt(to, maxInt(cursorLine, e.lastCursor))
+	}
+	from = clamp(from, lastLine)
+	to = clamp(to, lastLine)
+	e.lastCursor = cursorLine
+	e.clearDirty()
+
+	e.renderChecklists(from, to, revealLine)
+	e.tagRange(from, to, revealLine)
 
 	if e.OnReparsed != nil {
 		e.OnReparsed()
 	}
+}
+
+// tagRange re-applies every formatting tag for lines [from, to].
+func (e *Editor) tagRange(from, to, cursorLine int) {
+	start, ok1 := e.buffer.IterAtLine(from)
+	end, ok2 := e.buffer.IterAtLine(to)
+	if !ok1 || !ok2 {
+		return
+	}
+	if !end.EndsLine() {
+		end.ForwardToLineEnd()
+	}
+	e.buffer.RemoveAllTags(start, end)
+	text := e.buffer.Slice(start, end, true) // Slice keeps offsets aligned with TextIter
+
+	lineNum := from
+	for _, line := range strings.Split(text, "\n") {
+		runeLen := len([]rune(line))
+		// A completed task reads as done (struck through, receded).
+		if runeLen > 0 && strings.HasPrefix(line, anchorChar) && e.anchorChecked(lineNum) {
+			e.applyTag("done", lineNum, 1, runeLen)
+		}
+		for _, sp := range parseLineSpans(line, lineNum == cursorLine) {
+			e.applyTag(sp.tag, lineNum, clamp(sp.start, runeLen), clamp(sp.end, runeLen))
+		}
+		lineNum++
+	}
+}
+
+// applyTag applies a named tag over a rune range within one line.
+func (e *Editor) applyTag(name string, line, start, end int) {
+	if end <= start {
+		return
+	}
+	tag := e.tags[name]
+	if tag == nil {
+		return
+	}
+	si, ok1 := e.buffer.IterAtLineOffset(line, start)
+	ei, ok2 := e.buffer.IterAtLineOffset(line, end)
+	if !ok1 || !ok2 {
+		return
+	}
+	e.buffer.ApplyTag(tag, si, ei)
+}
+
+func minInt(a, b int) int {
+	if b < a {
+		return b
+	}
+	return a
+}
+
+func maxInt(a, b int) int {
+	if b > a {
+		return b
+	}
+	return a
 }
 
 func clamp(v, max int) int {
@@ -188,3 +352,14 @@ func clamp(v, max int) int {
 	}
 	return v
 }
+
+// InsertAtCursor inserts text at the caret (replacing the selection, if any),
+// exactly as typing it would. Used by the formatting toolbar and the bench mode.
+func (e *Editor) InsertAtCursor(text string) {
+	e.buffer.DeleteSelection(true, true)
+	e.buffer.InsertAtCursor(text)
+}
+
+// Reparse re-renders the document now, skipping the debounce. Call it after a
+// programmatic edit that must be reflected immediately.
+func (e *Editor) Reparse() { e.reparse() }

@@ -26,13 +26,13 @@ func (a *App) showSettings() {
 	dialog.SetContentWidth(680)
 	dialog.SetContentHeight(680)
 
-	nameEntry, modelEntry, sysView, summaryToggle, generalPage := a.buildGeneralPage()
+	fields := a.buildGeneralPage()
 	rows, shortcutsPage := a.buildShortcutsPage()
 
 	stack := gtk.NewStack()
 	stack.SetHExpand(true)
 	stack.SetVExpand(true)
-	stack.AddTitled(generalPage, "general", "Model & Prompt")
+	stack.AddTitled(fields.page, "general", "Model & Prompt")
 	stack.AddTitled(shortcutsPage, "shortcuts", "Prompt Shortcuts")
 	stack.AddTitled(a.buildAppPage(), "app", "App")
 
@@ -49,7 +49,7 @@ func (a *App) showSettings() {
 	saveBtn := gtk.NewButtonWithLabel("Save")
 	saveBtn.AddCSSClass("suggested-action")
 	saveBtn.ConnectClicked(func() {
-		a.applySettings(nameEntry, modelEntry, sysView, summaryToggle, *rows)
+		a.applySettings(fields, *rows)
 		dialog.Close()
 	})
 	header.PackEnd(saveBtn)
@@ -61,8 +61,23 @@ func (a *App) showSettings() {
 	dialog.Present(a.win)
 }
 
+// generalFields holds the editable widgets of the "Model & Prompt" section.
+type generalFields struct {
+	name    *gtk.Entry
+	model   *gtk.Entry
+	system  *gtk.TextView
+	summary *gtk.CheckButton
+	fonts   *gtk.DropDown
+	page    gtk.Widgetter
+}
+
+// fontRenderingModes are the dropdown entries, in the order they appear.
+var fontRenderingModes = []string{
+	storage.FontRenderingAuto, storage.FontRenderingCrisp, storage.FontRenderingSmooth,
+}
+
 // buildGeneralPage builds the "Model & Prompt" section.
-func (a *App) buildGeneralPage() (*gtk.Entry, *gtk.Entry, *gtk.TextView, *gtk.CheckButton, gtk.Widgetter) {
+func (a *App) buildGeneralPage() generalFields {
 	box := sectionBox()
 
 	nameGroup := groupCard("Assistant name")
@@ -88,7 +103,34 @@ func (a *App) buildGeneralPage() (*gtk.Entry, *gtk.Entry, *gtk.TextView, *gtk.Ch
 	treeGroup.Append(summary)
 	box.Append(treeGroup)
 
-	return nameEntry, modelEntry, sysView, summary, pageScroll(box)
+	// Text rendering: the right choice depends on the screen, so it is a
+	// setting rather than a guess. See internal/app/fonts.go.
+	fontGroup := groupCard("Text rendering")
+	fonts := gtk.NewDropDownFromStrings([]string{
+		"Automatic (match the display)",
+		"Crisp — hinted, best on 1080p",
+		"Smooth — unhinted, best on HiDPI",
+	})
+	fonts.SetSelected(uint(fontModeIndex(a.cfg.FontRendering)))
+	fontGroup.Append(fonts)
+	fontHint := gtk.NewLabel("Takes effect on the next launch.")
+	fontHint.SetXAlign(0)
+	fontHint.AddCSSClass("dim-label")
+	fontHint.AddCSSClass("caption")
+	fontGroup.Append(fontHint)
+	box.Append(fontGroup)
+
+	return generalFields{name: nameEntry, model: modelEntry, system: sysView, summary: summary, fonts: fonts, page: pageScroll(box)}
+}
+
+// fontModeIndex maps a stored font-rendering mode to its dropdown position.
+func fontModeIndex(mode string) int {
+	for i, m := range fontRenderingModes {
+		if m == mode {
+			return i
+		}
+	}
+	return 0
 }
 
 // groupCard returns a titled, card-styled container for a group of settings.
@@ -143,17 +185,20 @@ func (a *App) buildShortcutsPage() (*[]*actionRow, gtk.Widgetter) {
 
 // applySettings reads the dialog widgets into config, persists, and applies the
 // changes to the AI client and sidebar.
-func (a *App) applySettings(nameEntry, modelEntry *gtk.Entry, sysView *gtk.TextView, summaryToggle *gtk.CheckButton, rows []*actionRow) {
-	a.cfg.AssistantName = strings.TrimSpace(nameEntry.Buffer().Text())
+func (a *App) applySettings(f generalFields, rows []*actionRow) {
+	a.cfg.AssistantName = strings.TrimSpace(f.name.Buffer().Text())
 	if a.cfg.AssistantName == "" {
 		a.cfg.AssistantName = storage.DefaultAssistantName
 	}
-	a.cfg.Model = strings.TrimSpace(modelEntry.Buffer().Text())
+	a.cfg.Model = strings.TrimSpace(f.model.Buffer().Text())
 	if a.cfg.Model == "" {
 		a.cfg.Model = storage.DefaultModel
 	}
-	a.cfg.SystemPrompt = strings.TrimSpace(textViewText(sysView))
-	a.cfg.EnableTreeSummaries = summaryToggle.Active()
+	a.cfg.SystemPrompt = strings.TrimSpace(textViewText(f.system))
+	a.cfg.EnableTreeSummaries = f.summary.Active()
+	if i := int(f.fonts.Selected()); i >= 0 && i < len(fontRenderingModes) {
+		a.cfg.FontRendering = fontRenderingModes[i]
+	}
 
 	var actions []storage.AIAction
 	for _, r := range rows {

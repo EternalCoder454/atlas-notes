@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"path"
 	"sort"
@@ -30,7 +31,9 @@ const indentStep = 12
 type node struct {
 	name     string // display name
 	rel      string // vault-relative path (folder path, or note path without ext)
+	folder   string // parent folder, shown as a caption in search results
 	isFolder bool
+	rank     int // search-match position; unused outside search results
 	created  time.Time
 	modified time.Time
 }
@@ -50,6 +53,20 @@ type Tree struct {
 
 	cachedFolders []string
 	cachedNotes   []storage.NoteMeta
+	// childIndex groups the cached entries by parent folder. GTK asks for a
+	// folder's children every time it probes a row for expandability, and
+	// scanning the whole vault for each of those calls made opening a large
+	// vault quadratic.
+	childIndex map[string][]*node
+
+	searchEntry *gtk.SearchEntry
+	countLabel  *gtk.Label
+	emptyState  *gtk.Box
+	emptyTitle  *gtk.Label
+	emptyHint   *gtk.Label
+	scroll      *gtk.ScrolledWindow
+	query       string // current search text, lowercased
+	sortRecent  bool   // sort notes by last modified instead of by name
 
 	summariesEnabled bool
 	summaries        map[string]string
@@ -63,6 +80,9 @@ type Tree struct {
 	OnDeleted func(rel string, isFolder bool)
 	// OnMoved is invoked after a note is dragged into another folder.
 	OnMoved func(oldRel, newRel string)
+	// OnChanged is invoked after the vault's contents change, so the rest of the
+	// app (the home screen's recent list) can refresh.
+	OnChanged func()
 }
 
 // NewTree builds the vault tree panel.
@@ -93,6 +113,7 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetChild(t.listView)
 	scroll.SetVExpand(true)
+	t.scroll = scroll
 
 	// Right-click on empty space → root-level New Note / New Folder.
 	bg := gtk.NewGestureClick()
@@ -104,11 +125,141 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 
 	t.widget = gtk.NewBox(gtk.OrientationVertical, 0)
 	t.widget.SetVExpand(true)
+	t.widget.Append(t.buildHeader())
 	t.widget.Append(scroll)
+	t.emptyState = t.buildEmptyState()
+	t.widget.Append(t.emptyState)
 
 	t.Refresh()
 	return t
 }
+
+// buildHeader is the panel's top bar: the vault's name and note count, a New
+// Note button, and the search field that filters the tree as you type. Before
+// this, the only way to create or find anything was a right-click.
+func (t *Tree) buildHeader() *gtk.Box {
+	header := gtk.NewBox(gtk.OrientationVertical, 8)
+	header.AddCSSClass("vault-header")
+
+	top := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	title := gtk.NewLabel("Vault")
+	title.SetXAlign(0)
+	title.AddCSSClass("vault-title")
+	top.Append(title)
+
+	t.countLabel = gtk.NewLabel("")
+	t.countLabel.AddCSSClass("vault-count")
+	t.countLabel.SetHExpand(true)
+	t.countLabel.SetXAlign(0)
+	top.Append(t.countLabel)
+
+	sortBtn := gtk.NewButtonFromIconName("view-sort-descending-symbolic")
+	sortBtn.AddCSSClass("flat")
+	sortBtn.SetTooltipText("Sort by name")
+	sortBtn.ConnectClicked(func() {
+		t.sortRecent = !t.sortRecent
+		if t.sortRecent {
+			sortBtn.SetTooltipText("Sort by last edited")
+			sortBtn.SetIconName("document-open-recent-symbolic")
+		} else {
+			sortBtn.SetTooltipText("Sort by name")
+			sortBtn.SetIconName("view-sort-descending-symbolic")
+		}
+		t.Refresh()
+	})
+	top.Append(sortBtn)
+
+	newBtn := gtk.NewButtonFromIconName("list-add-symbolic")
+	newBtn.AddCSSClass("flat")
+	newBtn.SetTooltipText("New note here (Ctrl+N)")
+	newBtn.ConnectClicked(func() { t.promptNewNote(t.SelectedFolder()) })
+	top.Append(newBtn)
+	header.Append(top)
+
+	t.searchEntry = gtk.NewSearchEntry()
+	t.searchEntry.SetPlaceholderText("Search notes…")
+	t.searchEntry.AddCSSClass("vault-search")
+	t.searchEntry.ConnectSearchChanged(func() {
+		t.query = strings.ToLower(strings.TrimSpace(t.searchText()))
+		t.Refresh()
+	})
+	header.Append(t.searchEntry)
+	return header
+}
+
+// buildEmptyState explains what to do when the panel has nothing to show,
+// rather than leaving a blank column.
+func (t *Tree) buildEmptyState() *gtk.Box {
+	box := gtk.NewBox(gtk.OrientationVertical, 6)
+	box.AddCSSClass("vault-empty")
+	box.SetVAlign(gtk.AlignCenter)
+	box.SetVExpand(true)
+	box.SetVisible(false)
+
+	icon := gtk.NewImageFromIconName("folder-symbolic")
+	icon.SetPixelSize(28)
+	icon.AddCSSClass("dim-label")
+	box.Append(icon)
+
+	t.emptyTitle = gtk.NewLabel("No notes yet")
+	t.emptyTitle.AddCSSClass("vault-empty-title")
+	box.Append(t.emptyTitle)
+
+	t.emptyHint = gtk.NewLabel("Press Ctrl+N to write your first one")
+	t.emptyHint.AddCSSClass("vault-empty-hint")
+	t.emptyHint.SetWrap(true)
+	t.emptyHint.SetJustify(gtk.JustifyCenter)
+	t.emptyHint.SetMaxWidthChars(24)
+	box.Append(t.emptyHint)
+	return box
+}
+
+// searchText reads the search field's current contents.
+func (t *Tree) searchText() string {
+	if t.searchEntry == nil {
+		return ""
+	}
+	return t.searchEntry.Text()
+}
+
+// SetSearch runs a search programmatically.
+func (t *Tree) SetSearch(q string) {
+	if t.searchEntry != nil {
+		t.searchEntry.SetText(q)
+	}
+}
+
+// FocusSearch puts the caret in the search field (Ctrl+K).
+func (t *Tree) FocusSearch() {
+	if t.searchEntry != nil {
+		t.searchEntry.GrabFocus()
+		t.searchEntry.SelectRegion(0, -1)
+	}
+}
+
+// SelectedFolder returns the folder new items should be created in: the
+// selected folder, the folder of the selected note, or the vault root.
+func (t *Tree) SelectedFolder() string {
+	pos := t.selection.Selected()
+	if pos == gtk.InvalidListPosition {
+		return ""
+	}
+	row := t.rowAt(pos)
+	if row == nil {
+		return ""
+	}
+	n := gioutil.ObjectValue[*node](row.Item())
+	if n == nil {
+		return ""
+	}
+	if n.isFolder {
+		return n.rel
+	}
+	return parentFolder(n.rel)
+}
+
+// PromptNewFolder asks for a name and creates a folder beside the selection.
+func (t *Tree) PromptNewFolder() { t.promptNewFolder(t.SelectedFolder()) }
 
 // Widget returns the root widget of the panel.
 func (t *Tree) Widget() gtk.Widgetter { return t.widget }
@@ -122,6 +273,18 @@ func (t *Tree) Refresh() {
 	if n := t.rootModel.Len(); n > 0 {
 		t.rootModel.Splice(0, n)
 	}
+
+	if t.query != "" {
+		// Searching flattens the tree: every matching note, wherever it lives.
+		matches := t.matchingNotes()
+		for _, c := range matches {
+			t.rootModel.Append(c)
+		}
+		t.updateHeader(len(matches))
+		t.updateEmptyState(len(matches))
+		return
+	}
+
 	for _, c := range t.childrenOf("") {
 		t.rootModel.Append(c)
 	}
@@ -129,6 +292,72 @@ func (t *Tree) Refresh() {
 	if t.currentRel != "" {
 		t.revealAndSelect(t.currentRel)
 	}
+	t.updateHeader(len(t.cachedNotes))
+	t.updateEmptyState(len(t.cachedNotes) + len(t.cachedFolders))
+}
+
+// matchingNotes returns the notes whose name contains the search query, best
+// matches first (name prefix, then position in the name).
+func (t *Tree) matchingNotes() []*node {
+	var out []*node
+	for _, n := range t.cachedNotes {
+		name := path.Base(n.Path)
+		lower := strings.ToLower(name)
+		idx := strings.Index(lower, t.query)
+		if idx < 0 && !strings.Contains(strings.ToLower(n.Folder), t.query) {
+			continue
+		}
+		out = append(out, &node{
+			name: name, rel: n.Path, folder: n.Folder,
+			created: n.CreatedAt, modified: n.ModifiedAt, rank: idx,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if (out[i].rank < 0) != (out[j].rank < 0) {
+			return out[j].rank < 0
+		}
+		if out[i].rank != out[j].rank {
+			return out[i].rank < out[j].rank
+		}
+		return strings.ToLower(out[i].name) < strings.ToLower(out[j].name)
+	})
+	return out
+}
+
+// updateHeader keeps the note count beside the panel title current.
+func (t *Tree) updateHeader(n int) {
+	if t.countLabel == nil {
+		return
+	}
+	switch {
+	case t.query != "":
+		t.countLabel.SetText(fmt.Sprintf("· %d found", n))
+	case n == 1:
+		t.countLabel.SetText("· 1 note")
+	default:
+		t.countLabel.SetText(fmt.Sprintf("· %d notes", n))
+	}
+}
+
+// updateEmptyState swaps the list for an explanation when there is nothing to
+// show, and tailors the wording to an empty vault or an empty search.
+func (t *Tree) updateEmptyState(n int) {
+	if t.emptyState == nil || t.scroll == nil {
+		return
+	}
+	empty := n == 0
+	t.emptyState.SetVisible(empty)
+	t.scroll.SetVisible(!empty)
+	if !empty {
+		return
+	}
+	if t.query != "" {
+		t.emptyTitle.SetText("No matches")
+		t.emptyHint.SetText("Nothing in the vault matches “" + t.searchText() + "”")
+		return
+	}
+	t.emptyTitle.SetText("No notes yet")
+	t.emptyHint.SetText("Press Ctrl+N to write your first one")
 }
 
 // reloadCache snapshots the folder and note lists once, so childrenOf (which
@@ -137,6 +366,23 @@ func (t *Tree) Refresh() {
 func (t *Tree) reloadCache() {
 	t.cachedFolders, _ = t.store.ListFolders()
 	t.cachedNotes, _ = t.store.ListNotes()
+
+	t.childIndex = make(map[string][]*node, len(t.cachedFolders)+1)
+	for _, f := range t.cachedFolders {
+		parent := parentFolder(f)
+		t.childIndex[parent] = append(t.childIndex[parent], &node{
+			name: path.Base(f), rel: f, isFolder: true,
+		})
+	}
+	for _, n := range t.cachedNotes {
+		t.childIndex[n.Folder] = append(t.childIndex[n.Folder], &node{
+			name: path.Base(n.Path), rel: n.Path, folder: n.Folder,
+			created: n.CreatedAt, modified: n.ModifiedAt,
+		})
+	}
+	for _, children := range t.childIndex {
+		t.sortNodes(children)
+	}
 }
 
 // SetSummariesEnabled toggles AI hover summaries and rebuilds the rows so
@@ -340,21 +586,10 @@ func (t *Tree) createChildModel(item *coreglib.Object) *gio.ListModel {
 	return m.ListModel
 }
 
-// childrenOf returns the immediate folders and notes inside a vault folder.
+// childrenOf returns the immediate folders and notes inside a vault folder,
+// straight out of the index built by reloadCache.
 func (t *Tree) childrenOf(folderRel string) []*node {
-	var out []*node
-	for _, f := range t.cachedFolders {
-		if parentFolder(f) == folderRel {
-			out = append(out, &node{name: path.Base(f), rel: f, isFolder: true})
-		}
-	}
-	for _, n := range t.cachedNotes {
-		if n.Folder == folderRel {
-			out = append(out, &node{name: path.Base(n.Path), rel: n.Path, isFolder: false, created: n.CreatedAt, modified: n.ModifiedAt})
-		}
-	}
-	sortNodes(out)
-	return out
+	return t.childIndex[folderRel]
 }
 
 func (t *Tree) setupItem(obj *coreglib.Object) {
@@ -370,8 +605,13 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 	label.SetXAlign(0)
 	label.SetEllipsize(pango.EllipsizeEnd) // long names truncate with "…" instead of overflowing
 	label.SetHExpand(true)
+	caption := gtk.NewLabel("")
+	caption.AddCSSClass("row-caption")
+	caption.SetEllipsize(pango.EllipsizeStart)
+	caption.SetVisible(false)
 	box.Append(icon)
 	box.Append(label)
+	box.Append(caption)
 	expander.SetChild(box)
 
 	// Drag a note row onto a folder row to move it into that folder.
@@ -456,6 +696,16 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 	}
 	if label, ok := icon.NextSibling().(*gtk.Label); ok {
 		label.SetText(n.name)
+		if caption, ok := label.NextSibling().(*gtk.Label); ok {
+			// In search results the folder is shown beside the name, since the
+			// flattened list loses the tree's context.
+			if t.query != "" && n.folder != "" {
+				caption.SetText(n.folder)
+				caption.SetVisible(true)
+			} else {
+				caption.SetVisible(false)
+			}
+		}
 	}
 	expander.SetTooltipText(t.tooltipFor(n))
 	if !n.isFolder && t.summariesEnabled {
@@ -554,6 +804,7 @@ func (t *Tree) promptNewNote(folder string) {
 			return
 		}
 		t.Refresh()
+		t.notifyChanged()
 		if t.OnOpenNote != nil {
 			t.OnOpenNote(rel)
 		}
@@ -595,6 +846,13 @@ func (t *Tree) promptRename(n *node) {
 	})
 }
 
+// notifyChanged tells the app the vault's contents changed.
+func (t *Tree) notifyChanged() {
+	if t.OnChanged != nil {
+		t.OnChanged()
+	}
+}
+
 func (t *Tree) promptDelete(n *node) {
 	if n == nil {
 		return
@@ -616,6 +874,7 @@ func (t *Tree) promptDelete(n *node) {
 			t.OnDeleted(n.rel, n.isFolder)
 		}
 		t.Refresh()
+		t.notifyChanged()
 	})
 }
 
@@ -689,10 +948,15 @@ func joinRel(folder, name string) string {
 	return folder + "/" + name
 }
 
-func sortNodes(ns []*node) {
+// sortNodes orders a folder's children: folders first, then notes by name or,
+// when the panel is in "recently edited" mode, by modification time.
+func (t *Tree) sortNodes(ns []*node) {
 	sort.SliceStable(ns, func(i, j int) bool {
 		if ns[i].isFolder != ns[j].isFolder {
 			return ns[i].isFolder // folders before notes
+		}
+		if t.sortRecent && !ns[i].isFolder {
+			return ns[i].modified.After(ns[j].modified)
 		}
 		return strings.ToLower(ns[i].name) < strings.ToLower(ns[j].name)
 	})

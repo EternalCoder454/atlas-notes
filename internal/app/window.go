@@ -2,48 +2,64 @@ package app
 
 import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
-	"github.com/diamondburned/gotk4/pkg/gdk/v4"
-	"github.com/diamondburned/gotk4/pkg/glib/v2"
+	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/ui"
 )
 
 const (
-	leftPanelWidth  = 220
-	rightPanelWidth = 280
-	leftMinWidth    = 150 // hard minimum so note names stay readable when dragged narrow
+	leftPanelWidth  = 260
+	rightPanelWidth = 320
+	leftMinWidth    = 180 // hard minimum so note names stay readable when dragged narrow
 )
 
 // buildWindow constructs the main window: a header bar plus three drag-resizable
-// panes (folder tree · editor · AI sidebar). Each side panel can be retracted
-// from the header bar.
+// panes (vault · editor · assistant). Each side panel can be retracted from the
+// header bar or with a keyboard shortcut.
 func (a *App) buildWindow() {
 	a.win = adw.NewApplicationWindow(&a.adw.Application)
 	a.win.SetTitle("Atlas Notes")
 	a.win.SetDefaultSize(a.cfg.WindowWidth, a.cfg.WindowHeight)
+	a.win.AddCSSClass("atlas-window")
+
+	a.registerActions()
 
 	header := adw.NewHeaderBar()
-	header.SetTitleWidget(adw.NewWindowTitle("Atlas Notes", "v"+version))
+	header.AddCSSClass("atlas-header")
+	a.windowTitle = adw.NewWindowTitle("Atlas Notes", "")
+	header.SetTitleWidget(a.windowTitle)
 
-	leftToggle := gtk.NewToggleButton()
-	leftToggle.SetIconName("sidebar-show-symbolic")
-	leftToggle.SetActive(true)
-	leftToggle.SetTooltipText("Toggle folder panel")
-	header.PackStart(leftToggle)
+	a.leftToggle = gtk.NewToggleButton()
+	a.leftToggle.SetIconName("sidebar-show-symbolic")
+	a.leftToggle.SetActive(true)
+	a.leftToggle.SetTooltipText("Show or hide the vault (F9)")
+	header.PackStart(a.leftToggle)
 
-	settingsBtn := gtk.NewButtonFromIconName("emblem-system-symbolic")
-	settingsBtn.SetTooltipText("Settings")
-	settingsBtn.ConnectClicked(a.showSettings)
-	header.PackEnd(settingsBtn)
+	newBtn := gtk.NewButtonFromIconName("document-new-symbolic")
+	newBtn.SetTooltipText("New note (Ctrl+N)")
+	newBtn.ConnectClicked(a.actionNewNote)
+	header.PackStart(newBtn)
 
-	rightToggle := gtk.NewToggleButton()
-	rightToggle.SetIconName("sidebar-show-right-symbolic")
-	rightToggle.SetActive(true)
-	rightToggle.SetTooltipText("Toggle AI panel")
-	header.PackEnd(rightToggle)
+	homeBtn := gtk.NewButtonFromIconName("go-home-symbolic")
+	homeBtn.SetTooltipText("Home screen (Ctrl+H)")
+	homeBtn.ConnectClicked(a.showWelcome)
+	header.PackStart(homeBtn)
 
-	// Left panel: folder tree.
+	menuBtn := gtk.NewMenuButton()
+	menuBtn.SetIconName("open-menu-symbolic")
+	menuBtn.SetTooltipText("Main menu")
+	menuBtn.SetPrimary(true)
+	menuBtn.SetMenuModel(a.buildMainMenu())
+	header.PackEnd(menuBtn)
+
+	a.rightToggle = gtk.NewToggleButton()
+	a.rightToggle.SetIconName("sidebar-show-right-symbolic")
+	a.rightToggle.SetActive(true)
+	a.rightToggle.SetTooltipText("Show or hide the assistant (F10)")
+	header.PackEnd(a.rightToggle)
+
+	// Left panel: the vault browser.
 	a.left = newPanel("left-panel")
 	a.left.SetSizeRequest(leftMinWidth, -1)
 	if a.store != nil {
@@ -51,16 +67,17 @@ func (a *App) buildWindow() {
 		a.tree.OnOpenNote = a.openNote
 		a.tree.OnDeleted = a.onDeleted
 		a.tree.OnMoved = a.onMoved
+		a.tree.OnChanged = a.refreshWelcome
 		a.tree.SetSummariesEnabled(a.cfg.EnableTreeSummaries)
 		a.left.Append(a.tree.Widget())
 	} else {
-		a.left.Append(placeholder("Folders"))
+		a.left.Append(placeholder("Vault unavailable"))
 	}
 
-	// Center: editor.
+	// Center: welcome screen / editor.
 	a.center = a.buildCenter()
 
-	// Right panel: AI sidebar.
+	// Right panel: the assistant.
 	a.right = newPanel("right-panel")
 	if a.ai != nil {
 		a.sidebar = ui.NewSidebar(a.ai)
@@ -70,7 +87,7 @@ func (a *App) buildWindow() {
 		a.sidebar.SetName(a.cfg.AssistantName)
 		a.right.Append(a.sidebar.Widget())
 	} else {
-		a.right.Append(placeholder("AI Assistant"))
+		a.right.Append(placeholder("Assistant unavailable"))
 	}
 
 	// Nested resizable panes: [ left | [ center | right ] ].
@@ -91,16 +108,18 @@ func (a *App) buildWindow() {
 	outer.SetShrinkStartChild(false) // floor enforced by the left panel's min width
 	outer.SetShrinkEndChild(false)
 	outer.SetWideHandle(true)
-	outer.SetPosition(leftPanelWidth)
+	outer.SetPosition(panePosition(a.cfg.LeftPanelWidth, leftPanelWidth))
 
-	centerWidth := a.cfg.WindowWidth - leftPanelWidth - rightPanelWidth
-	if centerWidth < 300 {
-		centerWidth = 300
+	right := panePosition(a.cfg.RightPanelWidth, rightPanelWidth)
+	centerWidth := a.cfg.WindowWidth - outer.Position() - right
+	if centerWidth < 360 {
+		centerWidth = 360
 	}
 	inner.SetPosition(centerWidth)
+	a.outerPaned, a.innerPaned = outer, inner
 
-	leftToggle.ConnectToggled(func() { a.left.SetVisible(leftToggle.Active()) })
-	rightToggle.ConnectToggled(func() { a.right.SetVisible(rightToggle.Active()) })
+	a.leftToggle.ConnectToggled(func() { a.left.SetVisible(a.leftToggle.Active()) })
+	a.rightToggle.ConnectToggled(func() { a.right.SetVisible(a.rightToggle.Active()) })
 
 	a.toastOverlay = adw.NewToastOverlay()
 	a.toastOverlay.SetChild(outer)
@@ -110,24 +129,66 @@ func (a *App) buildWindow() {
 	toolbar.SetContent(a.toastOverlay)
 
 	a.win.SetContent(toolbar)
-
-	a.addSaveShortcut()
 }
 
-// addSaveShortcut binds Ctrl+S to an immediate save, complementing the 30s
-// autosave. Managed scope routes the accelerator through the window, so it fires
-// no matter which widget (editor, sidebar entry, tree) currently holds focus.
-func (a *App) addSaveShortcut() {
-	controller := gtk.NewShortcutController()
-	controller.SetScope(gtk.ShortcutScopeManaged)
-	controller.AddShortcut(gtk.NewShortcut(
-		gtk.NewKeyvalTrigger(gdk.KEY_s, gdk.ControlMask),
-		gtk.NewCallbackAction(func(gtk.Widgetter, *glib.Variant) bool {
-			a.saveCurrent()
-			return true
-		}),
-	))
-	a.win.AddController(controller)
+// buildMainMenu is the primary (hamburger) menu: everything the app can do that
+// isn't a one-click toolbar action, with its shortcut shown beside it.
+func (a *App) buildMainMenu() *gio.Menu {
+	menu := gio.NewMenu()
+
+	notes := gio.NewMenu()
+	notes.Append("New Note", "app.new-note")
+	notes.Append("New Checklist", "app.new-checklist")
+	notes.Append("New Folder", "app.new-folder")
+	menu.AppendSection("", notes)
+
+	current := gio.NewMenu()
+	current.Append("Save Now", "app.save")
+	current.Append("Rename…", "app.rename")
+	current.Append("Find a Note", "app.search")
+	menu.AppendSection("", current)
+
+	view := gio.NewMenu()
+	view.Append("Home Screen", "app.home")
+	view.Append("Toggle Vault Panel", "app.toggle-vault")
+	view.Append("Toggle Assistant", "app.toggle-assistant")
+	menu.AppendSection("", view)
+
+	app := gio.NewMenu()
+	app.Append("Settings", "app.settings")
+	app.Append("Keyboard Shortcuts", "app.shortcuts")
+	app.Append("About Atlas Notes", "app.about")
+	menu.AppendSection("", app)
+
+	return menu
+}
+
+// panePosition falls back to a default when the stored width is unset or absurd.
+func panePosition(stored, fallback int) int {
+	if stored < 120 || stored > 900 {
+		return fallback
+	}
+	return stored
+}
+
+// setWindowSubtitle shows the open note in the header bar, so the window title
+// says what you are looking at instead of repeating the app's version.
+func (a *App) setWindowSubtitle(note string) {
+	if a.windowTitle == nil {
+		return
+	}
+	if note == "" {
+		a.windowTitle.SetTitle("Atlas Notes")
+		a.windowTitle.SetSubtitle("")
+		a.win.SetTitle("Atlas Notes")
+		return
+	}
+	a.windowTitle.SetTitle(note)
+	a.windowTitle.SetSubtitle("Atlas Notes")
+	if fixedWindowTitle {
+		return
+	}
+	a.win.SetTitle(note + " — Atlas Notes")
 }
 
 // newPanel returns a vertical box with the given CSS class. Width is governed by

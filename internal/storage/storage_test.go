@@ -184,8 +184,8 @@ func TestReindexAndWelcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	notes, _ := s.ListNotes()
-	if len(notes) != 1 || notes[0].Path != "Welcome" {
-		t.Fatalf("welcome not created: %+v", notes)
+	if len(notes) != 1 || notes[0].Path != "Getting Started" {
+		t.Fatalf("guide note not created: %+v", notes)
 	}
 	if err := s.EnsureWelcome(); err != nil { // idempotent
 		t.Fatal(err)
@@ -255,4 +255,93 @@ func contains(ss []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestUniqueName(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "vault"), filepath.Join(dir, "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if got := s.UniqueName("", "Untitled note"); got != "Untitled note" {
+		t.Errorf("first name = %q", got)
+	}
+	if err := s.WriteNote("Untitled note", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.UniqueName("", "Untitled note"); got != "Untitled note 2" {
+		t.Errorf("second name = %q want %q", got, "Untitled note 2")
+	}
+	if err := s.WriteNote("Work/Untitled note", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.UniqueName("Work", "Untitled note"); got != "Work/Untitled note 2" {
+		t.Errorf("name in folder = %q", got)
+	}
+}
+
+// TestReindexIncremental covers the paths Reindex takes now that it skips
+// unchanged files: a new note is picked up, a deleted one is pruned, and a
+// second run over an untouched vault is a no-op.
+func TestReindexIncremental(t *testing.T) {
+	dir := t.TempDir()
+	vault := filepath.Join(dir, "vault")
+	s, err := Open(vault, filepath.Join(dir, "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	for _, name := range []string{"One", "Two", "Folder/Three"} {
+		if err := s.WriteNote(name, "# "+name+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.CountNotes(); n != 3 {
+		t.Fatalf("after reindex: %d notes, want 3", n)
+	}
+
+	// A file that appears without going through the store is picked up.
+	if err := s.WriteNote("Four", "# Four\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM notes WHERE path = 'Four'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.CountNotes(); n != 4 {
+		t.Fatalf("new file not indexed: %d notes, want 4", n)
+	}
+
+	// A file that disappears behind the store's back is pruned.
+	if err := os.Remove(s.notePath("Two")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.CountNotes(); n != 3 {
+		t.Fatalf("stale row not pruned: %d notes, want 3", n)
+	}
+	notes, _ := s.ListNotes()
+	for _, n := range notes {
+		if n.Path == "Two" {
+			t.Error("deleted note still indexed")
+		}
+	}
+
+	// Running again over an unchanged vault must be stable.
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.CountNotes(); n != 3 {
+		t.Fatalf("second reindex changed the index: %d notes", n)
+	}
 }

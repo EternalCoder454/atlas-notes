@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
@@ -18,19 +19,28 @@ const anchorChar = "￼"
 // vertically with the line's text.
 const checkboxTopNudge = 3
 
-// renderChecklists replaces the "- [x] " prefix of each raw task line with an
-// embedded checkbox widget (via a GtkTextChildAnchor). It is idempotent: lines
-// already starting with an anchor are skipped, so it is safe to call repeatedly.
-func (e *Editor) renderChecklists(excludeLine int) {
-	lines := strings.Split(e.rawText(), "\n")
+// renderChecklists replaces the "- [x] " prefix of each raw task line in
+// [from, to] with an embedded checkbox widget (via a GtkTextChildAnchor). It is
+// idempotent: lines already starting with an anchor are skipped, so it is safe
+// to call repeatedly, and a render pass only needs to cover the lines that
+// changed.
+func (e *Editor) renderChecklists(from, to, excludeLine int) {
+	if to < from {
+		return
+	}
 	e.loading = true
 	defer func() { e.loading = false }()
 
-	for ln, line := range lines {
+	for ln := from; ln <= to; ln++ {
 		if ln == excludeLine {
 			continue // leave the line being edited as raw markdown
 		}
+		line, ok := e.lineText(ln)
+		if !ok || line == "" {
+			continue
+		}
 		if strings.HasPrefix(line, anchorChar) {
+			e.hasAnchors = true
 			continue // already rendered
 		}
 		it, ok := checklist.ParseLine(line)
@@ -53,7 +63,25 @@ func (e *Editor) renderChecklists(excludeLine int) {
 		}
 		anchor := e.buffer.CreateChildAnchor(at)
 		e.view.AddChildAtAnchor(e.buildChecklistWidget(it), anchor)
+		e.hasAnchors = true
 	}
+}
+
+// lineText returns the text of one buffer line, including any anchor character,
+// without copying the rest of the document.
+func (e *Editor) lineText(ln int) (string, bool) {
+	start, ok := e.buffer.IterAtLine(ln)
+	if !ok {
+		return "", false
+	}
+	end, ok := e.buffer.IterAtLine(ln)
+	if !ok {
+		return "", false
+	}
+	if !end.EndsLine() {
+		end.ForwardToLineEnd()
+	}
+	return e.buffer.Slice(start, end, true), true
 }
 
 func (e *Editor) buildChecklistWidget(it checklist.Item) *gtk.Box {
@@ -62,7 +90,7 @@ func (e *Editor) buildChecklistWidget(it checklist.Item) *gtk.Box {
 	box.SetVAlign(gtk.AlignCenter)
 
 	bar := gtk.NewBox(gtk.OrientationVertical, 0)
-	bar.SetSizeRequest(4, -1)
+	bar.SetSizeRequest(3, -1)
 	bar.AddCSSClass("priority-bar")
 	applyPriorityClass(bar, it.Priority)
 
@@ -70,6 +98,7 @@ func (e *Editor) buildChecklistWidget(it checklist.Item) *gtk.Box {
 	cb.SetVAlign(gtk.AlignCenter)
 	cb.SetMarginTop(checkboxTopNudge) // drop the box down to center on the text
 	cb.SetActive(it.Checked)          // set before connecting so it doesn't fire OnChanged
+	cb.SetTooltipText("Toggle task · right-click for priority and due date")
 	cb.ConnectToggled(func() {
 		if e.loading {
 			return
@@ -77,10 +106,17 @@ func (e *Editor) buildChecklistWidget(it checklist.Item) *gtk.Box {
 		if e.OnChanged != nil {
 			e.OnChanged()
 		}
+		if ln := e.lineForBox(box); ln >= 0 {
+			e.markDirty(ln, ln) // strike the text through as soon as it is ticked
+		}
+		e.scheduleReparse()
 	})
 
 	box.Append(bar)
 	box.Append(cb)
+	if chip := dueChip(it.DueDate); chip != nil {
+		box.Append(chip)
+	}
 
 	gesture := gtk.NewGestureClick()
 	gesture.SetButton(3) // secondary (right) click
@@ -170,6 +206,7 @@ func (e *Editor) updateItem(box, bar *gtk.Box, cb *gtk.CheckButton, mut func(*ch
 	}
 	e.replaceAfterAnchor(ln, len([]rune(lines[ln])), newBody)
 	applyPriorityClass(bar, it.Priority)
+	e.markDirty(ln, ln)
 	e.markEdited()
 }
 
@@ -189,6 +226,7 @@ func (e *Editor) removeItem(box *gtk.Box) {
 	e.loading = true
 	e.buffer.Delete(start, end)
 	e.loading = false
+	e.markDirty(ln, ln)
 	e.markEdited()
 }
 
@@ -211,7 +249,7 @@ func (e *Editor) replaceAfterAnchor(ln, rawLineLen int, newBody string) {
 // lineForBox returns the buffer line whose anchor hosts box, or -1.
 func (e *Editor) lineForBox(box *gtk.Box) int {
 	target := coreglib.BaseObject(box).Native()
-	total := strings.Count(e.rawText(), "\n") + 1
+	total := e.buffer.LineCount()
 	for ln := 0; ln < total; ln++ {
 		it, ok := e.buffer.IterAtLineOffset(ln, 0)
 		if !ok {
@@ -288,6 +326,35 @@ func checkButtonIn(w gtk.Widgetter) *gtk.CheckButton {
 		c = ns.NextSibling()
 	}
 	return nil
+}
+
+// dueChip renders an item's due date as a small inline badge, so a date set
+// from the context menu is visible in the note instead of hidden in metadata.
+// It turns red once the date has passed and amber when it is today.
+func dueChip(due string) *gtk.Label {
+	if due == "" {
+		return nil
+	}
+	t, err := time.Parse("2006-01-02", due)
+	if err != nil {
+		return nil
+	}
+	label := gtk.NewLabel(t.Format("Jan 2"))
+	label.AddCSSClass("due-chip")
+	label.SetVAlign(gtk.AlignCenter)
+	label.SetMarginTop(checkboxTopNudge)
+	today := time.Now().Truncate(24 * time.Hour)
+	switch day := t.Truncate(24 * time.Hour); {
+	case day.Before(today):
+		label.AddCSSClass("due-overdue")
+		label.SetTooltipText("Overdue · " + t.Format("Mon, Jan 2 2006"))
+	case day.Equal(today):
+		label.AddCSSClass("due-today")
+		label.SetTooltipText("Due today")
+	default:
+		label.SetTooltipText("Due " + t.Format("Mon, Jan 2 2006"))
+	}
+	return label
 }
 
 func sectionLabel(text string) *gtk.Label {

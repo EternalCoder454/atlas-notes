@@ -17,10 +17,15 @@ packages are installed.
 - **Local-first & private.** Every note lives under your home directory as a
   zstd-compressed Markdown file. No account, no cloud, no telemetry. It works
   fully offline.
-- **WYSIWYG Markdown.** Headings, **bold**, *italic*, and `code` render as you
-  type; the syntax markers hide except on the line you're editing.
+- **WYSIWYG Markdown.** Headings, **bold**, *italic*, `code`, ~~strikethrough~~,
+  bullets, quotes and dividers render as you type; the syntax markers hide except
+  on the line you're editing. A formatting toolbar and shortcuts (Ctrl+B, Ctrl+I,
+  Ctrl+1…) do the same without typing the markers.
 - **Real checklists.** `- [ ]` lines become live checkboxes with priority colors
-  and per-item due dates (set from a right-click menu).
+  and per-item due dates (set from a right-click menu, shown as a badge on the
+  item). The header tracks how many are done.
+- **Find anything.** Search the whole vault by name from the side panel
+  (**Ctrl+K**); every command has a keyboard shortcut, listed under **Ctrl+?**.
 - **Local AI that never blocks the UI.** Summarize, Clean & Format, re-sort a
   checklist by priority, or ask a free-form question — all via a local
   [Ollama](https://ollama.com) model, each call on a background thread. The AI is
@@ -28,8 +33,9 @@ packages are installed.
 - **Snappy & stable.** Instant **Ctrl + S** plus background autosave, an indexed
   vault (embedded SQLite) for fast browsing, and atomic writes so a note is never
   half-saved.
-- **Three-panel layout** — folder tree · editor · AI assistant — each panel
-  drag-resizable and collapsible from the header bar.
+- **Three-panel layout** — vault · editor · AI assistant — each panel
+  drag-resizable and collapsible from the header bar, with a home screen that
+  puts new notes, search and your recent work one click away.
 
 ## Install on Fedora
 
@@ -55,7 +61,7 @@ The script:
    in-app updater uses).
 3. Runs `make install` → installs the binary, `.desktop` entry, and icon under
    `~/.local`.
-4. Installs Ollama and pulls the default model `qwen2.5:3b` (~2 GB).
+4. Installs Ollama and pulls the default model `qwen3.5:9b` (Q4_K_M, ~5.5 GB).
 
 Then launch **Atlas Notes** from the Activities/Super menu, or run `atlas-notes`.
 
@@ -86,7 +92,7 @@ Set up Ollama (the installer does this for you):
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:3b
+ollama pull qwen3.5:9b
 ```
 
 **Make it your own.** Open **Settings** (the gear icon, top-right) → *Model &
@@ -141,12 +147,14 @@ on first run:
 | Key | Meaning |
 | --- | ------- |
 | `vault_path` | directory holding your notes |
-| `model` | Ollama model name (default `qwen2.5:3b`) |
+| `model` | Ollama model name (default `qwen3.5:9b`, the Q4_K_M build) |
 | `system_prompt` | system prompt sent with every AI call |
 | `actions` | the AI buttons: `[{ "name", "prompt", "mode" }]` (`mode` ∈ `show`/`replace`/`sort`) |
 | `enable_tree_summaries` | show a 1-sentence AI summary when hovering a note |
+| `font_rendering` | `auto` (default), `crisp` (hinted — sharper at 1080p) or `smooth` (GTK default — for HiDPI) |
 | `last_note` | note reopened on launch |
 | `window_width` / `window_height` | remembered window size |
+| `left_panel_width` / `right_panel_width` | remembered panel widths |
 
 Most of this is editable from the in-app Settings dialog.
 
@@ -179,7 +187,30 @@ Make targets:
 | `make uninstall` | remove the installed files |
 | `make clean` | remove `bin/` |
 
-Run the (GTK-free) test suite with `go test ./...`.
+Run the (GTK-free) test suite with `go test ./...`, and the microbenchmarks with
+`go test -run XXX -bench . ./internal/...`.
+
+### Measuring the app itself
+
+The binary has a built-in harness for the things a unit test can't see. It is
+inert unless one of these is set:
+
+| Variable | What it does |
+| -------- | ------------ |
+| `ATLAS_TRACE=1` | print startup phase timings (config, index, window, first frame) |
+| `ATLAS_BENCH=startup` | print a JSON report once the window is painted, then quit |
+| `ATLAS_BENCH=idle=10` | sit idle 10s, report the CPU, memory and I/O consumed |
+| `ATLAS_BENCH=editor=300` | 300 type-and-render cycles on the open note, report latency |
+| `ATLAS_BENCH=open=100` | open notes round-robin, report per-note latency |
+| `ATLAS_DEBUG_FONTS=1` | print the text-rendering settings and each monitor's scale |
+
+### Text looks soft or uneven
+
+GTK 4 renders glyphs unhinted, which suits a HiDPI screen but looks soft at 1x —
+a 1080p monitor, typically. Atlas Notes picks per display (and re-picks when you
+drag the window between screens); **Settings → Text rendering** forces *Crisp* or
+*Smooth* if you disagree with its choice. `ATLAS_DEBUG_FONTS=1` shows what it
+decided and why.
 
 ### Optional: GPU acceleration (AMD ROCm)
 

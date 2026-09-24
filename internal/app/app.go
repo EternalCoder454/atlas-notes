@@ -3,12 +3,10 @@
 package app
 
 import (
-	"fmt"
 	"log"
 	"path"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -58,17 +56,31 @@ type App struct {
 	editor  *editor.Editor
 	sidebar *ui.Sidebar
 
-	titleEntry  *gtk.Entry
-	saveDot     *gtk.Box
-	saveLabel   *gtk.Label
-	statusLabel *gtk.Label
+	windowTitle *adw.WindowTitle
+	leftToggle  *gtk.ToggleButton
+	rightToggle *gtk.ToggleButton
+	outerPaned  *gtk.Paned
+	innerPaned  *gtk.Paned
+	centerStack *gtk.Stack
 
-	currentNote  string
-	dirty        bool
-	saveState    int
-	autosaveGen  int
-	saveInFlight bool           // an async save is running
-	saveWG       sync.WaitGroup // tracks the in-flight async save goroutine
+	titleEntry    *gtk.Entry
+	breadcrumb    *gtk.Label
+	saveDot       *gtk.Box
+	saveLabel     *gtk.Label
+	statusLabel   *gtk.Label
+	readTimeLabel *gtk.Label
+	vaultLabel    *gtk.Label
+	taskProgress  *gtk.Label
+
+	fontMode       string // text-rendering mode currently applied (see fonts.go)
+	reindexPending bool   // the vault scan runs after the first frame
+	welcomeBuilt   bool   // the home screen is constructed on first use
+	currentNote    string
+	dirty          bool
+	saveState      int
+	autosaveGen    int
+	saveInFlight   bool           // an async save is running
+	saveWG         sync.WaitGroup // tracks the in-flight async save goroutine
 
 	toastOverlay  *adw.ToastOverlay
 	aiUndoContent string // note content before the last AI change (one-step undo)
@@ -92,42 +104,111 @@ func (a *App) Run(args []string) int {
 }
 
 func (a *App) activate() {
+	mark("activate")
 	cfg, err := storage.LoadConfig()
 	if err != nil {
 		log.Printf("atlas-notes: load config: %v", err)
 	}
 	a.cfg = cfg
+	mark("config")
 
 	store, err := storage.Open(cfg.VaultPath, "")
 	if err != nil {
 		log.Printf("atlas-notes: open storage: %v", err)
 	} else {
 		a.store = store
-		if err := a.store.Reindex(); err != nil {
-			log.Printf("atlas-notes: reindex: %v", err)
+		mark("store-open")
+		// The index is a cache of what is on disk. When it already has content
+		// the window can be built from it immediately and the vault scan runs
+		// after the first frame (see scheduleReindex) — that scan is the only
+		// part of startup that grows with the size of the vault. An empty index
+		// (first launch, or a vault copied in) has to be built up front.
+		if a.store.IsIndexEmpty() {
+			if err := a.store.Reindex(); err != nil {
+				log.Printf("atlas-notes: reindex: %v", err)
+			}
+			if err := a.store.EnsureWelcome(); err != nil {
+				log.Printf("atlas-notes: welcome note: %v", err)
+			}
+		} else {
+			a.reindexPending = true
 		}
-		if err := a.store.EnsureWelcome(); err != nil {
-			log.Printf("atlas-notes: welcome note: %v", err)
-		}
+		mark("reindex")
 	}
 
 	a.ai = ai.NewClient(cfg.Model, cfg.SystemPrompt)
 
 	a.loadCSS()
+	a.applyFontRendering()
+	mark("css")
 	a.buildWindow()
+	mark("window-built")
 	a.win.SetVisible(true)
+	a.applyFontRendering() // now that the window's own screen is known
+	a.watchScaleChanges()
+	mark("window-shown")
 
 	a.openInitialNote()
+	mark("initial-note")
+
+	a.scheduleReindex()
+	a.runBench()
+	a.runDevView()
+	printTrace()
 }
 
 func (a *App) shutdown() {
 	a.flushDirty()
+	a.rememberLayout()
 	if err := storage.SaveConfig(a.cfg); err != nil {
 		log.Printf("atlas-notes: save config: %v", err)
 	}
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {
 			log.Printf("atlas-notes: close storage: %v", err)
+		}
+	}
+}
+
+// scheduleReindex runs the deferred vault scan just after the window is up. It
+// happens on an idle callback at low priority, so the first frame paints first;
+// the tree is refreshed only if the scan actually changed something.
+func (a *App) scheduleReindex() {
+	if !a.reindexPending || a.store == nil {
+		return
+	}
+	a.reindexPending = false
+	coreglib.IdleAddPriority(coreglib.PriorityLow, func() bool {
+		before, _ := a.store.CountNotes()
+		if err := a.store.Reindex(); err != nil {
+			log.Printf("atlas-notes: reindex: %v", err)
+			return false
+		}
+		if err := a.store.EnsureWelcome(); err != nil {
+			log.Printf("atlas-notes: welcome note: %v", err)
+		}
+		if after, _ := a.store.CountNotes(); after != before && a.tree != nil {
+			a.tree.Refresh()
+			a.refreshWelcome()
+		}
+		return false
+	})
+}
+
+// rememberLayout stores the window and panel sizes so the next launch opens the
+// way the user left it.
+func (a *App) rememberLayout() {
+	if a.win != nil {
+		if w, h := a.win.DefaultSize(); w > 0 && h > 0 {
+			a.cfg.WindowWidth, a.cfg.WindowHeight = w, h
+		}
+	}
+	if a.outerPaned != nil {
+		a.cfg.LeftPanelWidth = a.outerPaned.Position()
+	}
+	if a.innerPaned != nil && a.win != nil {
+		if w := a.win.AllocatedWidth(); w > 0 {
+			a.cfg.RightPanelWidth = w - a.outerPaned.Position() - a.innerPaned.Position()
 		}
 	}
 }
@@ -159,7 +240,9 @@ func (a *App) openNote(rel string) {
 	a.dirty = false
 	a.cfg.LastNote = rel
 	a.editor.SetContent(content)
+	a.showEditorPage()
 	a.refreshHeader()
+	a.editor.Focus()
 	if a.tree != nil {
 		a.tree.SetCurrent(rel)
 	}
@@ -174,19 +257,12 @@ func (a *App) onDeleted(rel string, isFolder bool) {
 	if !affected {
 		return
 	}
-	a.currentNote = ""
-	a.dirty = false
-	if a.editor != nil {
-		a.editor.SetContent("")
-	}
 	if a.titleEntry != nil {
 		a.titleEntry.Buffer().SetText("", -1)
 	}
 	a.setSaveState(saveSaved)
 	a.updateStats()
-	if a.tree != nil {
-		a.tree.SetCurrent("")
-	}
+	a.showWelcome()
 }
 
 // onMoved keeps the open note in sync after it's dragged into another folder.
@@ -196,15 +272,15 @@ func (a *App) onMoved(oldRel, newRel string) {
 	}
 	a.currentNote = newRel
 	a.cfg.LastNote = newRel
-	if a.titleEntry != nil {
-		a.titleEntry.Buffer().SetText(path.Base(newRel), -1)
-	}
+	a.refreshHeader()
 	if a.tree != nil {
 		a.tree.SetCurrent(newRel)
 	}
 }
 
-// openInitialNote opens the last-used note, falling back to Welcome.
+// openInitialNote reopens the note from last time. When there isn't one — a
+// fresh install, or the note has been deleted — the home screen is shown
+// instead of dropping the user into a document they never wrote.
 func (a *App) openInitialNote() {
 	if a.store == nil || a.editor == nil {
 		return
@@ -216,7 +292,8 @@ func (a *App) openInitialNote() {
 		}
 	}
 	if target == "" {
-		target = "Welcome"
+		a.showWelcome()
+		return
 	}
 	a.openNote(target)
 }
@@ -397,31 +474,10 @@ func (a *App) onTitleActivate() {
 	}
 }
 
-// refreshHeader syncs the title entry, stats, and save indicator with the open note.
-func (a *App) refreshHeader() {
-	if a.titleEntry != nil {
-		a.titleEntry.Buffer().SetText(path.Base(a.currentNote), -1)
-	}
-	a.updateStats()
-	a.setSaveState(saveSaved)
-}
-
 func (a *App) updateStats() {
 	if a.editor != nil {
 		a.updateStatsWith(a.editor.Content())
 	}
-}
-
-// updateStatsWith sets the word/character counter from already-fetched content,
-// so the debounced reparse reuses one reconstruction for both the counter and
-// the AI button state instead of rebuilding the document text twice.
-func (a *App) updateStatsWith(content string) {
-	if a.statusLabel == nil {
-		return
-	}
-	words := len(strings.Fields(content))
-	chars := utf8.RuneCountInString(content)
-	a.statusLabel.SetText(fmt.Sprintf("%d words · %d characters", words, chars))
 }
 
 // setSaveState updates the red/amber/green save dot and its label.

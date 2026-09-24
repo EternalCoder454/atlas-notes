@@ -28,7 +28,7 @@ type Sidebar struct {
 	client *ai.Client
 
 	widget     *gtk.Box
-	orb        *logoOrb
+	orb        *Orb
 	nameLabel  *gtk.Label
 	statusDot  *gtk.Box
 	statsLabel *gtk.Label
@@ -38,6 +38,8 @@ type Sidebar struct {
 	menuBtn    *gtk.MenuButton
 	actionsPop *gtk.Popover
 	editToggle *gtk.ToggleButton
+
+	suggestions *gtk.FlowBox
 
 	setupCard  *gtk.Box
 	setupTitle *gtk.Label
@@ -52,6 +54,7 @@ type Sidebar struct {
 	busy         bool
 	ready        bool
 	probing      bool
+	pollSeconds  int
 	streamStart  time.Time
 	streamTokens int
 	respBuilder  strings.Builder
@@ -76,7 +79,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.widget.SetMarginEnd(12)
 
 	// Animated avatar orb (Cairo; eases between idle and generating).
-	s.orb = newLogoOrb()
+	s.orb = NewOrb(86)
 	s.widget.Append(s.orb)
 
 	// Name (editable via Settings).
@@ -89,7 +92,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	statsRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	statsRow.SetHAlign(gtk.AlignCenter)
 	s.statusDot = gtk.NewBox(gtk.OrientationHorizontal, 0)
-	s.statusDot.SetSizeRequest(9, 9)
+	s.statusDot.SetSizeRequest(8, 8)
 	s.statusDot.SetVAlign(gtk.AlignCenter)
 	s.statusDot.AddCSSClass("status-dot")
 	s.statusDot.AddCSSClass("offline")
@@ -113,10 +116,12 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.answer.SetYAlign(0)
 	s.answer.SetVAlign(gtk.AlignStart)
 	s.answer.SetSelectable(true)
+	s.answer.SetCanFocus(false) // selectable text, but it must not steal focus
 	s.answer.AddCSSClass("ai-answer")
 	s.setIdleAnswer()
-	answerBox := gtk.NewBox(gtk.OrientationVertical, 0)
+	answerBox := gtk.NewBox(gtk.OrientationVertical, 10)
 	answerBox.Append(s.answer)
+	answerBox.Append(s.buildSuggestions())
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetChild(answerBox)
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
@@ -142,8 +147,10 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.askEntry.SetHExpand(true)
 	s.askEntry.SetPlaceholderText(s.placeholder())
 	s.askEntry.ConnectActivate(s.onSend)
-	s.sendBtn = gtk.NewButtonWithLabel("Send")
+	s.sendBtn = gtk.NewButtonFromIconName("go-up-symbolic")
 	s.sendBtn.AddCSSClass("suggested-action")
+	s.sendBtn.AddCSSClass("circular")
+	s.sendBtn.SetTooltipText("Send (Enter)")
 	s.sendBtn.ConnectClicked(s.onSend)
 	bar.Append(s.menuBtn)
 	bar.Append(s.editToggle)
@@ -201,9 +208,11 @@ func (s *Sidebar) onModeToggled() {
 	}
 	if s.sendBtn != nil {
 		if s.editToggle.Active() {
-			s.sendBtn.SetLabel("Edit")
+			s.sendBtn.SetTooltipText("Apply this instruction to the note")
+			s.sendBtn.SetIconName("document-edit-symbolic")
 		} else {
-			s.sendBtn.SetLabel("Send")
+			s.sendBtn.SetTooltipText("Send (Enter)")
+			s.sendBtn.SetIconName("go-up-symbolic")
 		}
 	}
 }
@@ -299,11 +308,36 @@ func (s *Sidebar) buildSetupCard() *gtk.Box {
 	return card
 }
 
+// Ollama readiness polling. The app is useful without Ollama, so an offline
+// server must not cost anything: the interval backs off from 10s to a minute
+// while nothing is there, and snaps back as soon as the server answers. A
+// hidden panel isn't polled at all.
+const (
+	pollMinSeconds = 10
+	pollMaxSeconds = 60
+)
+
 func (s *Sidebar) startStatusPoll() {
+	s.pollSeconds = pollMinSeconds
 	s.probe()
-	coreglib.TimeoutSecondsAdd(10, func() bool {
+	s.schedulePoll()
+}
+
+// schedulePoll arms the next readiness check at the current interval.
+func (s *Sidebar) schedulePoll() {
+	interval := s.pollSeconds
+	coreglib.TimeoutSecondsAdd(uint(interval), func() bool {
+		if s.widget != nil && !s.widget.Mapped() {
+			// The assistant panel is hidden; there is nothing to update.
+			s.schedulePoll()
+			return false
+		}
 		s.probe()
-		return true // keep polling
+		if interval != s.pollSeconds {
+			s.schedulePoll() // the interval changed: re-arm at the new one
+			return false
+		}
+		return true
 	})
 }
 
@@ -329,6 +363,14 @@ func (s *Sidebar) probe() {
 func (s *Sidebar) onProbe(model string, models []string, err error) {
 	s.probing = false
 	reachable := err == nil
+	if reachable {
+		s.pollSeconds = pollMinSeconds
+	} else if s.pollSeconds < pollMaxSeconds {
+		s.pollSeconds *= 2 // nothing there: check progressively less often
+		if s.pollSeconds > pollMaxSeconds {
+			s.pollSeconds = pollMaxSeconds
+		}
+	}
 	s.ready = reachable && modelInstalled(models, model)
 	s.setStatus(reachable)
 
@@ -379,7 +421,7 @@ func (s *Sidebar) setStatus(online bool) {
 
 func (s *Sidebar) setBusy(busy bool) {
 	s.busy = busy
-	s.orb.setActive(busy) // swell + brighten the orb while generating
+	s.orb.SetActive(busy) // swell + brighten the orb while generating
 	enabled := !busy && s.ready
 	s.askEntry.SetSensitive(enabled)
 	s.sendBtn.SetSensitive(enabled)
@@ -411,9 +453,13 @@ func (s *Sidebar) refreshStats() {
 	}
 }
 
-func (s *Sidebar) setAnswerText(text string) { s.answer.SetText(text) }
+func (s *Sidebar) setAnswerText(text string) {
+	s.answer.SetText(text)
+	s.setSuggestionsVisible(false)
+}
 
 func (s *Sidebar) setAnswerMarkdown(md string) {
+	s.setSuggestionsVisible(false)
 	if strings.TrimSpace(md) == "" {
 		s.answer.SetText("")
 		return
@@ -423,7 +469,53 @@ func (s *Sidebar) setAnswerMarkdown(md string) {
 
 // setIdleAnswer shows a faint hint before any question is asked.
 func (s *Sidebar) setIdleAnswer() {
-	s.answer.SetMarkup(`<span alpha='55%'>Ask a question about this note, run an action from the menu, or turn on edit mode (the pencil) to change the note with an instruction.</span>`)
+	s.answer.SetMarkup(`<span alpha='55%'>Ask anything about the note you have open. Nothing is sent anywhere — the model runs on this machine.</span>`)
+}
+
+// buildSuggestions offers one-tap prompts, so the assistant shows what it can
+// do instead of waiting behind an empty text field.
+func (s *Sidebar) buildSuggestions() *gtk.FlowBox {
+	s.suggestions = gtk.NewFlowBox()
+	s.suggestions.SetSelectionMode(gtk.SelectionNone)
+	s.suggestions.SetColumnSpacing(6)
+	s.suggestions.SetRowSpacing(6)
+	s.suggestions.SetMaxChildrenPerLine(2)
+	s.suggestions.SetHomogeneous(false)
+	s.suggestions.AddCSSClass("ai-suggestions")
+	for _, prompt := range []string{
+		"Summarise this note",
+		"What are the open tasks?",
+		"Suggest a better title",
+		"Explain this to a beginner",
+	} {
+		p := prompt
+		chip := gtk.NewButtonWithLabel(p)
+		chip.AddCSSClass("ai-chip")
+		chip.ConnectClicked(func() {
+			if s.askEntry == nil {
+				return
+			}
+			s.askEntry.Buffer().SetText(p, -1)
+			s.runAsk()
+		})
+		s.suggestions.Append(chip)
+	}
+	return s.suggestions
+}
+
+// FocusInput puts the caret in the prompt field (Ctrl+L).
+func (s *Sidebar) FocusInput() {
+	if s.askEntry != nil {
+		s.askEntry.GrabFocus()
+	}
+}
+
+// setSuggestionsVisible hides the starter chips once there is a real answer on
+// screen, and brings them back when the panel returns to idle.
+func (s *Sidebar) setSuggestionsVisible(v bool) {
+	if s.suggestions != nil {
+		s.suggestions.SetVisible(v)
+	}
 }
 
 // runStream runs a streaming AI call. When echo is true, tokens append to the

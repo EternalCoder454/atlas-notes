@@ -9,13 +9,29 @@ import (
 // AppName is the XDG application directory name.
 const AppName = "atlas-notes"
 
-// DefaultModel is the Ollama model used when config omits one.
-const DefaultModel = "qwen2.5:3b"
+// DefaultModel is the Ollama model used when config omits one. Ollama serves
+// the plain tag as the Q4_K_M build, which is the quantization Atlas Notes is
+// tuned for: good instruction-following at ~5.5 GB.
+const DefaultModel = "qwen3.5:9b"
+
+// oldDefaultModel was the default before DefaultModel. A config still holding
+// it means the user never chose a model, so it is upgraded on load (a model the
+// user picked themselves is never touched).
+const oldDefaultModel = "qwen2.5:3b"
 
 // Update channels: Release follows the main branch, Beta follows the beta branch.
 const (
 	ChannelRelease = "release"
 	ChannelBeta    = "beta"
+)
+
+// Font-rendering modes. "crisp" hints glyphs onto the pixel grid, which is what
+// a 1x (e.g. 1080p) display needs; "smooth" leaves GTK's unhinted defaults,
+// which suit a HiDPI screen; "auto" picks per display.
+const (
+	FontRenderingAuto   = "auto"
+	FontRenderingCrisp  = "crisp"
+	FontRenderingSmooth = "smooth"
 )
 
 // DefaultAssistantName is the AI assistant's display name when config omits one.
@@ -80,13 +96,17 @@ func ensureSortAction(actions []AIAction) []AIAction {
 
 // Config holds user settings persisted to ~/.config/atlas-notes/config.json.
 type Config struct {
-	VaultPath     string `json:"vault_path"`
-	LastNote      string `json:"last_note"`
-	WindowWidth   int    `json:"window_width"`
-	WindowHeight  int    `json:"window_height"`
-	Model         string `json:"model"`
-	AssistantName string `json:"assistant_name"`
-	UpdateChannel string `json:"update_channel"`
+	VaultPath    string `json:"vault_path"`
+	LastNote     string `json:"last_note"`
+	WindowWidth  int    `json:"window_width"`
+	WindowHeight int    `json:"window_height"`
+	// Panel widths are remembered so the layout survives a restart.
+	LeftPanelWidth  int    `json:"left_panel_width"`
+	RightPanelWidth int    `json:"right_panel_width"`
+	Model           string `json:"model"`
+	FontRendering   string `json:"font_rendering"` // auto | crisp | smooth
+	AssistantName   string `json:"assistant_name"`
+	UpdateChannel   string `json:"update_channel"`
 
 	SystemPrompt        string     `json:"system_prompt"`
 	Actions             []AIAction `json:"actions"`
@@ -130,6 +150,7 @@ func DefaultConfig() Config {
 		WindowWidth:   1100,
 		WindowHeight:  720,
 		Model:         DefaultModel,
+		FontRendering: FontRenderingAuto,
 		AssistantName: DefaultAssistantName,
 		UpdateChannel: ChannelRelease,
 		SystemPrompt:  DefaultSystemPrompt,
@@ -154,11 +175,16 @@ func LoadConfig() (Config, error) {
 	if cfg.VaultPath == "" {
 		cfg.VaultPath = DefaultVaultPath()
 	}
-	if cfg.Model == "" {
+	if cfg.Model == "" || cfg.Model == oldDefaultModel {
 		cfg.Model = DefaultModel
 	}
 	if cfg.UpdateChannel == "" {
 		cfg.UpdateChannel = ChannelRelease
+	}
+	switch cfg.FontRendering {
+	case FontRenderingCrisp, FontRenderingSmooth:
+	default:
+		cfg.FontRendering = FontRenderingAuto
 	}
 	if cfg.AssistantName == "" {
 		cfg.AssistantName = DefaultAssistantName

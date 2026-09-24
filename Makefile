@@ -1,9 +1,15 @@
 BIN     := bin/atlas-notes
-VERSION ?= 0.4.3
+VERSION ?= 0.5.0
 PREFIX  := $(HOME)/.local
 
 # Injected into the binary: the source dir (for the in-app updater) and version.
-LDFLAGS := -X 'atlas-notes/internal/app.buildDir=$(CURDIR)' -X 'atlas-notes/internal/app.version=$(VERSION)'
+# -s -w drop the symbol table and DWARF data: the binary is a third smaller, so
+# there is less to read off disk at every launch. Panics still carry full Go
+# stack traces; only external debuggers lose information. (-trimpath is
+# deliberately left out: it invalidates every cached gotk4 object, which would
+# turn the next build — including the in-app update — back into a five-minute
+# one.)
+LDFLAGS := -s -w -X 'atlas-notes/internal/app.buildDir=$(CURDIR)' -X 'atlas-notes/internal/app.version=$(VERSION)'
 BINDIR  := $(PREFIX)/bin
 APPDIR  := $(PREFIX)/share/applications
 ICONDIR := $(PREFIX)/share/icons/hicolor/scalable/apps

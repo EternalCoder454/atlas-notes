@@ -3,15 +3,24 @@
  *
  * Colors use libadwaita named colors (@view_bg_color, @sidebar_bg_color, …) so
  * they automatically follow the system light/dark preference. The only
- * hardcoded colors are the intentional semantic indicators: the Ollama status
- * dot (green/red) and the checklist priority bars (red/amber/green).
+ * hardcoded colors are the intentional semantic indicators — the Ollama status
+ * dot, the save state, the checklist priority bars and due dates — plus the
+ * app's own purple, which is its identity rather than a theme color.
+ *
+ * Spacing follows a 4px scale: 4 / 8 / 12 / 16 / 24.
  */
+
+/* ---- Identity ---- */
+
+.atlas-window {
+	--atlas-purple: #9a57e3;
+}
 
 /* ---- Panels ---- */
 
 .left-panel {
 	background-color: @sidebar_bg_color;
-	border-right: 1px solid alpha(@window_fg_color, 0.10);
+	border-right: 1px solid alpha(@window_fg_color, 0.08);
 }
 
 .center-panel {
@@ -20,27 +29,137 @@
 
 .right-panel {
 	background-color: @sidebar_bg_color;
-	border-left: 1px solid alpha(@window_fg_color, 0.10);
+	border-left: 1px solid alpha(@window_fg_color, 0.08);
 }
 
-/* ---- Note header & status ---- */
+.atlas-header {
+	box-shadow: none;
+	border-bottom: 1px solid alpha(@window_fg_color, 0.06);
+}
+
+/* ---- Vault panel ---- */
+
+.vault-header {
+	padding: 10px 10px 8px 10px;
+	border-bottom: 1px solid alpha(@window_fg_color, 0.06);
+}
+
+.vault-title {
+	font-weight: 700;
+	font-size: 0.95em;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	opacity: 0.75;
+}
+
+.vault-count {
+	font-size: 0.85em;
+	opacity: 0.45;
+}
+
+.vault-header button.flat {
+	min-width: 26px;
+	min-height: 26px;
+	padding: 2px;
+	opacity: 0.7;
+}
+
+.vault-header button.flat:hover {
+	opacity: 1;
+}
+
+.vault-search {
+	border-radius: 8px;
+	min-height: 30px;
+	font-size: 0.95em;
+}
+
+.vault-empty {
+	padding: 24px 18px;
+}
+
+.vault-empty-title {
+	font-weight: 700;
+	opacity: 0.7;
+}
+
+.vault-empty-hint {
+	font-size: 0.88em;
+	opacity: 0.45;
+}
+
+/* Pull rows close to the panel edge; depth indent is applied in code. */
+.navigation-sidebar {
+	padding: 4px 6px;
+	background: transparent;
+}
+
+.navigation-sidebar > row {
+	border-radius: 7px;
+	margin: 1px 0;
+	min-height: 30px;
+	padding: 2px 6px;
+}
+
+.navigation-sidebar > row:selected {
+	background-color: alpha(@accent_bg_color, 0.16);
+	color: @window_fg_color;
+	font-weight: 600;
+	box-shadow: inset 2px 0 0 @accent_bg_color;
+}
+
+.navigation-sidebar image {
+	opacity: 0.55;
+}
+
+/* Folder shown beside a note's name in search results. */
+.row-caption {
+	font-size: 0.8em;
+	opacity: 0.4;
+}
+
+/* ---- Note header ---- */
+
+.note-header {
+	padding: 10px 20px 4px 20px;
+}
+
+.breadcrumb {
+	font-size: 0.8em;
+	opacity: 0.45;
+	margin-bottom: -2px;
+}
 
 .note-title {
-	font-weight: bold;
-	font-size: 1.1em;
+	font-weight: 700;
+	font-size: 1.45em;
+	background: none;
+	padding: 0;
+	min-height: 34px;
+	box-shadow: none;
 }
 
-.save-indicator,
-.status-bar {
-	color: alpha(@window_fg_color, 0.55);
-	font-size: 0.85em;
+.note-title:focus-within {
+	box-shadow: none;
+	outline: none;
 }
 
-/* Save indicator dot — intentional semantic colors (red/amber/green). */
+/* Save indicator — intentional semantic colors (red/amber/green). */
+.save-pill {
+	padding: 3px 10px;
+	border-radius: 9999px;
+	background-color: alpha(@window_fg_color, 0.05);
+}
+
+.save-indicator {
+	font-size: 0.8em;
+	opacity: 0.6;
+}
+
 .save-dot {
 	border-radius: 9999px;
-	min-width: 10px;
-	min-height: 10px;
+	min-width: 8px;
+	min-height: 8px;
 }
 
 .save-dot.save-saved {
@@ -55,64 +174,279 @@
 	background-color: #f5c211; /* amber: autosaving */
 }
 
-/* ---- Editor toolbar: compact, no shadow ---- */
+/* ---- Formatting toolbar ---- */
 
-.editor-toolbar {
+.format-bar {
+	padding: 2px 16px 6px 16px;
+	border-bottom: 1px solid alpha(@window_fg_color, 0.06);
+}
+
+.format-button {
+	min-width: 28px;
+	min-height: 28px;
+	padding: 2px;
+	opacity: 0.6;
+	border-radius: 6px;
+}
+
+.format-button:hover {
+	opacity: 1;
+	background-color: alpha(@window_fg_color, 0.07);
+}
+
+/* Toolbar entries with no icon in the theme fall back to their glyph. */
+.format-text-button {
+	font-weight: 700;
+	font-size: 0.88em;
+}
+
+.format-sep {
+	margin: 5px 6px;
+	opacity: 0.35;
+}
+
+.task-progress {
+	font-size: 0.82em;
+	opacity: 0.55;
+	padding: 2px 8px;
+	border-radius: 9999px;
+	background-color: alpha(@window_fg_color, 0.05);
+}
+
+.task-progress.task-complete {
+	color: #2ec27e;
+	background-color: alpha(#2ec27e, 0.12);
+	opacity: 1;
+}
+
+/* ---- Editor ---- */
+
+.atlas-editor {
+	font-size: 1.06em;
+	background-color: @view_bg_color;
+}
+
+.atlas-editor text {
+	background-color: @view_bg_color;
+}
+
+/* ---- Status bar ---- */
+
+.status-bar {
+	padding: 5px 20px;
+	border-top: 1px solid alpha(@window_fg_color, 0.06);
+	font-size: 0.82em;
+	color: alpha(@window_fg_color, 0.55);
+}
+
+.status-dim {
+	opacity: 0.6;
+}
+
+/* ---- Welcome screen ---- */
+
+.welcome-page {
+	background-color: @view_bg_color;
+}
+
+.welcome-content {
+	padding: 24px;
+}
+
+.welcome-title {
+	font-size: 1.9em;
+	font-weight: 800;
+	margin-top: 4px;
+}
+
+.welcome-subtitle {
+	opacity: 0.55;
+	margin-top: 4px;
+	margin-bottom: 20px;
+}
+
+.welcome-grid {
+	margin-bottom: 8px;
+}
+
+.welcome-card {
+	padding: 12px 14px;
+	border-radius: 12px;
+	background-color: @card_bg_color;
+	border: 1px solid alpha(@window_fg_color, 0.08);
+	min-width: 236px;
+	transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.welcome-card:hover {
+	background-color: alpha(@accent_bg_color, 0.10);
+	border-color: alpha(@accent_bg_color, 0.45);
+}
+
+.welcome-card-title {
+	font-weight: 700;
+}
+
+.welcome-card-subtitle {
+	font-size: 0.85em;
+	opacity: 0.55;
+}
+
+.welcome-card-icon {
+	color: @accent_color;
+	opacity: 0.9;
+}
+
+.keycap {
+	font-family: monospace;
+	font-size: 0.78em;
+	padding: 2px 7px;
+	border-radius: 6px;
+	background-color: alpha(@window_fg_color, 0.07);
+	border: 1px solid alpha(@window_fg_color, 0.09);
+	opacity: 0.7;
+}
+
+.welcome-section {
+	font-size: 0.78em;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	opacity: 0.45;
+	margin: 16px 4px 4px 4px;
+}
+
+.welcome-recents {
+	margin-top: 4px;
+}
+
+.welcome-recent {
+	padding: 6px 10px;
+	border-radius: 8px;
+	background: none;
+	border: none;
 	box-shadow: none;
 }
 
-.editor-toolbar button {
-	min-height: 26px;
-	min-width: 30px;
-	padding: 2px 8px;
+.welcome-recent:hover {
+	background-color: alpha(@window_fg_color, 0.06);
 }
 
-.atlas-editor {
-	font-size: 1.05em;
+.welcome-recent-time {
+	font-size: 0.8em;
+	opacity: 0.4;
+}
+
+.welcome-footer {
+	margin-top: 22px;
+	opacity: 0.4;
+}
+
+.welcome-footer-text {
+	font-size: 0.82em;
+	font-family: monospace;
+}
+
+/* ---- Keyboard shortcuts dialog ---- */
+
+.shortcut-heading {
+	font-weight: 700;
+	font-size: 0.82em;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	opacity: 0.5;
+}
+
+.shortcut-card {
+	background-color: @card_bg_color;
+	border: 1px solid alpha(@window_fg_color, 0.07);
+	border-radius: 12px;
+}
+
+.shortcut-row {
+	padding: 9px 14px;
 }
 
 /* ---- AI sidebar ---- */
 
+.ai-sidebar {
+	padding: 4px;
+}
+
 /* Assistant answer reads as plain text on the panel (Markdown-rendered). */
 .ai-answer {
-	margin-top: 6px;
+	margin-top: 4px;
+}
+
+.ai-suggestions {
+	margin-top: 8px;
+	background: none;
+}
+
+.ai-chip {
+	font-size: 0.82em;
+	padding: 5px 10px;
+	border-radius: 9999px;
+	background-color: alpha(@window_fg_color, 0.06);
+	border: 1px solid alpha(@window_fg_color, 0.08);
+	box-shadow: none;
+	opacity: 0.85;
+}
+
+.ai-chip:hover {
+	background-color: alpha(@accent_bg_color, 0.14);
+	border-color: alpha(@accent_bg_color, 0.4);
+	opacity: 1;
 }
 
 /* Setup card: shown when Ollama is unreachable or the model isn't installed. */
 .ai-setup-card {
 	background-color: @card_bg_color;
 	border: 1px solid alpha(@window_fg_color, 0.10);
-	border-radius: 8px;
-	padding: 10px;
+	border-radius: 12px;
+	padding: 12px;
 }
 
 .ai-setup-title {
-	font-weight: bold;
+	font-weight: 700;
 }
 
 .ai-setup-cmd {
 	font-family: monospace;
+	font-size: 0.85em;
 	background-color: alpha(@window_fg_color, 0.06);
-	border-radius: 6px;
-	padding: 6px;
+	border-radius: 8px;
+	padding: 8px;
 }
 
 /* Assistant identity (the avatar orb itself is Cairo-drawn, see logo.go). */
 .assistant-name {
-	font-weight: bold;
-	font-size: 1.3em;
+	font-weight: 700;
+	font-size: 1.2em;
 }
 
 .assistant-stats {
-	color: alpha(@window_fg_color, 0.55);
-	font-size: 0.85em;
+	color: alpha(@window_fg_color, 0.5);
+	font-size: 0.82em;
+}
+
+.ai-input-bar entry {
+	border-radius: 9999px;
+	min-height: 32px;
+	padding-left: 12px;
+}
+
+.ai-input-bar button.circular {
+	min-width: 32px;
+	min-height: 32px;
+	padding: 0;
 }
 
 /* Ollama status dot — intentional semantic colors. */
 .status-dot {
 	border-radius: 9999px;
-	min-width: 12px;
-	min-height: 12px;
+	min-width: 8px;
+	min-height: 8px;
 }
 
 .status-dot.online {
@@ -130,14 +464,7 @@
 	background-color: @card_bg_color;
 	border: 1px solid alpha(@window_fg_color, 0.07);
 	border-radius: 12px;
-	padding: 12px;
-}
-
-/* ---- Folder tree ---- */
-
-/* Pull rows close to the panel edge; depth indent is applied in code. */
-.navigation-sidebar {
-	padding: 2px 2px;
+	padding: 14px;
 }
 
 /* ---- Checklist items ---- */
@@ -153,11 +480,11 @@
 	padding: 0;
 }
 
-/* ---- Checklist priority bars — intentional semantic colors. ---- */
-
+/* Checklist priority bars — intentional semantic colors. */
 .priority-bar {
-	border-radius: 2px;
-	min-width: 4px;
+	border-radius: 9999px;
+	min-width: 3px;
+	background-color: alpha(@window_fg_color, 0.12);
 }
 
 .checklist-item .priority-bar.priority-high {
@@ -170,4 +497,23 @@
 
 .checklist-item .priority-bar.priority-low {
 	background-color: #2ec27e; /* green */
+}
+
+/* Due dates, surfaced inline instead of hidden in the line's metadata. */
+.due-chip {
+	font-size: 0.75em;
+	padding: 1px 7px;
+	border-radius: 9999px;
+	background-color: alpha(@window_fg_color, 0.08);
+	color: alpha(@window_fg_color, 0.7);
+}
+
+.due-chip.due-today {
+	background-color: alpha(#f5c211, 0.22);
+	color: #b58500;
+}
+
+.due-chip.due-overdue {
+	background-color: alpha(#e01b24, 0.18);
+	color: #e01b24;
 }

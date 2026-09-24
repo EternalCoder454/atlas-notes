@@ -19,7 +19,7 @@ REPO_URL="${ATLAS_NOTES_REPO:-https://github.com/EternalCoder454/atlas-notes}"
 BRANCH="${ATLAS_NOTES_BRANCH:-}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 SRC_DIR="$DATA_HOME/atlas-notes/src"
-MODEL="qwen2.5:3b"
+MODEL="qwen3.5:9b"
 
 say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }

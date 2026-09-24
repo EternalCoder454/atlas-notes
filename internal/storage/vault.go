@@ -3,6 +3,7 @@ package storage
 import (
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -92,14 +93,36 @@ func (s *Store) RenameFolder(oldRel, newRel string) error {
 	return err
 }
 
-// Reindex rebuilds the index from the vault files: it upserts every note found
-// on disk and prunes index rows whose files have disappeared. Safe to call on
-// startup; for a personal vault it is effectively instant.
+// Reindex brings the index in line with what is on disk: it adds notes that
+// appeared, refreshes ones whose file changed, and drops rows whose file is
+// gone.
+//
+// It is deliberately cheap, because it runs at every launch:
+//
+//   - the existing index is read once into a map, and a note whose file has the
+//     same modification time is skipped entirely;
+//   - files are never decompressed (the old version read and decompressed every
+//     note just to check it was readable, which dominated startup on a large
+//     vault and read the whole vault off disk);
+//   - every write happens inside a single transaction against one prepared
+//     statement, instead of one implicit transaction per note.
 func (s *Store) Reindex() error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	seen := make(map[string]bool)
-	err := filepath.WalkDir(s.VaultPath, func(p string, d fs.DirEntry, err error) error {
+
+	known, err := s.indexedModTimes()
+	if err != nil {
+		return err
+	}
+
+	type entry struct {
+		rel      string
+		modified time.Time
+	}
+	var changed []entry
+	seen := make(map[string]bool, len(known))
+
+	err = filepath.WalkDir(s.VaultPath, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -111,43 +134,91 @@ func (s *Store) Reindex() error {
 			return rerr
 		}
 		rel = normalizeRel(rel)
-		if _, cerr := s.ReadNote(rel); cerr != nil {
-			return nil // skip unreadable/corrupt files rather than abort
-		}
+		seen[rel] = true
 		modified := time.Now()
 		if info, ierr := d.Info(); ierr == nil {
 			modified = info.ModTime()
 		}
-		if err := s.indexNote(rel, modified); err != nil {
-			return err
+		if prev, ok := known[rel]; ok && prev == modified.Unix() {
+			return nil // unchanged since the last run
 		}
-		seen[rel] = true
+		changed = append(changed, entry{rel, modified})
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	rows, err := s.db.Query(`SELECT path FROM notes`)
+	var stale []string
+	for rel := range known {
+		if !seen[rel] {
+			stale = append(stale, rel)
+		}
+	}
+	if len(changed) == 0 && len(stale) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	var stale []string
+	defer tx.Rollback() // no-op once committed
+
+	if len(changed) > 0 {
+		stmt, err := tx.Prepare(upsertNoteSQL)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, e := range changed {
+			folder := path.Dir(e.rel)
+			if folder == "." {
+				folder = ""
+			}
+			unix := e.modified.Unix()
+			if _, err := stmt.Exec(e.rel, folder, deriveTitle(e.rel), unix, unix); err != nil {
+				return err
+			}
+		}
+	}
+	if len(stale) > 0 {
+		del, err := tx.Prepare(`DELETE FROM notes WHERE path = ?`)
+		if err != nil {
+			return err
+		}
+		defer del.Close()
+		for _, rel := range stale {
+			if _, err := del.Exec(rel); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+// indexedModTimes returns the modification time recorded for every indexed note.
+func (s *Store) indexedModTimes() (map[string]int64, error) {
+	rows, err := s.db.Query(`SELECT path, modified_at FROM notes`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int64, 128)
 	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			rows.Close()
-			return err
+		var rel string
+		var modified int64
+		if err := rows.Scan(&rel, &modified); err != nil {
+			return nil, err
 		}
-		if !seen[p] {
-			stale = append(stale, p)
-		}
+		out[rel] = modified
 	}
-	rows.Close()
-	for _, p := range stale {
-		if _, err := s.db.Exec(`DELETE FROM notes WHERE path = ?`, p); err != nil {
-			return err
-		}
-	}
-	return nil
+	return out, rows.Err()
+}
+
+// IsIndexEmpty reports whether the index holds no notes, which is the one case
+// where the app must reindex before it can show anything.
+func (s *Store) IsIndexEmpty() bool {
+	n, err := s.CountNotes()
+	return err != nil || n == 0
 }

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -125,20 +126,24 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 	return err
 }
 
+// upsertNoteSQL inserts or refreshes one note's metadata row. Reindex prepares
+// it once and reuses it for the whole vault.
+const upsertNoteSQL = `
+	INSERT INTO notes(path, folder, title, modified_at, created_at)
+	VALUES(?,?,?,?,?)
+	ON CONFLICT(path) DO UPDATE SET
+		folder      = excluded.folder,
+		title       = excluded.title,
+		modified_at = excluded.modified_at`
+
 // indexNote upserts a note's metadata row.
 func (s *Store) indexNote(rel string, modified time.Time) error {
 	folder := path.Dir(rel)
 	if folder == "." {
 		folder = ""
 	}
-	_, err := s.db.Exec(`
-		INSERT INTO notes(path, folder, title, modified_at, created_at)
-		VALUES(?,?,?,?,?)
-		ON CONFLICT(path) DO UPDATE SET
-			folder      = excluded.folder,
-			title       = excluded.title,
-			modified_at = excluded.modified_at`,
-		rel, folder, deriveTitle(rel), modified.Unix(), modified.Unix())
+	unix := modified.Unix()
+	_, err := s.db.Exec(upsertNoteSQL, rel, folder, deriveTitle(rel), unix, unix)
 	return err
 }
 
@@ -149,7 +154,7 @@ func (s *Store) ListNotes() ([]NoteMeta, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []NoteMeta
+	out := make([]NoteMeta, 0, 256)
 	for rows.Next() {
 		var m NoteMeta
 		var modified, created int64
@@ -161,6 +166,55 @@ func (s *Store) ListNotes() ([]NoteMeta, error) {
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// UniqueName returns a vault-relative path for a new note in folder, appending
+// a counter when the plain name is taken, so creating notes never overwrites
+// one and never needs to ask for a name up front.
+func (s *Store) UniqueName(folder, base string) string {
+	candidate := base
+	for i := 2; i < 1000; i++ {
+		rel := candidate
+		if folder != "" {
+			rel = folder + "/" + candidate
+		}
+		if _, err := os.Stat(s.notePath(rel)); os.IsNotExist(err) {
+			return rel
+		}
+		candidate = fmt.Sprintf("%s %d", base, i)
+	}
+	return base
+}
+
+// RecentNotes returns the most recently modified notes, newest first. The
+// welcome screen uses it to offer a way straight back into recent work.
+func (s *Store) RecentNotes(limit int) ([]NoteMeta, error) {
+	rows, err := s.db.Query(`
+		SELECT path, folder, title, modified_at, created_at
+		FROM notes ORDER BY modified_at DESC, path LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]NoteMeta, 0, limit)
+	for rows.Next() {
+		var m NoteMeta
+		var modified, created int64
+		if err := rows.Scan(&m.Path, &m.Folder, &m.Title, &modified, &created); err != nil {
+			return nil, err
+		}
+		m.ModifiedAt = time.Unix(modified, 0)
+		m.CreatedAt = time.Unix(created, 0)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// CountNotes returns how many notes the index holds.
+func (s *Store) CountNotes() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM notes`).Scan(&n)
+	return n, err
 }
 
 // deriveTitle is a note's display title: its file base name. The filename is the

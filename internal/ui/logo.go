@@ -14,53 +14,94 @@ import (
 // the model is generating. It is drawn with Cairo on the widget frame clock, so
 // it costs nothing while the panel is hidden — AddTickCallback only fires while
 // the widget is mapped.
-type logoOrb struct {
+type Orb struct {
 	*gtk.DrawingArea
 	start  time.Time
 	last   time.Time
 	active float64 // eased 0 (idle) .. 1 (generating)
 	target float64
+
+	// animated orbs run their frame-clock callback only while there is
+	// something to animate. An idle assistant is the app's normal state, and
+	// redrawing a Cairo scene ~22 times a second forever is the single largest
+	// thing Atlas Notes does when the user isn't touching it.
+	wantsTicks bool
+	tickID     uint
 }
 
-func newLogoOrb() *logoOrb {
-	o := &logoOrb{DrawingArea: gtk.NewDrawingArea(), start: time.Now(), last: time.Now()}
-	o.SetContentWidth(110)
-	o.SetContentHeight(110)
-	o.SetHAlign(gtk.AlignCenter)
-	o.SetDrawFunc(o.draw)
-	o.AddTickCallback(o.tick)
+// NewOrb returns an orb of the given size for the assistant panel. It animates
+// while the assistant is working and rests as a still image otherwise.
+func NewOrb(size int) *Orb {
+	o := newOrb(size)
+	o.wantsTicks = true
 	return o
 }
 
-// setActive aims the orb toward idle (false) or generating (true); the
-// transition is eased in tick so the glow rises and falls smoothly.
-func (o *logoOrb) setActive(busy bool) {
+// NewStaticOrb returns the same mark without a frame-clock callback: it is
+// drawn once and never animates, which is what the welcome screen wants.
+func NewStaticOrb(size int) *Orb { return newOrb(size) }
+
+func newOrb(size int) *Orb {
+	o := &Orb{DrawingArea: gtk.NewDrawingArea(), start: time.Now(), last: time.Now()}
+	o.SetContentWidth(size)
+	o.SetContentHeight(size)
+	o.SetHAlign(gtk.AlignCenter)
+	o.SetDrawFunc(o.draw)
+	return o
+}
+
+// SetActive aims the orb toward idle (false) or generating (true); the
+// transition is eased in tick so the glow rises and falls smoothly. Starting
+// the animation is what makes the frame-clock callback run at all.
+func (o *Orb) SetActive(busy bool) {
 	if busy {
 		o.target = 1
 	} else {
 		o.target = 0
 	}
+	o.startTicking()
 }
 
-func (o *logoOrb) tick(_ gtk.Widgetter, _ gdk.FrameClocker) bool {
-	now := time.Now()
-	// ~22 fps while idle (the drift is gentle), ~33 fps while generating or
-	// easing between states, where smoothness matters more.
-	interval := 45 * time.Millisecond
-	if o.active > 0.02 || o.target > 0.02 {
-		interval = 28 * time.Millisecond
+// startTicking attaches the frame-clock callback if it isn't already running.
+func (o *Orb) startTicking() {
+	if !o.wantsTicks || o.tickID != 0 {
+		return
 	}
-	if now.Sub(o.last) < interval {
+	o.last = time.Now()
+	o.tickID = o.AddTickCallback(o.tick)
+}
+
+// stopTicking detaches the frame-clock callback, leaving the last frame drawn.
+func (o *Orb) stopTicking() {
+	if o.tickID == 0 {
+		return
+	}
+	o.RemoveTickCallback(o.tickID)
+	o.tickID = 0
+}
+
+func (o *Orb) tick(_ gtk.Widgetter, _ gdk.FrameClocker) bool {
+	now := time.Now()
+	// ~33 fps while generating or easing between states.
+	if now.Sub(o.last) < 28*time.Millisecond {
 		return true
 	}
 	dt := now.Sub(o.last).Seconds()
 	o.last = now
 	o.active += (o.target - o.active) * math.Min(1, dt*6) // ease ~0.2s
 	o.QueueDraw()
+
+	// Settled back to idle: draw one last resting frame and stop the clock.
+	if o.target == 0 && o.active < 0.02 {
+		o.active = 0
+		o.QueueDraw()
+		o.stopTicking()
+		return false
+	}
 	return true
 }
 
-func (o *logoOrb) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
+func (o *Orb) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
 	s := math.Min(float64(w), float64(h))
 	if s <= 0 {
 		return

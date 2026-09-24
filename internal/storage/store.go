@@ -49,6 +49,12 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	}
 
 	// Level 3 ("SpeedDefault" in klauspost terms): fast with a good ratio.
+	//
+	// Codec concurrency is left at the library default (one worker per CPU).
+	// Capping it was measured and rejected: four workers saved about 2 MB of
+	// resident memory but made decoding a note roughly twice as slow, and the
+	// smaller heap it left behind made the garbage collector run often enough
+	// to show up in unrelated work.
 	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
 	if err != nil {
 		return nil, err
@@ -64,7 +70,12 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	// fsync off the writer path so a slow disk can't stall the UI. The index is a
 	// rebuildable cache (the .md.zst files are the source of truth), so even that
 	// edge case is recoverable via Reindex.
-	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=synchronous(normal)&_pragma=foreign_keys(on)"
+	// cache_size is negative to mean KiB rather than pages; 8 MiB comfortably
+	// holds the index of a large vault, so browsing never goes back to disk.
+	// temp_store=memory keeps sorts (ORDER BY folder, title) out of the file.
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)" +
+		"&_pragma=synchronous(normal)&_pragma=foreign_keys(on)" +
+		"&_pragma=cache_size(-8000)&_pragma=temp_store(memory)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		enc.Close()

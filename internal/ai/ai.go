@@ -20,7 +20,7 @@ import (
 
 const (
 	DefaultBaseURL = "http://localhost:11434"
-	DefaultModel   = "qwen2.5:3b"
+	DefaultModel   = "qwen3.5:9b"
 
 	// requestTimeout bounds an entire streaming request (including reading the
 	// streamed body), so it is generous; the UI also bounds each call with its
