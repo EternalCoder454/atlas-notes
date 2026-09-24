@@ -49,13 +49,15 @@ func (a *App) runDevView() {
 		name, arg, _ := strings.Cut(view, "=")
 		switch name {
 		case "settings":
-			a.showSettings()
+			a.showSettingsPage(arg)
 		case "shortcuts":
 			a.showShortcuts()
 		case "about":
 			a.showAbout()
 		case "icons":
 			a.showIconSheet()
+		case "home":
+			a.showWelcome()
 		case "update":
 			a.showUpdateFound(&update.Release{
 				Version: "0.5.5",

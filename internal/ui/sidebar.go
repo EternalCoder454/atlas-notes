@@ -121,9 +121,13 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.answer.SetCanFocus(false) // selectable text, but it must not steal focus
 	s.answer.AddCSSClass("ai-answer")
 	s.setIdleAnswer()
+	// The chips come first. They are the actionable half of an idle panel, and
+	// when the setup card is taking room there is only so much scroller left —
+	// better to cut the sentence explaining the panel than the buttons that
+	// use it. They hide themselves as soon as there is a real answer.
 	answerBox := gtk.NewBox(gtk.OrientationVertical, 10)
-	answerBox.Append(s.answer)
 	answerBox.Append(s.buildSuggestions())
+	answerBox.Append(s.answer)
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetChild(answerBox)
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
@@ -391,13 +395,15 @@ func (s *Sidebar) onProbe(model string, models []string, err error) {
 
 	switch {
 	case !reachable:
-		s.setupTitle.SetText("The assistant needs Ollama")
-		s.setupBody.SetText("Atlas Notes couldn't reach Ollama, the local AI runtime that runs the model on your machine. Install it and pull the model — this card clears itself once it's ready.")
+		s.setupTitle.SetText("Ollama required")
+		s.setupBody.SetText("Run Ollama locally to use the assistant. Install it and pull " +
+			model + " — this card clears once it's ready.")
 		s.setupCmd.SetText("curl -fsSL https://ollama.com/install.sh | sh\nollama pull " + model)
 		s.setupCard.SetVisible(true)
 	case !s.ready:
-		s.setupTitle.SetText("Model not installed")
-		s.setupBody.SetText(fmt.Sprintf("Ollama is running, but %q isn't installed yet. Pull it once (a few GB) — this card clears when it's ready.", model))
+		s.setupTitle.SetText("Model required")
+		s.setupBody.SetText(fmt.Sprintf("Ollama is running, but %s isn't installed. Pull it once — "+
+			"a few GB — and this card clears.", model))
 		s.setupCmd.SetText("ollama pull " + model)
 		s.setupCard.SetVisible(true)
 	default:
@@ -499,15 +505,20 @@ func (s *Sidebar) buildSuggestions() *gtk.FlowBox {
 	s.suggestions.SetMaxChildrenPerLine(2)
 	s.suggestions.SetHomogeneous(false)
 	s.suggestions.AddCSSClass("ai-suggestions")
-	for _, prompt := range []string{
-		"Summarise this note",
-		"What are the open tasks?",
-		"Suggest a better title",
-		"Explain this to a beginner",
+	// The chip says less than it asks. A chip wide enough to hold the whole
+	// question wraps onto two lines in a panel this narrow, and four of those
+	// stack into a wall; two words fit side by side. The question the model
+	// actually gets is unchanged.
+	for _, sug := range []struct{ label, prompt string }{
+		{"Summarise", "Summarise this note"},
+		{"Open tasks", "What are the open tasks?"},
+		{"Better title", "Suggest a better title"},
+		{"Explain simply", "Explain this to a beginner"},
 	} {
-		p := prompt
-		chip := gtk.NewButtonWithLabel(p)
+		p := sug.prompt
+		chip := gtk.NewButtonWithLabel(sug.label)
 		chip.AddCSSClass("ai-chip")
+		chip.SetTooltipText(p)
 		chip.ConnectClicked(func() {
 			if s.askEntry == nil {
 				return

@@ -5,6 +5,51 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+An interface pass over the words the app uses and where it puts its status.
+
+### Changed
+- **The Ollama card says it in two lines.** "Ollama required — run Ollama
+  locally to use the assistant. Install it and pull <model> — this card clears
+  once it's ready." It named the model rather than offering a choice: the app
+  needs one specific model, and "pull your preferred model" would send someone
+  down the wrong path.
+- **The footer is the only place the app reports on your note.** Word and
+  character counts, reading time, checklist progress, where the note lives, and
+  whether it is saved. The save pill used to sit beside the title and the task
+  count at the end of the formatting toolbar, so the header carried status the
+  eye had to hunt through on the way to the note's name. The footer's own
+  comment already claimed it showed checklist progress; now it does.
+- **Recent notes are cards with two lines of the note in them**, so the home
+  screen is a list you can recognise something in rather than a list of file
+  names. Previews are cached against each note's modification time: the home
+  screen refreshes whenever the vault changes underneath it, not only when it
+  is opened, and re-reading four notes on every save would cost a long note its
+  whole length to show two lines of it.
+- **The assistant's starter prompts are four short chips in a 2×2 grid.** A chip
+  wide enough to hold the whole question wraps onto two lines in a panel that
+  narrow, and four of those stack into a wall. The question sent to the model is
+  unchanged and sits in the tooltip. They also moved above the panel's
+  explanatory sentence, because with the setup card taking room the scroller was
+  cutting the second row in half.
+- **Settings reads more plainly.** "Folder tree" is now "Hover previews";
+  "Fetch the latest version from GitHub, rebuild, reinstall, and restart —
+  automatically" is now "Automatically check and install updates from GitHub".
+- **The install paths are folded away** behind a collapsed "Atlas Notes vX.Y.Z —
+  system info" section. The version is what someone reporting a problem is asked
+  for; the paths are for the rare occasion something has to be found on disk,
+  and every visit to Settings was showing a block of somebody's home directory.
+  They stay selectable, for pasting into a bug report.
+- Text rendering's "Automatic (match the display)" is now "Automatic
+  (recommended)", with the hint "Automatic picks per screen". It was suggested
+  this be called "System Default", which would be untrue: automatic is this
+  app's own per-display choice, not a setting the desktop provides.
+
+### Added
+- `ATLAS_DEV_VIEW=home` and `ATLAS_DEV_VIEW=settings=<page>`, so the screenshot
+  tooling can capture the home screen and a named settings section.
+
 ## [0.5.5] - 2026-09-24
 
 Atlas Notes now tells you when a new version is out.

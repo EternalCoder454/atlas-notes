@@ -243,6 +243,21 @@
 	opacity: 0.6;
 }
 
+/* The save pill and task count sit in the footer now, so they inherit its
+   size rather than the header's. */
+.status-bar .save-pill {
+	padding: 1px 8px;
+}
+
+.status-bar .save-indicator,
+.status-bar .task-progress {
+	font-size: 1em;
+}
+
+.status-bar .save-dot {
+	margin: 4px 4px;
+}
+
 /* ---- Welcome screen ---- */
 
 .welcome-page {
@@ -321,20 +336,32 @@
 }
 
 .welcome-recent {
-	padding: 6px 10px;
-	border-radius: 8px;
-	background: none;
-	border: none;
+	padding: 9px 12px;
+	border-radius: 10px;
+	background-color: alpha(@window_fg_color, 0.03);
+	border: 1px solid alpha(@window_fg_color, 0.06);
 	box-shadow: none;
 }
 
 .welcome-recent:hover {
-	background-color: alpha(@window_fg_color, 0.06);
+	background-color: alpha(@window_fg_color, 0.07);
+}
+
+.welcome-recent-title {
+	font-weight: 600;
 }
 
 .welcome-recent-time {
 	font-size: 0.8em;
 	opacity: 0.4;
+}
+
+/* The two lines of the note itself. Recessive: the card is scanned by title
+   first, and the preview is there to confirm rather than to be read. */
+.welcome-recent-snippet {
+	font-size: 0.85em;
+	font-weight: normal; /* the card is a button, and buttons are bold */
+	opacity: 0.5;
 }
 
 .welcome-footer {

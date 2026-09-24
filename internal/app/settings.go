@@ -18,9 +18,13 @@ type actionRow struct {
 	mode   *gtk.DropDown
 }
 
-// showSettings opens the settings dialog: a sidebar with a "Model & Prompt"
-// section and a "Prompt Shortcuts" section.
-func (a *App) showSettings() {
+// showSettings opens the settings dialog: a sidebar with "Model & Prompt",
+// "Prompt Shortcuts" and "App" sections.
+func (a *App) showSettings() { a.showSettingsPage("") }
+
+// showSettingsPage opens it on a named section. Everything but the screenshot
+// tooling passes an empty string and gets the first.
+func (a *App) showSettingsPage(page string) {
 	dialog := adw.NewDialog()
 	dialog.SetTitle("Settings")
 	dialog.SetContentWidth(680)
@@ -35,6 +39,10 @@ func (a *App) showSettings() {
 	stack.AddTitled(fields.page, "general", "Model & Prompt")
 	stack.AddTitled(shortcutsPage, "shortcuts", "Prompt Shortcuts")
 	stack.AddTitled(a.buildAppPage(), "app", "App")
+
+	if page != "" {
+		stack.SetVisibleChildName(page)
+	}
 
 	stackSide := gtk.NewStackSidebar()
 	stackSide.SetStack(stack)
@@ -97,8 +105,8 @@ func (a *App) buildGeneralPage() generalFields {
 	promptGroup.Append(sysFrame)
 	box.Append(promptGroup)
 
-	treeGroup := groupCard("Folder tree")
-	summary := gtk.NewCheckButtonWithLabel("Show a 1-sentence AI summary on hover")
+	treeGroup := groupCard("Hover previews")
+	summary := gtk.NewCheckButtonWithLabel("Show a 1-sentence AI summary when you hover a note")
 	summary.SetActive(a.cfg.EnableTreeSummaries)
 	treeGroup.Append(summary)
 	box.Append(treeGroup)
@@ -107,13 +115,13 @@ func (a *App) buildGeneralPage() generalFields {
 	// setting rather than a guess. See internal/app/fonts.go.
 	fontGroup := groupCard("Text rendering")
 	fonts := gtk.NewDropDownFromStrings([]string{
-		"Automatic (match the display)",
-		"Crisp — hinted, best on 1080p",
-		"Smooth — unhinted, best on HiDPI",
+		"Automatic (recommended)",
+		"Crisp — best on 1080p",
+		"Smooth — best on HiDPI",
 	})
 	fonts.SetSelected(uint(fontModeIndex(a.cfg.FontRendering)))
 	fontGroup.Append(fonts)
-	fontHint := gtk.NewLabel("Takes effect on the next launch.")
+	fontHint := gtk.NewLabel("Automatic picks per screen. Takes effect on the next launch.")
 	fontHint.SetXAlign(0)
 	fontHint.AddCSSClass("dim-label")
 	fontHint.AddCSSClass("caption")

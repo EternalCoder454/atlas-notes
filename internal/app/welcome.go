@@ -129,10 +129,11 @@ const recentSlots = 4
 // wrap stays resident once created — rebuilding the page on each visit grew
 // memory for the life of the session.
 type recentRow struct {
-	button *gtk.Button
-	name   *gtk.Label
-	when   *gtk.Label
-	rel    string
+	button  *gtk.Button
+	name    *gtk.Label
+	when    *gtk.Label
+	snippet *gtk.Label
+	rel     string
 }
 
 // buildRecents creates the fixed set of recent-note rows.
@@ -156,6 +157,8 @@ func (a *App) buildRecents() *gtk.Box {
 			}
 		})
 
+		card := gtk.NewBox(gtk.OrientationVertical, 2)
+
 		line := gtk.NewBox(gtk.OrientationHorizontal, 8)
 		icon := gtk.NewImageFromIconName("text-x-generic-symbolic")
 		icon.AddCSSClass("dim-label")
@@ -165,13 +168,25 @@ func (a *App) buildRecents() *gtk.Box {
 		r.name.SetXAlign(0)
 		r.name.SetHExpand(true)
 		r.name.SetEllipsize(3) // PANGO_ELLIPSIZE_END
+		r.name.AddCSSClass("welcome-recent-title")
 		line.Append(r.name)
 
 		r.when = gtk.NewLabel("")
 		r.when.AddCSSClass("welcome-recent-time")
 		line.Append(r.when)
+		card.Append(line)
 
-		r.button.SetChild(line)
+		// Two lines of the note itself, so a list of file names becomes a list
+		// you can recognise something in.
+		r.snippet = gtk.NewLabel("")
+		r.snippet.SetXAlign(0)
+		r.snippet.SetWrap(true)
+		r.snippet.SetLines(2)
+		r.snippet.SetEllipsize(3)
+		r.snippet.AddCSSClass("welcome-recent-snippet")
+		card.Append(r.snippet)
+
+		r.button.SetChild(card)
 		box.Append(r.button)
 		a.recents = append(a.recents, r)
 	}
@@ -179,6 +194,12 @@ func (a *App) buildRecents() *gtk.Box {
 }
 
 // refreshRecents re-points the existing rows at the latest notes.
+//
+// The home screen is refreshed whenever the vault changes underneath it, not
+// only when it is opened, so the previews are cached against each note's
+// modification time. Without that, a note being saved would re-read and
+// decompress the four most recent notes — and a long one costs its whole
+// length to read two lines out of.
 func (a *App) refreshRecents() {
 	if len(a.recents) == 0 {
 		return
@@ -187,6 +208,15 @@ func (a *App) refreshRecents() {
 	if a.store != nil {
 		notes, _ = a.store.RecentNotes(recentSlots)
 	}
+	fresh := make(map[string]snippet, len(notes))
+	for _, n := range notes {
+		if cached, ok := a.snippets[n.Path]; ok && cached.modified.Equal(n.ModifiedAt) {
+			fresh[n.Path] = cached
+			continue
+		}
+		fresh[n.Path] = snippet{modified: n.ModifiedAt, text: a.noteSnippet(n.Path)}
+	}
+	a.snippets = fresh // anything no longer recent drops out with the old map
 	if a.recentsHeading != nil {
 		a.recentsHeading.SetVisible(len(notes) > 0)
 	}
@@ -200,8 +230,89 @@ func (a *App) refreshRecents() {
 		r.rel = n.Path
 		r.name.SetText(path.Base(n.Path))
 		r.when.SetText(relativeTime(n.ModifiedAt))
+		r.snippet.SetText(a.snippets[n.Path].text)
+		r.snippet.SetVisible(r.snippet.Text() != "")
 		r.button.SetVisible(true)
 	}
+}
+
+// snippet is a note's cached preview, valid while the note is untouched.
+type snippet struct {
+	modified time.Time
+	text     string
+}
+
+// snippetChars is how much of a note the home screen shows. Two lines' worth at
+// the card's width, with a little to spare for the ellipsis to eat.
+const snippetChars = 140
+
+// noteSnippet is the opening of a note as prose: no title, no markdown markers,
+// no blank lines. It reads the note — four of them, only when the home screen
+// is built or the vault changes underneath it, on files of a few KB.
+func (a *App) noteSnippet(rel string) string {
+	if a.store == nil {
+		return ""
+	}
+	content, err := a.store.ReadNote(rel)
+	if err != nil {
+		return ""
+	}
+	return summarizeOpening(content)
+}
+
+// summarizeOpening turns the start of a markdown note into a flat line of
+// prose. It skips the title heading (the card already shows the name) and
+// anything that is punctuation rather than words.
+func summarizeOpening(content string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || isRule(line) {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue // headings, including the note's own title
+		}
+		line = stripMarkers(line)
+		if line == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(line)
+		if b.Len() >= snippetChars {
+			break
+		}
+	}
+	out := strings.TrimSpace(b.String())
+	if len(out) > snippetChars {
+		out = strings.TrimSpace(out[:snippetChars]) + "…"
+	}
+	return out
+}
+
+// isRule reports whether a line is a horizontal rule, which carries no words.
+func isRule(line string) bool {
+	if len(line) < 3 {
+		return false
+	}
+	c := line[0]
+	return (c == '-' || c == '*' || c == '_') && strings.Count(line, string(c)) == len(line)
+}
+
+// stripMarkers removes the markdown a snippet has no way to render: list
+// bullets and task boxes at the front, emphasis and code marks throughout.
+func stripMarkers(line string) string {
+	for _, prefix := range []string{"- [ ] ", "- [x] ", "- [X] ", "> ", "- ", "* ", "+ "} {
+		if strings.HasPrefix(line, prefix) {
+			line = line[len(prefix):]
+			break
+		}
+	}
+	return strings.TrimSpace(strings.NewReplacer(
+		"**", "", "*", "", "~~", "", "`", "", "__", "", "_", "",
+	).Replace(line))
 }
 
 // welcomeFooter states where the notes actually live — the app's main promise,

@@ -11,6 +11,7 @@ import (
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"atlas-notes/internal/storage"
 )
@@ -64,7 +65,7 @@ func (a *App) buildAppPage() gtk.Widgetter {
 	box := sectionBox()
 
 	box.Append(fieldLabel("Update Atlas Notes"))
-	desc := gtk.NewLabel("Fetch the latest version from GitHub, rebuild, reinstall, and restart — automatically.")
+	desc := gtk.NewLabel("Automatically check and install updates from GitHub.")
 	desc.SetXAlign(0)
 	desc.SetWrap(true)
 	desc.AddCSSClass("dim-label")
@@ -130,13 +131,7 @@ func (a *App) buildAppPage() gtk.Widgetter {
 		})
 	})
 
-	info := gtk.NewLabel(buildInfo())
-	info.SetXAlign(0)
-	info.SetWrap(true)
-	info.SetSelectable(true)
-	info.AddCSSClass("dim-label")
-	info.SetMarginTop(8)
-	box.Append(info)
+	box.Append(systemInfo())
 
 	return pageScroll(box)
 }
@@ -194,10 +189,33 @@ git -C %[1]q reset --hard origin/%[3]q
 make -C %[1]q install`, src, repoURL, branch, parent)
 }
 
-// buildInfo reports the version, where this binary lives and was built, and where
-// updates come from.
+// systemInfo is the version line, with the install paths folded away behind it.
+// The version is what someone reporting a problem is asked for; the paths are
+// for the rare occasion when something needs to be found on disk, and putting
+// them on the page meant every visit to Settings showed a block of somebody's
+// home directory.
+func systemInfo() *gtk.Expander {
+	exp := gtk.NewExpander("Atlas Notes v" + version + " — system info")
+	exp.SetMarginTop(8)
+
+	detail := gtk.NewLabel(buildInfo())
+	detail.SetXAlign(0)
+	detail.SetWrap(true)
+	detail.SetWrapMode(pango.WrapWordChar) // a long path has nowhere to break
+	detail.SetSelectable(true)             // so it can be copied into a bug report
+	detail.AddCSSClass("dim-label")
+	detail.AddCSSClass("caption")
+	detail.SetMarginTop(6)
+	detail.SetMarginStart(12)
+
+	exp.SetChild(detail)
+	return exp
+}
+
+// buildInfo reports where this binary lives and was built, and where updates
+// come from. It is the body of the collapsed section above.
 func buildInfo() string {
-	parts := []string{"Atlas Notes v" + version}
+	var parts []string
 	if exe, err := installedBinary(); err == nil {
 		parts = append(parts, "Installed at: "+exe)
 		if st, serr := os.Stat(exe); serr == nil {
@@ -208,6 +226,9 @@ func buildInfo() string {
 		parts = append(parts, "Built from: "+buildDir)
 	}
 	parts = append(parts, "Updates from: "+repoURL)
+	if len(parts) == 0 {
+		return "No build details are recorded in this binary."
+	}
 	return strings.Join(parts, "\n")
 }
 

@@ -75,6 +75,7 @@ type App struct {
 	welcomeBuilt    bool   // the home screen is constructed on first use
 	recents         []*recentRow
 	recentsHeading  *gtk.Label
+	snippets        map[string]snippet // home-screen previews, keyed by note path
 	currentNote     string
 	dirty           bool
 	autosaveGen     int

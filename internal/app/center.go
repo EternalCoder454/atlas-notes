@@ -89,7 +89,6 @@ func (a *App) buildNoteHeader() *gtk.Box {
 	titles.Append(a.titleEntry)
 
 	row.Append(titles)
-	row.Append(a.buildSavePill())
 	return row
 }
 
@@ -167,14 +166,6 @@ func (a *App) buildFormatBar() *gtk.Box {
 		}
 	}
 
-	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
-	spacer.SetHExpand(true)
-	bar.Append(spacer)
-
-	a.taskProgress = gtk.NewLabel("")
-	a.taskProgress.AddCSSClass("task-progress")
-	a.taskProgress.SetVisible(false)
-	bar.Append(a.taskProgress)
 	return bar
 }
 
@@ -187,8 +178,14 @@ func (a *App) withEditor(fn func(*editor.Editor)) {
 	a.editor.Focus()
 }
 
-// buildStatusBar is the footer: word and character counts, reading time, and
-// how far through the note's checklist you are.
+// buildStatusBar is the footer, and the one place the app reports on the note
+// in front of you: word and character counts, reading time, how far through its
+// checklist you are, where it lives, and whether it is saved.
+//
+// The save state and the task count used to sit up beside the title and in the
+// formatting toolbar. They are status, not controls, and having them in three
+// places meant the header carried information the eye had to hunt through on
+// the way to the note's name.
 func (a *App) buildStatusBar() *gtk.Box {
 	bar := gtk.NewBox(gtk.OrientationHorizontal, 12)
 	bar.AddCSSClass("status-bar")
@@ -201,6 +198,11 @@ func (a *App) buildStatusBar() *gtk.Box {
 	a.readTimeLabel.AddCSSClass("status-dim")
 	bar.Append(a.readTimeLabel)
 
+	a.taskProgress = gtk.NewLabel("")
+	a.taskProgress.AddCSSClass("task-progress")
+	a.taskProgress.SetVisible(false)
+	bar.Append(a.taskProgress)
+
 	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	spacer.SetHExpand(true)
 	bar.Append(spacer)
@@ -209,6 +211,8 @@ func (a *App) buildStatusBar() *gtk.Box {
 	a.vaultLabel.AddCSSClass("status-dim")
 	a.vaultLabel.SetTooltipText("This note on disk, inside your vault folder")
 	bar.Append(a.vaultLabel)
+
+	bar.Append(a.buildSavePill())
 	return bar
 }
 
