@@ -128,9 +128,9 @@ func (a *App) buildFormatBar() *gtk.Box {
 	bar.AddCSSClass("format-bar")
 
 	groups := [][]formatButton{{
-		{"format-text-bold-symbolic", "B", "Bold (Ctrl+B)", func() { a.withEditor((*editor.Editor).ToggleBold) }},
-		{"format-text-italic-symbolic", "I", "Italic (Ctrl+I)", func() { a.withEditor((*editor.Editor).ToggleItalic) }},
-		{"format-text-strikethrough-symbolic", "S", "Strikethrough", func() { a.withEditor((*editor.Editor).ToggleStrike) }},
+		{"atlas-bold-symbolic", "B", "Bold (Ctrl+B)", func() { a.withEditor((*editor.Editor).ToggleBold) }},
+		{"atlas-italic-symbolic", "I", "Italic (Ctrl+I)", func() { a.withEditor((*editor.Editor).ToggleItalic) }},
+		{"atlas-strikethrough-symbolic", "S", "Strikethrough", func() { a.withEditor((*editor.Editor).ToggleStrike) }},
 		{"atlas-code-symbolic", "</>", "Inline code (Ctrl+E)", func() { a.withEditor((*editor.Editor).ToggleCode) }},
 	}, {
 		{"atlas-heading1-symbolic", "H1", "Heading (Ctrl+1)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(1) }) }},

@@ -179,9 +179,9 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 		return
 	}
 	if n.isFolder {
-		icon.SetFromIconName("folder-symbolic")
+		icon.SetFromIconName("atlas-folder-symbolic")
 	} else {
-		icon.SetFromIconName("text-x-generic-symbolic")
+		icon.SetFromIconName("atlas-note-symbolic")
 	}
 	if label, ok := icon.NextSibling().(*gtk.Label); ok {
 		label.SetText(n.name)

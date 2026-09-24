@@ -46,9 +46,30 @@ An interface pass over the words the app uses and where it puts its status.
   this be called "System Default", which would be untrue: automatic is this
   app's own per-display choice, not a setting the desktop provides.
 
+- **Every icon in the app is now Material Symbols**, drawn from one set instead
+  of nine hand-drawn ones beside nineteen borrowed from whatever icon theme the
+  desktop happened to have. A toolbar assembled that way is a toolbar of
+  mismatched weights. `scripts/import-icons.sh` turns Google's exports into
+  what GTK wants — prefixed so they cannot lose a lookup to the system theme,
+  filled black so anything that renders them outside GTK shows them, and sized
+  16px — and refuses anything with a stroke or a `fill="none"` box, neither of
+  which survives GTK's recolouring. Sources are kept in `assets/icons-src/`,
+  attribution in `NOTICE`.
+
+### Fixed
+- **A change to the icons never reached disk.** The unpacked copy was stamped
+  with the app's version, so any icon edited without a release going out — every
+  icon change during development, and any release that redraws one without
+  bumping the number — left the old file in place and the new name unresolvable.
+  The stamp is now a digest of the icons themselves, and the directory is
+  emptied before it is rewritten, so a renamed icon cannot leave its old name
+  behind still resolving.
+
 ### Added
 - `ATLAS_DEV_VIEW=home` and `ATLAS_DEV_VIEW=settings=<page>`, so the screenshot
   tooling can capture the home screen and a named settings section.
+  `ATLAS_DEV_VIEW=icons` now lists whatever is embedded rather than a
+  hand-written list that could fall behind it.
 
 ## [0.5.5] - 2026-09-24
 

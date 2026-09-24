@@ -1,0 +1,38 @@
+Atlas Notes
+Copyright (c) 2026 EternalHell
+
+Atlas Notes' own source is covered by LICENSE (MIT). The terms below apply only
+to the third-party material named here.
+
+--------------------------------------------------------------------------------
+Material Symbols
+--------------------------------------------------------------------------------
+
+The symbolic icons in internal/app/icons/atlas-*-symbolic.svg are derived from
+Material Symbols by Google, used under the Apache License, Version 2.0. The
+unmodified exports they are built from are kept in assets/icons-src/.
+
+    https://fonts.google.com/icons
+    https://github.com/google/material-design-icons
+
+    Copyright (c) Google LLC
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use these files except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+Changes made to the exports, by scripts/import-icons.sh:
+
+  * Renamed to "atlas-<name>-symbolic.svg". GTK looks an icon up in the current
+    theme first and falls back to hicolor last, so an icon sharing a name with
+    the desktop theme's own would never be reached.
+  * The preview colour the export carries was replaced with black, and a
+    nominal 16x16 size was set. The artwork and its viewBox are untouched.

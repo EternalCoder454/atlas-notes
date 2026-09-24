@@ -1,7 +1,10 @@
 package app
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -13,14 +16,16 @@ import (
 	"atlas-notes/internal/storage"
 )
 
-// Atlas Notes draws its own symbolic icons for the things the desktop's icon
-// theme has no icon for — headings, inline code, a quote, a divider, and the
-// assistant itself. Without them those buttons fell back to letters and
-// punctuation, which sat next to the theme's icons at a different weight and
-// size and made the toolbar look assembled from spare parts.
+// Atlas Notes ships every icon it uses, rather than asking the desktop's theme
+// for some of them. A toolbar drawn half from Material Symbols and half from
+// whatever Adwaita, Papirus or Breeze happens to provide is a toolbar of
+// mismatched weights and sizes; owning the set is the only way it looks like
+// one set. They are Material Symbols, imported by scripts/import-icons.sh —
+// see NOTICE for the licence and what the import changes.
 //
-// They follow Adwaita's conventions (16px grid, one flat color, ~2px bars), so
-// GTK recolors them with the rest and they match at any size.
+// They follow the symbolic conventions GTK expects (16px nominal size, a
+// single filled path, no strokes), so GTK recolors them with the rest of the
+// interface and they match at any size.
 
 //go:embed icons/*.svg
 var iconFS embed.FS
@@ -88,20 +93,35 @@ func installIcons() {
 	gtk.IconThemeGetForDisplay(display).AddSearchPath(dir)
 }
 
-// unpackIcons writes the icons to disk when they are missing or stale. The
-// stamp keeps an upgrade from rewriting files that are already current, so a
-// normal launch costs one stat.
+// unpackIcons writes the icons to disk when what is there is not what is
+// embedded. The stamp keeps a normal launch down to one read and one compare.
+//
+// It is a digest of the icons themselves rather than the app's version. Keyed
+// on the version, an icon that changed without a release going out would never
+// reach disk — which is every icon change during development, and any release
+// that redraws an icon without bumping the number.
 func unpackIcons(dir string) error {
 	actions := filepath.Join(dir, "hicolor", "scalable", "actions")
-	stamp := filepath.Join(dir, ".version")
-	if current, err := os.ReadFile(stamp); err == nil && string(current) == version {
-		return nil
-	}
-	if err := os.MkdirAll(actions, 0o755); err != nil {
-		return err
-	}
+	stampPath := filepath.Join(dir, ".stamp")
+
 	entries, err := fs.ReadDir(iconFS, "icons")
 	if err != nil {
+		return err
+	}
+	want, err := iconStamp(entries)
+	if err != nil {
+		return err
+	}
+	if current, err := os.ReadFile(stampPath); err == nil && string(current) == want {
+		return nil
+	}
+
+	// Start from an empty directory so a renamed icon does not leave its old
+	// name behind, still resolving, for the rest of the install's life.
+	if err := os.RemoveAll(actions); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(actions, 0o755); err != nil {
 		return err
 	}
 	for _, e := range entries {
@@ -116,5 +136,22 @@ func unpackIcons(dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "hicolor", "index.theme"), []byte(iconIndexTheme), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(stamp, []byte(version), 0o644)
+	// Older versions stamped the app version in a file of another name.
+	os.Remove(filepath.Join(dir, ".version"))
+	return os.WriteFile(stampPath, []byte(want), 0o644)
+}
+
+// iconStamp digests every embedded icon's name and contents. embed.FS lists
+// entries in sorted order, so the result is stable across builds.
+func iconStamp(entries []fs.DirEntry) (string, error) {
+	h := sha256.New()
+	for _, e := range entries {
+		data, err := iconFS.ReadFile("icons/" + e.Name())
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(h, "%s:%d:", e.Name(), len(data))
+		h.Write(data)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

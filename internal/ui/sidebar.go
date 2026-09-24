@@ -138,7 +138,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	bar := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	bar.AddCSSClass("ai-input-bar")
 	s.menuBtn = gtk.NewMenuButton()
-	s.menuBtn.SetIconName("view-list-symbolic")
+	s.menuBtn.SetIconName("atlas-prompts-symbolic")
 	s.menuBtn.SetTooltipText("Note actions")
 	s.menuBtn.AddCSSClass("flat")
 	// The menu's contents are built the first time it is opened: at startup
@@ -152,7 +152,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 		s.rebuildActionsMenu()
 	})
 	s.editToggle = gtk.NewToggleButton()
-	s.editToggle.SetIconName("document-edit-symbolic")
+	s.editToggle.SetIconName("atlas-edit-symbolic")
 	s.editToggle.SetTooltipText("Edit mode — apply the reply to the note instead of answering")
 	s.editToggle.AddCSSClass("flat")
 	s.editToggle.ConnectToggled(s.onModeToggled)
@@ -160,7 +160,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.askEntry.SetHExpand(true)
 	s.askEntry.SetPlaceholderText(s.placeholder())
 	s.askEntry.ConnectActivate(s.onSend)
-	s.sendBtn = gtk.NewButtonFromIconName("go-up-symbolic")
+	s.sendBtn = gtk.NewButtonFromIconName("atlas-send-symbolic")
 	s.sendBtn.AddCSSClass("suggested-action")
 	s.sendBtn.AddCSSClass("circular")
 	s.sendBtn.SetTooltipText("Send (Enter)")
@@ -225,10 +225,10 @@ func (s *Sidebar) onModeToggled() {
 	if s.sendBtn != nil {
 		if s.editToggle.Active() {
 			s.sendBtn.SetTooltipText("Apply this instruction to the note")
-			s.sendBtn.SetIconName("document-edit-symbolic")
+			s.sendBtn.SetIconName("atlas-edit-symbolic")
 		} else {
 			s.sendBtn.SetTooltipText("Send (Enter)")
-			s.sendBtn.SetIconName("go-up-symbolic")
+			s.sendBtn.SetIconName("atlas-send-symbolic")
 		}
 	}
 }
@@ -303,11 +303,15 @@ func (s *Sidebar) buildSetupCard() *gtk.Box {
 	card.Append(s.setupCmd)
 
 	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
-	s.copyBtn = gtk.NewButtonWithLabel("Copy commands")
+	s.copyBtn = gtk.NewButton()
+	s.copyBtn.SetChild(labelledIcon("atlas-copy-symbolic", "Copy commands"))
 	s.copyBtn.ConnectClicked(func() {
 		s.copyBtn.Clipboard().SetText(s.setupCmd.Text())
-		s.copyBtn.SetLabel("Copied")
-		coreglib.TimeoutAdd(1200, func() bool { s.copyBtn.SetLabel("Copy commands"); return false })
+		s.copyBtn.SetChild(labelledIcon("atlas-copy-symbolic", "Copied"))
+		coreglib.TimeoutAdd(1200, func() bool {
+			s.copyBtn.SetChild(labelledIcon("atlas-copy-symbolic", "Copy commands"))
+			return false
+		})
 	})
 	recheck := gtk.NewButtonWithLabel("Recheck")
 	recheck.ConnectClicked(func() {
@@ -544,4 +548,14 @@ func (s *Sidebar) setSuggestionsVisible(v bool) {
 	if s.suggestions != nil {
 		s.suggestions.SetVisible(v)
 	}
+}
+
+// labelledIcon is a button's child: an icon and its word, which GTK has no
+// single widget for.
+func labelledIcon(icon, text string) *gtk.Box {
+	box := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	box.SetHAlign(gtk.AlignCenter)
+	box.Append(gtk.NewImageFromIconName(icon))
+	box.Append(gtk.NewLabel(text))
+	return box
 }

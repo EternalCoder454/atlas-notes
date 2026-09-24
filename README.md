@@ -268,9 +268,11 @@ then `sudo systemctl restart ollama`). Confirm with `ollama ps` (it should show
 ```
 atlas-notes/
 ├── main.go                   # AdwApplication entry point; embeds style.css
-├── assets/                   # style.css + app icon
+├── assets/                   # style.css, app icon, icons-src/ (icon sources)
+├── scripts/import-icons.sh   # Material Symbols -> the icons the app embeds
 ├── packaging/                # .desktop entry
 ├── scripts/install-fedora.sh # one-command Fedora install/update
+├── NOTICE                    # third-party attribution (Material Symbols)
 ├── WHATSNEW.md               # release notes the app shows you (plain language)
 ├── CHANGELOG.md              # the technical history
 └── internal/
@@ -281,7 +283,7 @@ atlas-notes/
     │   ├── welcome.go      # the home screen
     │   ├── update.go       # the updater: channels, build, restart
     │   ├── updatecheck.go  # the launch-time check and its dialog
-    │   ├── icons/          # symbolic icons the desktop theme has none for
+    │   ├── icons/          # every icon the app draws (Material Symbols)
     │   └── bench.go        # the measurement harness (see above)
     ├── editor/   # GtkTextView WYSIWYG, checklist rows and their menu
     ├── storage/  # vault I/O, zstd, atomic writes, SQLite index, config

@@ -36,23 +36,23 @@ func (a *App) buildWindow() {
 	header.SetTitleWidget(a.windowTitle)
 
 	a.leftToggle = gtk.NewToggleButton()
-	a.leftToggle.SetIconName("sidebar-show-symbolic")
+	a.leftToggle.SetIconName("atlas-panel-left-symbolic")
 	a.leftToggle.SetActive(true)
 	a.leftToggle.SetTooltipText("Show or hide the vault (F9)")
 	header.PackStart(a.leftToggle)
 
-	newBtn := gtk.NewButtonFromIconName("document-new-symbolic")
+	newBtn := gtk.NewButtonFromIconName("atlas-note-new-symbolic")
 	newBtn.SetTooltipText("New note (Ctrl+N)")
 	newBtn.ConnectClicked(a.actionNewNote)
 	header.PackStart(newBtn)
 
-	homeBtn := gtk.NewButtonFromIconName("go-home-symbolic")
+	homeBtn := gtk.NewButtonFromIconName("atlas-home-symbolic")
 	homeBtn.SetTooltipText("Home screen (Ctrl+H)")
 	homeBtn.ConnectClicked(a.showWelcome)
 	header.PackStart(homeBtn)
 
 	menuBtn := gtk.NewMenuButton()
-	menuBtn.SetIconName("open-menu-symbolic")
+	menuBtn.SetIconName("atlas-menu-symbolic")
 	menuBtn.SetTooltipText("Main menu")
 	menuBtn.SetPrimary(true)
 	menuBtn.SetMenuModel(a.buildMainMenu())
@@ -61,7 +61,7 @@ func (a *App) buildWindow() {
 	a.rightToggle = gtk.NewToggleButton()
 	// The assistant's own mark rather than a second sidebar arrow: the button
 	// toggles the assistant, and the panel it opens carries the same shape.
-	a.rightToggle.SetIconName(iconName("atlas-assistant-symbolic", "sidebar-show-right-symbolic"))
+	a.rightToggle.SetIconName(iconName("atlas-assistant-symbolic", "atlas-panel-right-symbolic"))
 	a.rightToggle.SetActive(true)
 	a.rightToggle.SetTooltipText("Show or hide the assistant (F10)")
 	header.PackEnd(a.rightToggle)

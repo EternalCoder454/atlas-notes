@@ -1,6 +1,8 @@
 package app
 
 import (
+	"io/fs"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -85,26 +87,37 @@ func (a *App) runDevView() {
 	})
 }
 
-// showIconSheet fills the window with every icon the UI uses, at a large size,
-// so a capture shows exactly what the icon theme resolves each name to.
+// showIconSheet fills the window with every icon the app embeds, at a large
+// size and under its own name, so a capture shows exactly what each name
+// resolves to. The list comes from the embedded directory rather than being
+// written out here, so it cannot fall behind what is actually shipped.
 func (a *App) showIconSheet() {
-	names := []string{
-		"atlas-heading1-symbolic", "atlas-heading2-symbolic", "atlas-paragraph-symbolic",
-		"atlas-code-symbolic", "atlas-quote-symbolic", "atlas-divider-symbolic",
-		"atlas-bullet-list-symbolic", "atlas-task-symbolic", "atlas-assistant-symbolic",
-		"format-text-bold-symbolic", "format-text-italic-symbolic",
-		"format-text-strikethrough-symbolic", "view-list-symbolic",
-		"document-edit-symbolic", "go-up-symbolic",
+	entries, err := fs.ReadDir(iconFS, "icons")
+	if err != nil {
+		log.Printf("atlas-notes: icon sheet: %v", err)
+		return
 	}
-	row := gtk.NewBox(gtk.OrientationHorizontal, 18)
-	row.SetHAlign(gtk.AlignCenter)
-	row.SetVAlign(gtk.AlignCenter)
-	row.SetVExpand(true)
-	for _, n := range names {
-		img := gtk.NewImageFromIconName(n)
-		img.SetPixelSize(48)
-		row.Append(img)
+	grid := gtk.NewFlowBox()
+	grid.SetSelectionMode(gtk.SelectionNone)
+	grid.SetMaxChildrenPerLine(8)
+	grid.SetRowSpacing(18)
+	grid.SetColumnSpacing(18)
+	grid.SetHAlign(gtk.AlignCenter)
+	grid.SetVAlign(gtk.AlignCenter)
+	grid.SetVExpand(true)
+	for _, e := range entries {
+		name := strings.TrimSuffix(e.Name(), ".svg")
+		cell := gtk.NewBox(gtk.OrientationVertical, 6)
+		img := gtk.NewImageFromIconName(name)
+		img.SetPixelSize(40)
+		cell.Append(img)
+		caption := gtk.NewLabel(strings.TrimSuffix(strings.TrimPrefix(name, "atlas-"), "-symbolic"))
+		caption.AddCSSClass("caption")
+		caption.AddCSSClass("dim-label")
+		cell.Append(caption)
+		grid.Append(cell)
 	}
+	row := grid
 	if a.centerStack == nil {
 		return
 	}

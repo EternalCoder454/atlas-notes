@@ -252,7 +252,7 @@ func newActionRow(act storage.AIAction) *actionRow {
 	r.mode = gtk.NewDropDownFromStrings([]string{"Show result", "Replace note", "Sort checklist"})
 	r.mode.SetSelected(modeIndex(act.Mode))
 	r.mode.SetVAlign(gtk.AlignCenter)
-	trash := gtk.NewButtonFromIconName("user-trash-symbolic")
+	trash := gtk.NewButtonFromIconName("atlas-trash-symbolic")
 	trash.AddCSSClass("flat")
 	trash.SetVAlign(gtk.AlignCenter)
 	trash.SetTooltipText("Remove action")

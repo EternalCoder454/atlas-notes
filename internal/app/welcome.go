@@ -59,15 +59,15 @@ func (a *App) buildWelcome() *gtk.Widget {
 		icon, title, subtitle, accel string
 		action                       func()
 	}{
-		{"document-new-symbolic", "New note", "Start writing straight away", "Ctrl+N", a.actionNewNote},
-		{"atlas-task-symbolic", "New checklist", "A note that starts with tasks", "Ctrl+T", a.actionNewChecklist},
-		{"system-search-symbolic", "Find a note", "Search titles across the vault", "Ctrl+K", a.actionFocusSearch},
-		{"help-about-symbolic", "Read the guide", "Markdown, tasks and the assistant", "", a.openGuide},
+		{"atlas-note-new-symbolic", "New note", "Start writing straight away", "Ctrl+N", a.actionNewNote},
+		{"atlas-checklist-symbolic", "New checklist", "A note that starts with tasks", "Ctrl+T", a.actionNewChecklist},
+		{"atlas-search-symbolic", "Find a note", "Search titles across the vault", "Ctrl+K", a.actionFocusSearch},
+		{"atlas-info-symbolic", "Read the guide", "Markdown, tasks and the assistant", "", a.openGuide},
 	}
 	for i, c := range cards {
 		icon := c.icon
 		if !hasIcon(icon) {
-			icon = "text-x-generic-symbolic"
+			icon = "atlas-note-symbolic"
 		}
 		grid.Attach(a.welcomeCard(icon, c.title, c.subtitle, c.accel, c.action), i%2, i/2, 1, 1)
 	}
@@ -160,7 +160,7 @@ func (a *App) buildRecents() *gtk.Box {
 		card := gtk.NewBox(gtk.OrientationVertical, 2)
 
 		line := gtk.NewBox(gtk.OrientationHorizontal, 8)
-		icon := gtk.NewImageFromIconName("text-x-generic-symbolic")
+		icon := gtk.NewImageFromIconName("atlas-note-symbolic")
 		icon.AddCSSClass("dim-label")
 		line.Append(icon)
 
@@ -322,7 +322,7 @@ func (a *App) welcomeFooter() *gtk.Box {
 	box.SetHAlign(gtk.AlignCenter)
 	box.AddCSSClass("welcome-footer")
 
-	icon := gtk.NewImageFromIconName("folder-symbolic")
+	icon := gtk.NewImageFromIconName("atlas-folder-symbolic")
 	icon.AddCSSClass("dim-label")
 	box.Append(icon)
 
