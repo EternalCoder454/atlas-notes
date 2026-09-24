@@ -58,6 +58,12 @@ startup, typing, memory and I/O.
   text (and rounds font metrics) on low-density screens, keeps GTK's defaults on
   HiDPI ones, and switches automatically when you drag the window between the
   two. Override it in Settings if you prefer one or the other.
+- **Checkboxes line up with their text.** A widget embedded in the text buffer
+  hangs off the line's baseline and cannot sit below it, so a stock-sized
+  checkbox overhung the top of the text by a few pixels (and the old nudge
+  margin only made the row taller). The checkbox, priority bar and due-date
+  badge are now sized in em to the text's cap height, so each row spans exactly
+  from the top of a capital letter down to the baseline, at any font size.
 - The assistant's idle hint no longer renders as a block of selected text.
 - Toolbar and card icons fall back to a glyph when the icon theme lacks them,
   instead of showing a broken-image icon.

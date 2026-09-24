@@ -469,18 +469,47 @@
 
 /* ---- Checklist items ---- */
 
+/*
+ * A checklist row is a widget embedded in the text buffer, and GtkTextView
+ * aligns such a widget's *bottom* with the line's baseline — it hangs off the
+ * baseline like a tall glyph, it cannot be pushed below it. A stock-sized
+ * checkbox (20px against 16px capitals) therefore sticks up past the top of
+ * the text and reads as misaligned.
+ *
+ * So the whole cluster is sized in em, to the text's cap height: the box then
+ * spans exactly from the top of a capital letter down to the baseline, which
+ * is what "centered on the text" looks like. Being em-based, it stays true at
+ * any font size or display scale.
+ */
+
 .checklist-item {
 	margin: 0;
+	padding: 0;
+	/* Breathing room between the box and the task's text, in text units. */
+	margin-right: 0.4em;
 }
 
-/* Tighten the embedded checkbox so it lines up with the text. */
 .checklist-item checkbutton {
 	min-height: 0;
 	min-width: 0;
 	padding: 0;
+	margin: 0;
 }
 
-/* Checklist priority bars — intentional semantic colors. */
+.checklist-item checkbutton check {
+	min-width: 0.72em;
+	min-height: 0.72em;
+	margin: 0;
+	padding: 0;
+	/* Keep the stock corner radius in proportion, so a small box still reads as
+	   a checkbox rather than a radio button. */
+	border-radius: 0.16em;
+	-gtk-icon-size: 0.62em; /* the tick inside the box */
+}
+
+/* Checklist priority bars — intentional semantic colors. The bar stretches to
+   the row's height, which is the checkbox's, so the pair reads as one block
+   sitting on the text's baseline. */
 .priority-bar {
 	border-radius: 9999px;
 	min-width: 3px;

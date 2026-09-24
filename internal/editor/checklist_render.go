@@ -15,9 +15,10 @@ import (
 // child anchor lives in the buffer.
 const anchorChar = "￼"
 
-// checkboxTopNudge pushes the embedded checkbox down a few px so it lines up
-// vertically with the line's text.
-const checkboxTopNudge = 3
+// itemSpacing separates the priority bar from the checkbox inside a row. The
+// gap between the row and the task's text is a margin in style.css, in text
+// units, so it scales with the editor's font.
+const itemSpacing = 5
 
 // renderChecklists replaces the "- [x] " prefix of each raw task line in
 // [from, to] with an embedded checkbox widget (via a GtkTextChildAnchor). It is
@@ -85,9 +86,11 @@ func (e *Editor) lineText(ln int) (string, bool) {
 }
 
 func (e *Editor) buildChecklistWidget(it checklist.Item) *gtk.Box {
-	box := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	box := gtk.NewBox(gtk.OrientationHorizontal, itemSpacing)
 	box.AddCSSClass("checklist-item")
-	box.SetVAlign(gtk.AlignCenter)
+	// No vertical alignment is set here on purpose: the text layout pins an
+	// embedded widget's bottom to the line's baseline, so alignment is decided
+	// by the widget's height (see the checklist rules in style.css).
 
 	bar := gtk.NewBox(gtk.OrientationVertical, 0)
 	bar.SetSizeRequest(3, -1)
@@ -95,9 +98,8 @@ func (e *Editor) buildChecklistWidget(it checklist.Item) *gtk.Box {
 	applyPriorityClass(bar, it.Priority)
 
 	cb := gtk.NewCheckButton()
-	cb.SetVAlign(gtk.AlignCenter)
-	cb.SetMarginTop(checkboxTopNudge) // drop the box down to center on the text
-	cb.SetActive(it.Checked)          // set before connecting so it doesn't fire OnChanged
+	cb.SetVAlign(gtk.AlignFill)
+	cb.SetActive(it.Checked) // set before connecting so it doesn't fire OnChanged
 	cb.SetTooltipText("Toggle task · right-click for priority and due date")
 	cb.ConnectToggled(func() {
 		if e.loading {
@@ -341,8 +343,7 @@ func dueChip(due string) *gtk.Label {
 	}
 	label := gtk.NewLabel(t.Format("Jan 2"))
 	label.AddCSSClass("due-chip")
-	label.SetVAlign(gtk.AlignCenter)
-	label.SetMarginTop(checkboxTopNudge)
+	label.SetVAlign(gtk.AlignEnd) // bottom-aligned, like the box, on the baseline
 	today := time.Now().Truncate(24 * time.Hour)
 	switch day := t.Truncate(24 * time.Hour); {
 	case day.Before(today):
