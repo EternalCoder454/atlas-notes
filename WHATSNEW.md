@@ -4,6 +4,14 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each — the detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.5.8
+- Text is much easier to read in light mode
+- Notes and checklists now have their own icons in the vault, so you can tell them apart
+- The bar along the bottom shows less, and only what's useful
+- The note you have open is easier to pick out in the vault list
+- You can hide the formatting toolbar in Settings, under Editor
+- The assistant panel tucks itself away when the window is narrow, and comes back when it isn't
+
 ## 0.5.7
 - You can now password-protect a note, or a whole folder — right-click it in the vault
 - Protected notes are properly encrypted, so nothing else on your computer can read them
