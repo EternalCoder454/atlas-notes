@@ -107,6 +107,11 @@ type Config struct {
 	FontRendering   string `json:"font_rendering"` // auto | crisp | smooth
 	AssistantName   string `json:"assistant_name"`
 	UpdateChannel   string `json:"update_channel"`
+	// CheckUpdates asks GitHub on launch whether a newer version has been
+	// published. A config written before this setting existed keeps the
+	// default, because LoadConfig starts from DefaultConfig and unmarshals
+	// over it.
+	CheckUpdates bool `json:"check_updates"`
 
 	SystemPrompt        string     `json:"system_prompt"`
 	Actions             []AIAction `json:"actions"`
@@ -153,6 +158,7 @@ func DefaultConfig() Config {
 		FontRendering: FontRenderingAuto,
 		AssistantName: DefaultAssistantName,
 		UpdateChannel: ChannelRelease,
+		CheckUpdates:  true,
 		SystemPrompt:  DefaultSystemPrompt,
 		Actions:       defaultActions(),
 	}

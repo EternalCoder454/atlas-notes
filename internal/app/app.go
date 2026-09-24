@@ -171,6 +171,7 @@ func (a *App) activate() {
 		return false
 	})
 	a.scheduleReindex()
+	a.maybeCheckForUpdate()
 	a.runBench()
 	a.runDevView()
 	printTrace()

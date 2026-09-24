@@ -546,3 +546,19 @@
 	background-color: alpha(#e01b24, 0.18);
 	color: #e01b24;
 }
+
+/* The update dialog's list of what a new version brings. Plain language, a
+   short list, and nothing that asks the reader to be a developer. */
+.update-notes {
+	margin-top: 4px;
+}
+
+.update-notes-intro {
+	font-weight: 700;
+	color: alpha(@window_fg_color, 0.75);
+	margin-bottom: 2px;
+}
+
+.update-bullet {
+	color: alpha(@window_fg_color, 0.45);
+}

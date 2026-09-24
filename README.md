@@ -3,6 +3,8 @@
 **A fast, local-first notes & checklist app for Linux — with an optional local AI
 assistant.** Your notes are plain, compressed Markdown files in a folder on *your*
 machine. Nothing is uploaded, nothing is tracked, and the AI runs locally too.
+The one time Atlas Notes reaches the network on its own is to ask whether a
+newer version has been published, which you can turn off.
 
 Built with GTK4 + libadwaita, so it looks and feels native on GNOME (and follows
 your light/dark theme). Tuned on Fedora; other distros work once the GTK4 devel
@@ -16,7 +18,9 @@ packages are installed.
 
 - **Local-first & private.** Every note lives under your home directory as a
   zstd-compressed Markdown file. No account, no cloud, no telemetry. It works
-  fully offline.
+  fully offline — the only request it ever makes is the update check described
+  under [Updating](#updating), which sends nothing about you or your notes and
+  can be switched off.
 - **WYSIWYG Markdown.** Headings, **bold**, *italic*, `code`, ~~strikethrough~~,
   bullets, quotes and dividers render as you type; the syntax markers hide except
   on the line you're editing. A formatting toolbar and shortcuts (Ctrl+B, Ctrl+I,
@@ -132,12 +136,34 @@ Want your notes in Documents, a synced folder, etc.? Set `"vault_path"` in
 
 ## Updating
 
+**On launch.** A moment after the window opens, Atlas Notes checks whether a
+newer version has been published on your update channel. If there is one, it
+says so — **Update Found — v0.5.5** — lists what changed in a few plain lines,
+and offers **Update Now** or **Update Later**. If you are up to date, offline,
+or GitHub is unreachable, nothing appears at all; the check never delays the
+window or interrupts what you are typing.
+
+The check is a single anonymous read of
+[`WHATSNEW.md`](WHATSNEW.md) from this repository. No identifier, no version
+ping, nothing about your machine or your notes is sent. Turn it off with
+Settings → **App** → **Check for updates when Atlas Notes starts** (on by
+default), or set `"check_updates": false` in `config.json`.
+
+The release notes it shows are written for people using the app. The technical
+history is in [CHANGELOG.md](CHANGELOG.md).
+
+Other ways to update:
+
 - **In-app:** Settings → **App** → **Update & Restart**. It auto-detects your
   source checkout (or clones one if missing), runs `git pull`, rebuilds,
   reinstalls, and relaunches. The same page shows where the binary and source
   live.
 - **Script:** re-run the Fedora installer — it pulls and reinstalls.
 - **Manual:** `git -C ~/.local/share/atlas-notes/src pull && make -C ~/.local/share/atlas-notes/src install`.
+
+**Channels.** Settings → **App** → *Update channel* picks which branch updates
+follow: **Release** (`main`, stable) or **Beta** (`beta`, newest). The launch
+check follows the same channel.
 
 ## Configuration
 
@@ -151,6 +177,8 @@ on first run:
 | `system_prompt` | system prompt sent with every AI call |
 | `actions` | the AI buttons: `[{ "name", "prompt", "mode" }]` (`mode` ∈ `show`/`replace`/`sort`) |
 | `enable_tree_summaries` | show a 1-sentence AI summary when hovering a note |
+| `update_channel` | `release` (the `main` branch) or `beta` |
+| `check_updates` | look for a new version on launch (default `true`) |
 | `font_rendering` | `auto` (default), `crisp` (hinted — sharper at 1080p) or `smooth` (GTK default — for HiDPI) |
 | `last_note` | note reopened on launch |
 | `window_width` / `window_height` | remembered window size |
@@ -243,17 +271,22 @@ atlas-notes/
 ├── assets/                   # style.css + app icon
 ├── packaging/                # .desktop entry
 ├── scripts/install-fedora.sh # one-command Fedora install/update
+├── WHATSNEW.md               # release notes the app shows you (plain language)
+├── CHANGELOG.md              # the technical history
 └── internal/
     ├── app/      # window, panels, actions, settings, the in-app updater
-    │   ├── app.go        # application lifecycle
-    │   ├── notes.go      # the open note: loading, saving, renaming
-    │   ├── center.go     # editor page: title, toolbar, status bar
-    │   ├── welcome.go    # the home screen
-    │   ├── icons/        # symbolic icons the desktop theme has none for
-    │   └── bench.go      # the measurement harness (see above)
+    │   ├── app.go          # application lifecycle
+    │   ├── notes.go        # the open note: loading, saving, renaming
+    │   ├── center.go       # editor page: title, toolbar, status bar
+    │   ├── welcome.go      # the home screen
+    │   ├── update.go       # the updater: channels, build, restart
+    │   ├── updatecheck.go  # the launch-time check and its dialog
+    │   ├── icons/          # symbolic icons the desktop theme has none for
+    │   └── bench.go        # the measurement harness (see above)
     ├── editor/   # GtkTextView WYSIWYG, checklist rows and their menu
     ├── storage/  # vault I/O, zstd, atomic writes, SQLite index, config
     ├── checklist/# pure checklist model (parse / serialize / sort)
+    ├── update/   # is there a newer version? (no GTK, no install logic)
     ├── ai/       # Ollama HTTP client
     └── ui/       # vault panel (tree*.go) + assistant panel (sidebar*.go)
 ```

@@ -1,5 +1,7 @@
 BIN     := bin/atlas-notes
-VERSION ?= 0.5.4
+# The version lives in internal/app/version.go, so a plain `go build .` and a
+# `make install` can never report different numbers at each other.
+VERSION ?= $(shell sed -n 's/^var version = "\(.*\)"/\1/p' internal/app/version.go)
 PREFIX  := $(HOME)/.local
 
 # Injected into the binary: the source dir (for the in-app updater) and version.

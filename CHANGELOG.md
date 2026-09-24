@@ -5,6 +5,84 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-09-24
+
+Atlas Notes now tells you when a new version is out.
+
+### Added
+- **A launch-time update check.** A moment after the window opens, the app asks
+  whether a newer version has been published on its channel. If there is one it
+  presents **Update Found — v*x.y.z*** with a short, plain-language list of what
+  changed and two buttons: **Update Later**, and **Update Now**, which runs the
+  same fetch-build-reinstall-restart the Settings page has always offered, with
+  its progress in a dialog of its own.
+- **`WHATSNEW.md`**, the release notes the app reads and shows. They are written
+  for people using Atlas Notes; this file remains the history for people working
+  on it. A test fails the build if the two drift apart — if the newest entry in
+  `WHATSNEW.md` is not the version being shipped, a release would either
+  announce an update everyone already has or announce nothing at all.
+- **Settings → App → "Check for updates when Atlas Notes starts"**, on by
+  default, and `"check_updates"` in `config.json`. Turning it off means the app
+  makes no network request of its own at all.
+- **`internal/update`**, which knows how to read release notes and compare two
+  version numbers and nothing else: no GTK, no installing, no side effects.
+  Versions compare as numbers, so 0.5.10 is newer than 0.5.9, and anything that
+  does not parse is treated as "not newer" — a check that cannot make sense of
+  what it fetched must never offer an update.
+
+### Changed
+- The updater's fetch/build/restart is now one function, `installUpdate`, driven
+  by both the Settings page and the new dialog rather than duplicated.
+- **The version has one source of truth.** `internal/app/version.go` had drifted
+  to 0.4.3 while the Makefile shipped 0.5.4, so a plain `go build .` produced a
+  binary that misreported itself — harmless until an update check compares that
+  number against what has been published. The Makefile now reads the version out
+  of the source file.
+
+### Fixed
+- **Opening a note leaked memory, without bound.** Replacing a note's text and
+  then putting the caret at the top emits `mark-set`; the text view answers
+  that by updating the input method's spot location, which asks for the
+  cursor's location, which lays the line out and keeps the result in GTK's
+  line-display cache — a cached layout per note opened that nothing released.
+  The cost scales with the length of the note: on a vault of long notes, 1,200
+  opens grew memory by 271 MB. The text is now replaced with the view detached
+  from the buffer, so there is no handler to answer, and the same 1,200 opens
+  cost 81 MB — 70% less, with no measurable change to how long opening a note
+  takes (0.43 ms at the median on a 2,000-note vault). On ordinary notes the
+  difference is a few KB per open; this is insurance for the person with a very
+  long note.
+
+  Found with heaptrack, which named the allocation site outright. The remaining
+  growth is about 10 KB per note opened on an ordinary vault: cairo's X11
+  surface pools, GSK text nodes, and one binding-level reference per embedded
+  checkbox that the GTK bindings never release. None of it is reachable from
+  this side without changing how checkboxes are embedded.
+
+### Privacy
+The check is a single anonymous GET of a text file from the project's
+repository, with an 8-second timeout, on a background thread. No identifier, no
+version ping, nothing about the machine or its notes is sent, and a failure is
+logged rather than shown. Being offline behaves exactly like being up to date:
+silently. The README says so too, where it promises the app works offline.
+
+### Verified
+The four paths the check can take were each exercised against a local server on
+a real launch: a newer version presents the dialog; the same version, an
+unreachable server, and the setting turned off all leave the window untouched.
+The parser and the version comparison were fuzzed for 16 million executions
+without a crash, a malformed version reaching the dialog title, or a pair of
+versions each newer than the other. Tests, `go vet`, `staticcheck`, `deadcode`
+and `govulncheck` are clean, and the stability battery still passes 7/7.
+
+The check costs what one HTTPS request costs, all of it after the window is up:
+about 50 ms of CPU on a background thread, and about 5 MB of resident memory
+that does not come back (measured over a 45-second idle run against the real
+endpoint — it is mostly the TLS and certificate code becoming resident, which
+is the price of making any HTTPS request at all). Time to first frame is
+unchanged, because the check does not start until 1.5 seconds after it. Turning
+the setting off costs nothing at all: no client is built and no request is made.
+
 ## [0.5.4] - 2026-09-24
 
 A cleanup pass: dead code removed, files split along the seams they had grown

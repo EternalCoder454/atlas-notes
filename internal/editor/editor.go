@@ -160,9 +160,28 @@ func (e *Editor) newTag(name string, props map[string]any) {
 // caret is placed at the top, so opening a note shows its beginning.
 func (e *Editor) SetContent(s string) {
 	e.clearItems() // the old note's checkboxes go with its text
+
+	// The text is replaced with the view detached from the buffer.
+	//
+	// Moving the cursor emits "mark-set", and the view answers that by
+	// updating the input method's spot location, which asks for the cursor's
+	// location, which lays the line out and keeps the result in GTK's
+	// line-display cache. Opening a note therefore cached a fresh layout that
+	// nothing ever released, and the cost grows with the size of the note: on
+	// a vault of long notes, 1,200 opens grew memory by 271 MB (231 KB an
+	// open) and by 81 MB (69 KB) with the view looking away for the
+	// replacement. On ordinary notes it is a few KB either way — this is
+	// insurance for the person with a very long note, not a general win.
+	//
+	// Nothing is anchored in the buffer at this point (clearItems above took
+	// the checkboxes out), and the view is re-attached before the pass below
+	// puts new ones in.
+	e.view.SetBuffer(nil)
 	e.withLoading(func() { e.buffer.SetText(s) })
 	start, _ := e.buffer.Bounds()
 	e.withLoading(func() { e.buffer.PlaceCursor(start) })
+	e.view.SetBuffer(e.buffer)
+
 	e.revealCaret = false
 	e.lastCursor = 0
 	// One full pass: reparse renders every "- [ ] " line as a checkbox and

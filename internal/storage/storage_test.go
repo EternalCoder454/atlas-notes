@@ -345,3 +345,43 @@ func TestReindexIncremental(t *testing.T) {
 		t.Fatalf("second reindex changed the index: %d notes", n)
 	}
 }
+
+// TestCheckUpdatesSetting pins the two things the launch-time update check
+// depends on: a config written before the setting existed keeps it on, and a
+// user who turns it off stays off across a restart. The second is the one that
+// could quietly break — false is also a bool's zero value, so any "backfill the
+// empty fields" logic added to LoadConfig would silently re-enable it.
+func TestCheckUpdatesSetting(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	path := ConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A config from before the setting existed.
+	if err := os.WriteFile(path, []byte(`{"model":"qwen3.5:9b"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.CheckUpdates {
+		t.Error("an older config should keep the update check on by default")
+	}
+
+	// Turning it off has to survive a save and reload.
+	cfg.CheckUpdates = false
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	reloaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if reloaded.CheckUpdates {
+		t.Error("the update check switched itself back on")
+	}
+}

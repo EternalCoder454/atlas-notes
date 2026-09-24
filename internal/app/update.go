@@ -92,6 +92,19 @@ func (a *App) buildAppPage() gtk.Widgetter {
 	})
 	box.Append(channel)
 
+	check := gtk.NewCheckButtonWithLabel("Check for updates when Atlas Notes starts")
+	check.SetActive(a.cfg.CheckUpdates)
+	check.SetTooltipText("Asks GitHub whether a newer version has been published. " +
+		"Nothing about you or your notes is sent.")
+	check.SetMarginTop(8)
+	check.ConnectToggled(func() {
+		a.cfg.CheckUpdates = check.Active()
+		if err := storage.SaveConfig(a.cfg); err != nil {
+			log.Printf("atlas-notes: save update setting: %v", err)
+		}
+	})
+	box.Append(check)
+
 	updateBtn := gtk.NewButtonWithLabel("Update & Restart")
 	updateBtn.AddCSSClass("suggested-action")
 	updateBtn.SetHAlign(gtk.AlignStart)
@@ -108,7 +121,13 @@ func (a *App) buildAppPage() gtk.Widgetter {
 		if err := storage.SaveConfig(a.cfg); err != nil {
 			log.Printf("atlas-notes: save update channel: %v", err)
 		}
-		a.runUpdate(updateBtn, status, channelBranch(a.cfg.UpdateChannel))
+		updateBtn.SetSensitive(false)
+		a.installUpdate(channelBranch(a.cfg.UpdateChannel), func(text string, done bool) {
+			status.SetText(text)
+			if done {
+				updateBtn.SetSensitive(true)
+			}
+		})
 	})
 
 	info := gtk.NewLabel(buildInfo())
@@ -122,34 +141,35 @@ func (a *App) buildAppPage() gtk.Widgetter {
 	return pageScroll(box)
 }
 
-// runUpdate fetches the given branch from GitHub into the managed clone,
-// reinstalls from it, then restarts the app in place.
-func (a *App) runUpdate(btn *gtk.Button, status *gtk.Label, branch string) {
-	btn.SetSensitive(false)
-	status.SetText(fmt.Sprintf("Updating from the %q branch on GitHub — building and installing…", branch))
+// installUpdate fetches the branch from GitHub into the managed clone,
+// reinstalls from it, and restarts the app in place. Progress is reported
+// through onStatus, whose second argument says whether the work has finished
+// (successfully or not) — the Settings page and the launch-time update dialog
+// both drive this, and both need to say what is happening.
+func (a *App) installUpdate(branch string, onStatus func(text string, done bool)) {
+	onStatus("Downloading and building the new version…\nThis takes a minute or two.", false)
 
 	go func() {
 		out, err := exec.Command("bash", "-lc", updateScript(branch)).CombinedOutput()
 		coreglib.IdleAdd(func() bool {
 			if err != nil {
-				btn.SetSensitive(true)
-				status.SetText("Update failed:\n" + tail(string(out), 600))
+				onStatus("The update didn't finish:\n"+tail(string(out), 400), true)
 				return false
 			}
-			status.SetText("Updated — restarting…")
+			onStatus("Updated — restarting Atlas Notes…", true)
 			a.flushDirty() // synchronous save before we replace the process
 
 			exe, e := installedBinary()
 			if e != nil {
-				btn.SetSensitive(true)
-				status.SetText("Installed, but couldn't find the binary to restart: " + e.Error())
+				onStatus("Installed, but the app couldn't be restarted: "+e.Error()+
+					"\nStart Atlas Notes again to finish.", true)
 				return false
 			}
 			// Replace this process with the freshly installed binary. On success
 			// this never returns; the new process opens a fresh window.
 			if e := syscall.Exec(exe, []string{exe}, os.Environ()); e != nil {
-				btn.SetSensitive(true)
-				status.SetText("Installed, but restart failed: " + e.Error() + "\nRelaunch Atlas Notes manually.")
+				onStatus("Installed, but the app couldn't be restarted: "+e.Error()+
+					"\nStart Atlas Notes again to finish.", true)
 			}
 			return false
 		})

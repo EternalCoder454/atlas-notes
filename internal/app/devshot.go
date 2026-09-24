@@ -8,6 +8,8 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+
+	"atlas-notes/internal/update"
 )
 
 // fixedWindowTitle keeps the window's title constant (ATLAS_DEV_TITLE=1) so the
@@ -54,6 +56,17 @@ func (a *App) runDevView() {
 			a.showAbout()
 		case "icons":
 			a.showIconSheet()
+		case "update":
+			a.showUpdateFound(&update.Release{
+				Version: "0.5.5",
+				Notes: []string{
+					"Atlas Notes now tells you when a new version is out",
+					"The toolbar icons all match each other now",
+					"Checkboxes line up neatly with their text",
+					"Big vaults open much faster, and searching them is instant",
+					"Fixed a crash when a note contained certain punctuation",
+				},
+			})
 		case "search":
 			if a.tree != nil {
 				a.tree.SetSearch(arg)
