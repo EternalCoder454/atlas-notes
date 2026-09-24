@@ -44,6 +44,7 @@ type node struct {
 	modified time.Time
 	locked   bool // stored encrypted, or a folder whose notes are
 	starred  bool // marked a favourite
+	tasks    bool // holds checklist items, so it reads as a checklist
 }
 
 // Tree is the left-panel vault browser: a GtkListView tree. Items are created,
@@ -369,7 +370,7 @@ func (t *Tree) vaultSignature() string {
 	for i := range t.entries {
 		e := &t.entries[i]
 		h.Write([]byte(e.meta.Path))
-		fmt.Fprintf(h, "|%v%v", e.meta.Locked, t.starred(e.meta.Path, false))
+		fmt.Fprintf(h, "|%v%v%v", e.meta.Locked, e.meta.HasTasks, t.starred(e.meta.Path, false))
 		if t.sortRecent {
 			fmt.Fprintf(h, "|%d", e.meta.ModifiedAt.Unix())
 		}
@@ -443,7 +444,7 @@ func sameNode(a, b *node) bool {
 	// note or starring it would update the cache and change nothing visible.
 	return a.rel == b.rel && a.isFolder == b.isFolder && a.name == b.name &&
 		a.folder == b.folder && a.modified.Equal(b.modified) &&
-		a.locked == b.locked && a.starred == b.starred
+		a.locked == b.locked && a.starred == b.starred && a.tasks == b.tasks
 }
 
 // updateHeader keeps the note count beside the panel title current.
@@ -526,6 +527,7 @@ func (t *Tree) reloadCache() {
 			created: n.CreatedAt, modified: n.ModifiedAt,
 			locked:  n.Locked,
 			starred: t.starred(n.Path, false),
+			tasks:   n.HasTasks,
 		})
 	}
 	for _, children := range t.childIndex {

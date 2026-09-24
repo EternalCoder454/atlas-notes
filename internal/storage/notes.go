@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"atlas-notes/internal/checklist"
 	"atlas-notes/internal/vaultlock"
 )
 
@@ -22,6 +23,7 @@ type NoteMeta struct {
 	ModifiedAt time.Time
 	CreatedAt  time.Time
 	Locked     bool // stored encrypted; its content needs the vault password
+	HasTasks   bool // contains checklist items, so it reads as a checklist
 }
 
 // atomicWrite writes data to path durably: temp file in the same directory,
@@ -154,7 +156,7 @@ func (s *Store) WriteNote(rel, content string) error {
 		if err := atomicWrite(abs, compressed); err != nil {
 			return err
 		}
-		return s.indexNote(rel, time.Now(), false)
+		return s.indexNote(rel, time.Now(), false, HasTasks(content))
 	}
 
 	key, err := s.key()
@@ -177,7 +179,7 @@ func (s *Store) WriteNote(rel, content string) error {
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("saved, but the unencrypted copy is still there: %w", err)
 	}
-	return s.indexNote(rel, time.Now(), true)
+	return s.indexNote(rel, time.Now(), true, HasTasks(content))
 }
 
 // ReadNote reads a note's markdown, decrypting it first when it is locked.
@@ -295,22 +297,41 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 // upsertNoteSQL inserts or refreshes one note's metadata row. Reindex prepares
 // it once and reuses it for the whole vault.
 const upsertNoteSQL = `
-	INSERT INTO notes(path, folder, modified_at, created_at, locked)
-	VALUES(?,?,?,?,?)
+	INSERT INTO notes(path, folder, modified_at, created_at, locked, has_tasks)
+	VALUES(?,?,?,?,?,?)
 	ON CONFLICT(path) DO UPDATE SET
 		folder      = excluded.folder,
 		modified_at = excluded.modified_at,
-		locked      = excluded.locked`
+		locked      = excluded.locked,
+		-- A negative value means "could not tell": the vault scan cannot read a
+		-- locked note, and must not report it as having no tasks.
+		has_tasks   = CASE WHEN excluded.has_tasks < 0
+		                   THEN notes.has_tasks ELSE excluded.has_tasks END`
+
+// tasksUnknown is passed for a note whose content could not be read.
+const tasksUnknown = -1
 
 // indexNote upserts a note's metadata row.
-func (s *Store) indexNote(rel string, modified time.Time, locked bool) error {
+func (s *Store) indexNote(rel string, modified time.Time, locked, hasTasks bool) error {
 	folder := path.Dir(rel)
 	if folder == "." {
 		folder = ""
 	}
 	unix := modified.Unix()
-	_, err := s.db.Exec(upsertNoteSQL, rel, folder, unix, unix, boolToInt(locked))
+	_, err := s.db.Exec(upsertNoteSQL, rel, folder, unix, unix,
+		boolToInt(locked), boolToInt(hasTasks))
 	return err
+}
+
+// HasTasks reports whether a note's text contains checklist items. It is the
+// one place that decides, so the write path and the vault scan cannot disagree.
+func HasTasks(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if _, ok := checklist.TaskLine(line); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // setIndexLocked records that a note changed between locked and unlocked,
@@ -347,7 +368,7 @@ func boolToInt(b bool) int {
 
 // ListNotes returns all indexed notes ordered by folder then title.
 func (s *Store) ListNotes() ([]NoteMeta, error) {
-	rows, err := s.db.Query(`SELECT path, folder, modified_at, created_at, locked FROM notes ORDER BY folder, path`)
+	rows, err := s.db.Query(`SELECT path, folder, modified_at, created_at, locked, has_tasks FROM notes ORDER BY folder, path`)
 	if err != nil {
 		return nil, err
 	}
@@ -356,13 +377,17 @@ func (s *Store) ListNotes() ([]NoteMeta, error) {
 	for rows.Next() {
 		var m NoteMeta
 		var modified, created int64
-		var locked int
-		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created, &locked); err != nil {
+		var locked, hasTasks int
+		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created, &locked, &hasTasks); err != nil {
 			return nil, err
 		}
 		m.ModifiedAt = time.Unix(modified, 0)
 		m.CreatedAt = time.Unix(created, 0)
 		m.Locked = locked != 0
+		// Greater than zero, not merely non-zero: a locked note the scan could
+		// not read is stored as tasksUnknown, and "we could not tell" has to
+		// read as "not known to be a checklist" rather than as a checklist.
+		m.HasTasks = hasTasks > 0
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -390,7 +415,7 @@ func (s *Store) UniqueName(folder, base string) string {
 // welcome screen uses it to offer a way straight back into recent work.
 func (s *Store) RecentNotes(limit int) ([]NoteMeta, error) {
 	rows, err := s.db.Query(`
-		SELECT path, folder, modified_at, created_at, locked
+		SELECT path, folder, modified_at, created_at, locked, has_tasks
 		FROM notes ORDER BY modified_at DESC, path LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -400,13 +425,17 @@ func (s *Store) RecentNotes(limit int) ([]NoteMeta, error) {
 	for rows.Next() {
 		var m NoteMeta
 		var modified, created int64
-		var locked int
-		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created, &locked); err != nil {
+		var locked, hasTasks int
+		if err := rows.Scan(&m.Path, &m.Folder, &modified, &created, &locked, &hasTasks); err != nil {
 			return nil, err
 		}
 		m.ModifiedAt = time.Unix(modified, 0)
 		m.CreatedAt = time.Unix(created, 0)
 		m.Locked = locked != 0
+		// Greater than zero, not merely non-zero: a locked note the scan could
+		// not read is stored as tasksUnknown, and "we could not tell" has to
+		// read as "not known to be a checklist" rather than as a checklist.
+		m.HasTasks = hasTasks > 0
 		out = append(out, m)
 	}
 	return out, rows.Err()

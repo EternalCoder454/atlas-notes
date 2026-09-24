@@ -8,6 +8,13 @@
  * app's own purple, which is its identity rather than a theme color.
  *
  * Spacing follows a 4px scale: 4 / 8 / 12 / 16 / 24.
+ *
+ * Dimming is deliberate about two things. It never compounds: a rule that sets
+ * a recessive colour is not also given an opacity by its children, because the
+ * two multiply and the result is far fainter than either value suggests. And
+ * the floor is set for the light scheme, not the dark one: the same alpha is
+ * not symmetric between them, since dimming white on a dark background stays
+ * legible far longer than dimming black on a light one.
  */
 
 /* ---- Identity ---- */
@@ -20,7 +27,7 @@
 
 .left-panel {
 	background-color: @sidebar_bg_color;
-	border-right: 1px solid alpha(@window_fg_color, 0.08);
+	border-right: 1px solid alpha(@window_fg_color, 0.14);
 }
 
 .center-panel {
@@ -29,19 +36,19 @@
 
 .right-panel {
 	background-color: @sidebar_bg_color;
-	border-left: 1px solid alpha(@window_fg_color, 0.08);
+	border-left: 1px solid alpha(@window_fg_color, 0.14);
 }
 
 .atlas-header {
 	box-shadow: none;
-	border-bottom: 1px solid alpha(@window_fg_color, 0.06);
+	border-bottom: 1px solid alpha(@window_fg_color, 0.10);
 }
 
 /* ---- Vault panel ---- */
 
 .vault-header {
 	padding: 10px 10px 8px 10px;
-	border-bottom: 1px solid alpha(@window_fg_color, 0.06);
+	border-bottom: 1px solid alpha(@window_fg_color, 0.10);
 }
 
 .vault-title {
@@ -49,12 +56,12 @@
 	font-size: 0.95em;
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
-	opacity: 0.75;
+	opacity: 0.85;
 }
 
 .vault-count {
 	font-size: 0.85em;
-	opacity: 0.45;
+	opacity: 0.6;
 }
 
 .vault-header button.flat {
@@ -85,7 +92,7 @@
 
 .vault-empty-hint {
 	font-size: 0.88em;
-	opacity: 0.45;
+	opacity: 0.6;
 }
 
 /* Pull rows close to the panel edge; depth indent is applied in code. */
@@ -102,20 +109,20 @@
 }
 
 .navigation-sidebar > row:selected {
-	background-color: alpha(@accent_bg_color, 0.16);
+	background-color: alpha(@accent_bg_color, 0.26);
 	color: @window_fg_color;
 	font-weight: 600;
-	box-shadow: inset 2px 0 0 @accent_bg_color;
+	box-shadow: inset 3px 0 0 @accent_bg_color;
 }
 
 .navigation-sidebar image {
-	opacity: 0.55;
+	opacity: 0.7;
 }
 
 /* Folder shown beside a note's name in search results. */
 .row-caption {
 	font-size: 0.8em;
-	opacity: 0.4;
+	opacity: 0.58;
 }
 
 /* ---- Note header ---- */
@@ -126,7 +133,7 @@
 
 .breadcrumb {
 	font-size: 0.8em;
-	opacity: 0.45;
+	opacity: 0.6;
 	margin-bottom: -2px;
 }
 
@@ -178,14 +185,14 @@
 
 .format-bar {
 	padding: 2px 16px 6px 16px;
-	border-bottom: 1px solid alpha(@window_fg_color, 0.06);
+	border-bottom: 1px solid alpha(@window_fg_color, 0.10);
 }
 
 .format-button {
 	min-width: 28px;
 	min-height: 28px;
 	padding: 2px;
-	opacity: 0.6;
+	opacity: 0.78;
 	border-radius: 6px;
 }
 
@@ -202,7 +209,7 @@
 
 .format-sep {
 	margin: 5px 6px;
-	opacity: 0.35;
+	opacity: 0.5;
 }
 
 .task-progress {
@@ -234,13 +241,20 @@
 
 .status-bar {
 	padding: 5px 20px;
-	border-top: 1px solid alpha(@window_fg_color, 0.06);
+	border-top: 1px solid alpha(@window_fg_color, 0.10);
 	font-size: 0.82em;
+	color: alpha(@window_fg_color, 0.7);
+}
+
+/* Recessive within the footer. A colour rather than an opacity: the footer
+   already sets one, and the two would multiply. */
+.status-dim {
 	color: alpha(@window_fg_color, 0.55);
 }
 
-.status-dim {
-	opacity: 0.6;
+.status-bar .save-indicator,
+.status-bar .task-progress {
+	opacity: 1;
 }
 
 /* The save pill and task count sit in the footer now, so they inherit its
@@ -275,7 +289,7 @@
 }
 
 .welcome-subtitle {
-	opacity: 0.55;
+	opacity: 0.68;
 	margin-top: 4px;
 	margin-bottom: 20px;
 }
@@ -304,7 +318,7 @@
 
 .welcome-card-subtitle {
 	font-size: 0.85em;
-	opacity: 0.55;
+	opacity: 0.68;
 }
 
 .welcome-card-icon {
@@ -327,7 +341,7 @@
 	font-weight: 700;
 	letter-spacing: 0.05em;
 	text-transform: uppercase;
-	opacity: 0.45;
+	opacity: 0.6;
 	margin: 16px 4px 4px 4px;
 }
 
@@ -353,7 +367,7 @@
 
 .welcome-recent-time {
 	font-size: 0.8em;
-	opacity: 0.4;
+	opacity: 0.55;
 }
 
 /* The two lines of the note itself. Recessive: the card is scanned by title
@@ -361,12 +375,12 @@
 .welcome-recent-snippet {
 	font-size: 0.85em;
 	font-weight: normal; /* the card is a button, and buttons are bold */
-	opacity: 0.5;
+	opacity: 0.65;
 }
 
 .welcome-footer {
 	margin-top: 22px;
-	opacity: 0.4;
+	opacity: 0.55;
 }
 
 .welcome-footer-text {
@@ -381,7 +395,7 @@
 	font-size: 0.82em;
 	letter-spacing: 0.05em;
 	text-transform: uppercase;
-	opacity: 0.5;
+	opacity: 0.62;
 }
 
 .shortcut-card {
@@ -440,10 +454,12 @@
 
 .ai-setup-cmd {
 	font-family: monospace;
-	font-size: 0.85em;
-	background-color: alpha(@window_fg_color, 0.06);
+	font-size: 0.8em;
+	color: alpha(@window_fg_color, 0.75);
+	background-color: alpha(@window_fg_color, 0.045);
+	border: 1px solid alpha(@window_fg_color, 0.07);
 	border-radius: 8px;
-	padding: 8px;
+	padding: 8px 10px;
 }
 
 /* Assistant identity (the avatar orb itself is Cairo-drawn, see logo.go). */
@@ -453,7 +469,7 @@
 }
 
 .assistant-stats {
-	color: alpha(@window_fg_color, 0.5);
+	color: alpha(@window_fg_color, 0.65);
 	font-size: 0.82em;
 }
 
@@ -581,19 +597,19 @@
 }
 
 .update-notes-intro {
-	font-weight: 700;
+	font-weight: 500;
 	color: alpha(@window_fg_color, 0.75);
 	margin-bottom: 2px;
 }
 
 .update-bullet {
-	color: alpha(@window_fg_color, 0.45);
+	color: alpha(@window_fg_color, 0.6);
 }
 
 /* Row badges: a star for a favourite, a padlock for something encrypted. Both
    are recessive — they mark a row, they do not compete with its name. */
 .row-badge {
-	opacity: 0.45;
+	opacity: 0.6;
 }
 
 .row-star {

@@ -75,6 +75,7 @@ type generalFields struct {
 	model   *gtk.Entry
 	system  *gtk.TextView
 	summary *gtk.CheckButton
+	toolbar *gtk.CheckButton
 	fonts   *gtk.DropDown
 	page    gtk.Widgetter
 }
@@ -111,6 +112,14 @@ func (a *App) buildGeneralPage() generalFields {
 	treeGroup.Append(summary)
 	box.Append(treeGroup)
 
+	editorGroup := groupCard("Editor")
+	toolbar := wrappingCheck("Show the formatting toolbar above notes")
+	toolbar.SetActive(a.cfg.ShowFormatBar)
+	toolbar.SetTooltipText("The toolbar shows what the editor understands. " +
+		"Every command it offers also has a keyboard shortcut.")
+	editorGroup.Append(toolbar)
+	box.Append(editorGroup)
+
 	// Text rendering: the right choice depends on the screen, so it is a
 	// setting rather than a guess. See internal/app/fonts.go.
 	fontGroup := groupCard("Text rendering")
@@ -129,7 +138,10 @@ func (a *App) buildGeneralPage() generalFields {
 	fontGroup.Append(fontHint)
 	box.Append(fontGroup)
 
-	return generalFields{name: nameEntry, model: modelEntry, system: sysView, summary: summary, fonts: fonts, page: pageScroll(box)}
+	return generalFields{
+		name: nameEntry, model: modelEntry, system: sysView,
+		summary: summary, toolbar: toolbar, fonts: fonts, page: pageScroll(box),
+	}
 }
 
 // fontModeIndex maps a stored font-rendering mode to its dropdown position.
@@ -205,6 +217,7 @@ func (a *App) applySettings(f generalFields, rows []*actionRow) {
 	}
 	a.cfg.SystemPrompt = strings.TrimSpace(textViewText(f.system))
 	a.cfg.EnableTreeSummaries = f.summary.Active()
+	a.cfg.ShowFormatBar = f.toolbar.Active()
 	if i := int(f.fonts.Selected()); i >= 0 && i < len(fontRenderingModes) {
 		a.cfg.FontRendering = fontRenderingModes[i]
 	}
@@ -238,6 +251,7 @@ func (a *App) applySettings(f generalFields, rows []*actionRow) {
 	if a.tree != nil {
 		a.tree.SetSummariesEnabled(a.cfg.EnableTreeSummaries)
 	}
+	a.applyFormatBarVisibility()
 }
 
 func newActionRow(act storage.AIAction) *actionRow {

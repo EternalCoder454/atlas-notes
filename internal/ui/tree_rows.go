@@ -192,9 +192,16 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 	if !ok {
 		return
 	}
-	if n.isFolder {
+	// A checklist and a note are different things to the app — the home screen
+	// offers them as separate ways to start — so the panel draws them
+	// differently. Which one a note is comes from the index, not from opening
+	// it here.
+	switch {
+	case n.isFolder:
 		icon.SetFromIconName("atlas-folder-symbolic")
-	} else {
+	case n.tasks:
+		icon.SetFromIconName("atlas-checklist-symbolic")
+	default:
 		icon.SetFromIconName("atlas-note-symbolic")
 	}
 	if label, ok := icon.NextSibling().(*gtk.Label); ok {

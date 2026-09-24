@@ -206,6 +206,10 @@ CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder);
 // the table already, and ALTER TABLE is how it gains the column.
 const lockedColumn = `ALTER TABLE notes ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`
 
+// hasTasksColumn records whether a note contains checklist items, so the vault
+// panel can draw a checklist differently from a note without opening anything.
+const hasTasksColumn = `ALTER TABLE notes ADD COLUMN has_tasks INTEGER NOT NULL DEFAULT 0`
+
 func (s *Store) migrate() error {
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -217,5 +221,19 @@ func (s *Store) migrate() error {
 	// Likewise for the locked flag. The vault scan fills it in from what is
 	// actually on disk, so an older index needs no backfill here.
 	s.db.Exec(lockedColumn)
+
+	// Adding has_tasks to an existing index is not enough on its own. The vault
+	// scan only looks at files whose modification time changed, so every note
+	// already indexed would keep the column's default — no tasks — until it
+	// happened to be edited, and checklists would draw as ordinary notes for
+	// however long that took. When the column is new, the timestamps are
+	// cleared so the next scan treats every note as changed and fills it in.
+	// ALTER TABLE failing means the column was already there, which is the
+	// ordinary case and needs nothing.
+	if _, err := s.db.Exec(hasTasksColumn); err == nil {
+		if _, err := s.db.Exec(`UPDATE notes SET modified_at = 0`); err != nil {
+			return err
+		}
+	}
 	return nil
 }

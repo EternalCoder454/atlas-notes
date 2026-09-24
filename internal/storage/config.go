@@ -113,6 +113,11 @@ type Config struct {
 	// over it.
 	CheckUpdates bool `json:"check_updates"`
 
+	// ShowFormatBar keeps the formatting toolbar above the note. It is on by
+	// default: someone who does not know the Markdown has no other way to
+	// discover what the editor understands. Someone who does can turn it off.
+	ShowFormatBar bool `json:"show_format_bar"`
+
 	// Favourites are a preference rather than vault content: they live here
 	// rather than in the vault, so they follow the person rather than a copy
 	// of the notes. A vault synced to another machine does not carry them.
@@ -165,6 +170,7 @@ func DefaultConfig() Config {
 		AssistantName: DefaultAssistantName,
 		UpdateChannel: ChannelRelease,
 		CheckUpdates:  true,
+		ShowFormatBar: true,
 		SystemPrompt:  DefaultSystemPrompt,
 		Actions:       defaultActions(),
 	}

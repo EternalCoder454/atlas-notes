@@ -5,6 +5,55 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Acting on an outside review of the interface.
+
+### Changed
+- **The light scheme is legible.** Text was dimmed with opacity and alpha,
+  which is not symmetric between the two schemes: dimming white on a dark
+  background stays readable far longer than dimming black on a light one. Worse,
+  it compounded, because a rule that set a recessive colour often had children
+  that also set an opacity, and the two multiply. The footer's secondary text
+  was the clearest case, landing around 2.3:1 against white, which fails
+  WCAG AA. Dimming no longer compounds anywhere, and the floors are set for the
+  light scheme rather than the dark one.
+- **The formatting toolbar is visible without hovering it**, the panel dividers
+  have enough weight to separate the three columns, and the selected row in the
+  vault panel carries a solid accent bar rather than a wash of pale blue.
+- **The footer says less.** Word count, reading time, checklist progress and
+  save state. The character count moved to the word count's tooltip: a
+  character count is something a form with a limit needs, not a note. The file
+  path moved to the note title's tooltip, which is the thing it describes.
+- **The install commands in the assistant's setup card are quieter** but still
+  shown in full. What a `curl … | sh` actually runs is not something to fold
+  away behind a button.
+
+### Added
+- **A checklist and a note now look different in the vault panel.** The app
+  offers them as separate ways to start, so the panel draws them separately.
+  Which one a note is comes from the index: the write path records it from the
+  content it already holds, and the vault scan works it out only for files it
+  has already decided have changed. The scan reads a note it could not
+  otherwise open in exactly one case, a vault written by something other than
+  the app, and it costs about 6 µs a note there. Launching is unchanged at
+  92 ms on a 2,000-note vault, because the scan runs after the first frame.
+- **Settings → Editor → "Show the formatting toolbar above notes"**, on by
+  default. The toolbar is how someone who does not know the Markdown discovers
+  what the editor understands; someone who does can have the room back.
+- **The assistant panel folds away on a narrow window** (under 1,200px) and
+  comes back when there is room, unless it was hidden deliberately. Hiding it
+  yourself is a decision that survives resizing.
+
+### Fixed
+- **A locked note could be drawn as a checklist.** The vault scan cannot read
+  one, so it records "could not tell" rather than guessing. On a fresh index
+  there was no previous answer to keep, and that sentinel read back as "yes".
+- **Upgrading would not have shown any checklist icons.** The scan only looks
+  at files whose modification time changed, so every note already indexed would
+  have kept the new column's default until it happened to be edited. Adding the
+  column now clears the stored timestamps so the next scan fills it in.
+
 ## [0.5.7] - 2026-09-24
 
 ### Added

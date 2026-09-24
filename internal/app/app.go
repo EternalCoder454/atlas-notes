@@ -60,6 +60,14 @@ type App struct {
 	outerPaned  *gtk.Paned
 	innerPaned  *gtk.Paned
 	centerStack *gtk.Stack
+	formatBar   *gtk.Box
+
+	// wantAssistant is whether the user wants the assistant panel, as opposed
+	// to whether it happens to be on screen: a narrow window folds it away
+	// without changing what they asked for. autoCollapsing marks the moment
+	// the code is doing that, so the toggle handler can tell the two apart.
+	wantAssistant  bool
+	autoCollapsing bool
 
 	titleEntry    *gtk.Entry
 	breadcrumb    *gtk.Label
@@ -67,7 +75,6 @@ type App struct {
 	saveLabel     *gtk.Label
 	statusLabel   *gtk.Label
 	readTimeLabel *gtk.Label
-	vaultLabel    *gtk.Label
 	taskProgress  *gtk.Label
 
 	fontMode        string // text-rendering mode currently applied (see fonts.go)

@@ -385,3 +385,160 @@ func TestCheckUpdatesSetting(t *testing.T) {
 		t.Error("the update check switched itself back on")
 	}
 }
+
+// TestHasTasksIsIndexed pins how a checklist is told apart from a note. The
+// vault panel draws them differently, and it reads the answer from the index
+// rather than opening every file, so the index has to be right in both the
+// paths that fill it: writing through the app, and scanning a vault the app
+// did not write.
+func TestHasTasksIsIndexed(t *testing.T) {
+	s := testStore(t)
+	if err := s.WriteNote("Plain", "# Plain\n\nJust prose, no tasks.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteNote("Listy", "# Listy\n\n- [ ] something to do\n"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(when string) {
+		t.Helper()
+		notes, err := s.ListNotes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, n := range notes {
+			got[n.Path] = n.HasTasks
+		}
+		if got["Plain"] {
+			t.Errorf("%s: a note with no tasks is flagged as a checklist", when)
+		}
+		if !got["Listy"] {
+			t.Errorf("%s: a note with tasks is not flagged as a checklist", when)
+		}
+	}
+	check("after writing")
+
+	// The same answer has to come back from a rebuild, which reads the files.
+	if _, err := s.db.Exec(`DELETE FROM notes`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	check("after reindexing")
+
+	// Editing the tasks out has to clear it again.
+	if err := s.WriteNote("Listy", "# Listy\n\nthe task is gone\n"); err != nil {
+		t.Fatal(err)
+	}
+	notes, _ := s.ListNotes()
+	for _, n := range notes {
+		if n.Path == "Listy" && n.HasTasks {
+			t.Error("removing the tasks left the note flagged as a checklist")
+		}
+	}
+}
+
+// TestHasTasksSurvivesLocking: the vault scan cannot read a locked note, and
+// must not conclude from that that it has no tasks.
+func TestHasTasksSurvivesLocking(t *testing.T) {
+	s := lockedStore(t)
+	if err := s.WriteNote("Secret", "# Secret\n\n- [ ] a private task\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LockNote("Secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := s.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if n.Path != "Secret" {
+			continue
+		}
+		if !n.Locked {
+			t.Error("the note lost its locked flag")
+		}
+		if !n.HasTasks {
+			t.Error("a scan that could not read the note forgot it was a checklist")
+		}
+		return
+	}
+	t.Fatal("the note is not in the index")
+}
+
+// TestHasTasksBackfillsOnUpgrade: an index written before the column existed
+// has to gain it. The scan skips files whose modification time has not
+// changed, so without a nudge every existing note would stay flagged as having
+// no tasks until it was next edited.
+func TestHasTasksBackfillsOnUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	vault, db := filepath.Join(dir, "vault"), filepath.Join(dir, "index.db")
+
+	s, err := Open(vault, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteNote("Listy", "# Listy\n\n- [ ] a task\n"); err != nil {
+		t.Fatal(err)
+	}
+	// Put the index back the way an older version left it.
+	if _, err := s.db.Exec(`ALTER TABLE notes DROP COLUMN has_tasks`); err != nil {
+		t.Fatalf("simulating the older schema: %v", err)
+	}
+	s.Close()
+
+	reopened, err := Open(vault, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if err := reopened.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := reopened.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if n.Path == "Listy" {
+			if !n.HasTasks {
+				t.Error("upgrading an existing index left the checklist unflagged")
+			}
+			return
+		}
+	}
+	t.Fatal("the note vanished from the index")
+}
+
+// TestLockedNoteIsNotGuessedToBeAChecklist: on a fresh index the scan has no
+// previous answer to keep for a note it cannot read, so the "unknown" value is
+// what gets stored. It must not come back out as "yes".
+func TestLockedNoteIsNotGuessedToBeAChecklist(t *testing.T) {
+	s := lockedStore(t)
+	if err := s.WriteNote("Secret", "# Secret\n\nprose only, no tasks\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LockNote("Secret"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM notes`); err != nil { // a fresh index
+		t.Fatal(err)
+	}
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := s.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if n.Path == "Secret" && n.HasTasks {
+			t.Error("a locked note the scan could not read was drawn as a checklist")
+		}
+	}
+}

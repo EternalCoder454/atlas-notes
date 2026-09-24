@@ -30,7 +30,8 @@ packages are installed.
   item). The header tracks how many are done.
 - **Find anything.** Search the whole vault by name from the side panel
   (**Ctrl+K**); every command has a keyboard shortcut, listed under **Ctrl+?**.
-  Star a note or folder to mark it a favourite.
+  Notes and checklists carry different icons, and you can star either to mark
+  it a favourite.
 - **Password-protect what matters.** Right-click a note or folder → *Protect
   with Password*. It is encrypted on disk, not merely hidden: see
   [Password protection](#password-protection).
@@ -218,6 +219,7 @@ on first run:
 | `enable_tree_summaries` | show a 1-sentence AI summary when hovering a note |
 | `update_channel` | `release` (the `main` branch) or `beta` |
 | `check_updates` | look for a new version on launch (default `true`) |
+| `show_format_bar` | show the formatting toolbar above notes (default `true`) |
 | `favourite_notes` / `favourite_folders` | starred items; a preference, so they stay on this machine |
 | `font_rendering` | `auto` (default), `crisp` (hinted — sharper at 1080p) or `smooth` (GTK default — for HiDPI) |
 | `last_note` | note reopened on launch |

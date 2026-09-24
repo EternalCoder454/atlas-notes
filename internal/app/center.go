@@ -46,7 +46,9 @@ func (a *App) buildCenter() *gtk.Box {
 func (a *App) buildEditorPage() *gtk.Box {
 	page := gtk.NewBox(gtk.OrientationVertical, 0)
 	page.Append(a.buildNoteHeader())
-	page.Append(a.buildFormatBar())
+	a.formatBar = a.buildFormatBar()
+	a.formatBar.SetVisible(a.cfg.ShowFormatBar)
+	page.Append(a.formatBar)
 
 	a.editor = editor.New()
 	a.editor.OnChanged = a.onEditorChanged
@@ -190,6 +192,9 @@ func (a *App) buildStatusBar() *gtk.Box {
 	bar := gtk.NewBox(gtk.OrientationHorizontal, 12)
 	bar.AddCSSClass("status-bar")
 
+	// Words, not words and characters. A character count is a thing a form
+	// with a limit needs; a note does not. It stays available on hover rather
+	// than taking a permanent place in the footer.
 	a.statusLabel = gtk.NewLabel("0 words")
 	a.statusLabel.SetXAlign(0)
 	bar.Append(a.statusLabel)
@@ -206,11 +211,6 @@ func (a *App) buildStatusBar() *gtk.Box {
 	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	spacer.SetHExpand(true)
 	bar.Append(spacer)
-
-	a.vaultLabel = gtk.NewLabel("")
-	a.vaultLabel.AddCSSClass("status-dim")
-	a.vaultLabel.SetTooltipText("This note on disk, inside your vault folder")
-	bar.Append(a.vaultLabel)
 
 	bar.Append(a.buildSavePill())
 	return bar
@@ -272,7 +272,8 @@ func (a *App) updateStats() {
 func (a *App) updateStatsWith(content string) {
 	words, chars, done, total := documentStats(content)
 	if a.statusLabel != nil {
-		a.statusLabel.SetText(fmt.Sprintf("%s · %s", plural(words, "word"), plural(chars, "character")))
+		a.statusLabel.SetText(plural(words, "word"))
+		a.statusLabel.SetTooltipText(plural(chars, "character"))
 		if a.readTimeLabel != nil {
 			a.readTimeLabel.SetText(readingTime(words))
 		}
@@ -364,14 +365,22 @@ func (a *App) refreshHeader() {
 			a.breadcrumb.SetVisible(true)
 		}
 	}
-	if a.vaultLabel != nil {
-		if a.currentNote == "" {
-			a.vaultLabel.SetText("")
-		} else {
-			a.vaultLabel.SetText(a.currentNote + noteFileSuffix)
+	if a.titleEntry != nil {
+		tip := "The note's name is its filename — press Enter to rename"
+		if a.currentNote != "" {
+			tip += "\n\nIn your vault: " + a.currentNote + noteFileSuffix
 		}
+		a.titleEntry.SetTooltipText(tip)
 	}
 	a.setWindowSubtitle(name)
 	a.updateStats()
 	a.setSaveState(saveSaved)
+}
+
+// applyFormatBarVisibility shows or hides the formatting toolbar to match the
+// setting.
+func (a *App) applyFormatBarVisibility() {
+	if a.formatBar != nil {
+		a.formatBar.SetVisible(a.cfg.ShowFormatBar)
+	}
 }
