@@ -59,6 +59,11 @@ map=(
     sort:sort
     history:recent
 
+    # Locking and favourites
+    lock:lock
+    lock_open:lock-open
+    star:star
+
     # Assistant
     chat:assistant
     bolt:prompts
