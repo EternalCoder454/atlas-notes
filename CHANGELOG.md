@@ -66,6 +66,38 @@ before this pass.
   formatting toolbar and text rendering, none of which are either. The name had
   stopped describing the contents.
 
+## [0.5.9] - 2026-09-24
+
+A crash fix. v0.5.8 could abort while a note was being edited.
+
+### Fixed
+- **The app could close itself while you were typing.** GTK aborted with
+  "byte index off the end of the line" from inside the text iterator, which is
+  an error-level GLib message and so calls `abort()`. It appeared only on
+  builds from v0.5.8 and never before it, and the byte offset differed each
+  time and exceeded any line in the saved notes, which puts it in the editor
+  while text was being changed rather than on opening a note.
+
+  The assistant panel's automatic collapse on narrow windows is removed. It was
+  the newest code in the build that started crashing, and it changed what was
+  visible from inside a size notification — re-entering GTK's layout while it
+  was in the middle of one. The same build logged "Trying to snapshot GtkGizmo
+  without a current allocation", which is that class of problem. Hiding a panel
+  when a window is narrow is a nicety; the app closing itself is not, so it is
+  gone rather than deferred and hoped for.
+
+  This is an honest best guess, not a confirmed repair: the crash would not
+  reproduce under the chaos, soak, editor or resize harnesses, against a copy
+  of the vault it happened on, under `G_DEBUG=fatal-warnings`.
+
+### Added
+- `ATLAS_DEBUG_EDITOR=1` records what the editor was doing before GTK stops
+  the process: the reparse range, the caret's line, and each line's length in
+  characters and bytes. A GLib error aborts, so there is no Go stack worth
+  reading and the crash lands in cgo — a line from us immediately before GTK's
+  own message is what turns "it keeps closing" into a note and a line number.
+  Off unless the variable is set, because it runs on every keystroke.
+
 ## [0.5.8] - 2026-09-24
 
 Acting on an outside review of the interface.

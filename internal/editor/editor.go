@@ -5,6 +5,8 @@
 package editor
 
 import (
+	"log"
+	"os"
 	"strings"
 	"unicode/utf8"
 
@@ -297,6 +299,7 @@ func (e *Editor) reparse() {
 	e.lastCursor = cursorLine
 	e.clearDirty()
 
+	breadcrumb("reparse lines %d-%d of %d, caret %d", from, to, lastLine+1, cursorLine)
 	e.renderChecklists(from, to, revealLine)
 	e.reapItems()
 	e.tagRange(from, to, revealLine)
@@ -335,11 +338,43 @@ func (e *Editor) tagRange(from, to, cursorLine int) {
 		for _, sp := range parseLineSpans(line, lineNum == cursorLine) {
 			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
 		}
+		if breadcrumbsOn {
+			breadcrumb("tagged line %d: %d chars, %d bytes", lineNum,
+				utf8.RuneCountInString(line), len(line))
+		}
 		lineNum++
 	}
 }
 
-// applyTag applies a named tag over a rune range within one line.
+// breadcrumb records what the editor is about to do, for the case where GTK
+// then aborts the process.
+//
+// A GLib message at error level calls abort(), so there is no recovering and
+// no Go stack worth reading: the crash lands in cgo with GTK's own message the
+// last thing in the journal. A line from us immediately before it is what
+// turns "it keeps closing" into a note, a line number and a length. It is off
+// unless ATLAS_DEBUG_EDITOR is set, because this runs on every keystroke.
+var breadcrumbsOn = os.Getenv("ATLAS_DEBUG_EDITOR") != ""
+
+func breadcrumb(format string, args ...any) {
+	if breadcrumbsOn {
+		log.Printf("atlas-notes: editor: "+format, args...)
+	}
+}
+
+// applyTag applies a named tag over a character range within one line.
+//
+// The range is clamped against what the buffer says the line is, not against
+// what the caller measured. An offset past the end of a line does not fail
+// quietly: GTK logs "byte index off the end of the line" at error level, and
+// an error-level GLib log aborts the process. This code used to check the
+// boolean the iterator call returns, which is too late — the abort has already
+// happened by the time it comes back.
+//
+// Every caller derives offsets from a string it read out of the buffer, so
+// they agree with the buffer as long as the two never disagree about where a
+// line ends. That is a lot of things to keep true at once, and one of them not
+// being true crashed the app rather than misplacing a tag.
 func (e *Editor) applyTag(name string, line, start, end int) {
 	if end <= start {
 		return
@@ -348,12 +383,41 @@ func (e *Editor) applyTag(name string, line, start, end int) {
 	if tag == nil {
 		return
 	}
+	limit, ok := e.lineCharLen(line)
+	if !ok {
+		return
+	}
+	start, end = clamp(start, limit), clamp(end, limit)
+	if end <= start {
+		return
+	}
 	si, ok1 := e.buffer.IterAtLineOffset(line, start)
 	ei, ok2 := e.buffer.IterAtLineOffset(line, end)
 	if !ok1 || !ok2 {
 		return
 	}
 	e.buffer.ApplyTag(tag, si, ei)
+}
+
+// lineCharLen is how many characters a line holds, not counting the newline
+// that ends it. It is the only offset the buffer will accept as a line's end.
+// A line number past the end of the buffer reports not ok.
+func (e *Editor) lineCharLen(line int) (int, bool) {
+	if line < 0 || line >= e.buffer.LineCount() {
+		return 0, false
+	}
+	it, ok := e.buffer.IterAtLine(line)
+	if !ok || it == nil {
+		return 0, false
+	}
+	n := it.CharsInLine()
+	if !it.EndsLine() && n > 0 {
+		n-- // drop the trailing newline; the last line has none
+	}
+	if n < 0 {
+		n = 0
+	}
+	return n, true
 }
 
 func minInt(a, b int) int {

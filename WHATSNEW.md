@@ -4,6 +4,9 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each — the detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.5.9
+- Fixes Atlas Notes closing itself while you were typing
+
 ## 0.5.8
 - Text is much easier to read in light mode
 - Notes and checklists now have their own icons in the vault, so you can tell them apart

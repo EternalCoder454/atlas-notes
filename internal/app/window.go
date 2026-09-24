@@ -126,15 +126,7 @@ func (a *App) buildWindow() {
 	a.outerPaned, a.innerPaned = outer, inner
 
 	a.leftToggle.ConnectToggled(func() { a.left.SetVisible(a.leftToggle.Active()) })
-	a.rightToggle.ConnectToggled(func() {
-		a.right.SetVisible(a.rightToggle.Active())
-		// A toggle the user pressed is a decision to remember; one this code
-		// made to fit a narrow window is not.
-		if !a.autoCollapsing {
-			a.wantAssistant = a.rightToggle.Active()
-		}
-	})
-	a.watchWindowWidth()
+	a.rightToggle.ConnectToggled(func() { a.right.SetVisible(a.rightToggle.Active()) })
 
 	a.toastOverlay = adw.NewToastOverlay()
 	a.toastOverlay.SetChild(outer)
@@ -244,45 +236,4 @@ func placeholder(text string) *gtk.Label {
 	l.SetVExpand(true)
 	l.AddCSSClass("dim-label")
 	return l
-}
-
-// assistantMinWidth is the window width below which the assistant panel folds
-// away on its own. Under it, three panels leave the note itself too little
-// room to read, and the editor is what the window is for.
-const assistantMinWidth = 1200
-
-// watchWindowWidth folds the assistant panel away when the window is too
-// narrow for three panels, and brings it back when there is room again — but
-// only if the user had it open. Hiding it themselves is a decision that
-// survives resizing.
-func (a *App) watchWindowWidth() {
-	if a.win == nil {
-		return
-	}
-	a.wantAssistant = a.rightToggle.Active()
-	a.win.NotifyProperty("default-width", a.applyWindowWidth)
-	a.applyWindowWidth()
-}
-
-// applyWindowWidth is the responsive rule itself.
-func (a *App) applyWindowWidth() {
-	if a.win == nil || a.rightToggle == nil {
-		return
-	}
-	width := a.win.Width()
-	if width <= 0 {
-		if w, _ := a.win.DefaultSize(); w > 0 {
-			width = w
-		}
-	}
-	if width <= 0 {
-		return
-	}
-	want := a.wantAssistant && width >= assistantMinWidth
-	if want == a.rightToggle.Active() {
-		return
-	}
-	a.autoCollapsing = true
-	a.rightToggle.SetActive(want)
-	a.autoCollapsing = false
 }
