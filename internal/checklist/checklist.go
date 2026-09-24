@@ -107,17 +107,24 @@ func cutTaskPrefix(line string) (rest string, checked, ok bool) {
 	return line[i:], checked, true
 }
 
-// findMeta locates a trailing "<!-- … -->" metadata comment in s.
+// findMeta locates a trailing "<!-- … -->" metadata comment in s and returns
+// the index of its opening marker and of its closing one.
+//
+// The closing marker is searched for *after* the opening one. The two overlap
+// in "<!-->", where a search from the start of the line finds "-->" inside the
+// opening marker itself and yields an end before the start — which used to be
+// sliced, and panicked.
 func findMeta(s string) (start, end int, ok bool) {
 	start = strings.Index(s, metaOpen)
 	if start < 0 {
 		return 0, 0, false
 	}
-	rel := strings.Index(s[start:], metaClose)
+	from := start + len(metaOpen)
+	rel := strings.Index(s[from:], metaClose)
 	if rel < 0 {
 		return 0, 0, false
 	}
-	return start, start + rel, true
+	return start, from + rel, true
 }
 
 // parseMeta reads the "priority:… due:… order:…" fields of a metadata comment.

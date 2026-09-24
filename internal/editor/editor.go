@@ -32,7 +32,9 @@ type Editor struct {
 	dirtyTo    int
 	fullDirty  bool
 	lastCursor int
-	hasAnchors bool // whether any checklist widget is embedded in the buffer
+	hasAnchors bool           // whether any checklist widget is embedded in the buffer
+	items      []anchoredItem // embedded checklist rows, by the anchor holding them
+	rowPool    []*itemRow     // rows kept for reuse instead of being rebuilt
 	// revealCaret gates showing markdown markers on the caret's line. A freshly
 	// opened note renders fully clean; the markers appear once the caret is
 	// actually moved or something is typed.
@@ -88,6 +90,8 @@ func New() *Editor {
 			e.OnChanged()
 		}
 	})
+	e.installItemMenu()
+
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
 		if mark.Name() != "insert" {
 			return
@@ -154,14 +158,10 @@ func (e *Editor) newTag(name string, props map[string]any) {
 // SetContent replaces the text without firing OnChanged, then re-renders. The
 // caret is placed at the top, so opening a note shows its beginning.
 func (e *Editor) SetContent(s string) {
-	e.loading = true
-	e.buffer.SetText(s)
-	e.loading = false
-	e.hasAnchors = false
+	e.clearItems() // the old note's checkboxes go with its text
+	e.withLoading(func() { e.buffer.SetText(s) })
 	start, _ := e.buffer.Bounds()
-	e.loading = true
-	e.buffer.PlaceCursor(start)
-	e.loading = false
+	e.withLoading(func() { e.buffer.PlaceCursor(start) })
 	e.revealCaret = false
 	e.lastCursor = 0
 	// One full pass: reparse renders every "- [ ] " line as a checkbox and
@@ -278,6 +278,7 @@ func (e *Editor) reparse() {
 	e.clearDirty()
 
 	e.renderChecklists(from, to, revealLine)
+	e.reapItems()
 	e.tagRange(from, to, revealLine)
 
 	if e.OnReparsed != nil {
@@ -351,6 +352,18 @@ func clamp(v, max int) int {
 		return max
 	}
 	return v
+}
+
+// withLoading runs fn with change notifications suppressed, restoring the
+// previous state afterwards. Setting the flag directly does not nest: a helper
+// that cleared it in the middle of a render pass used to let the rest of that
+// pass look like user edits, which marked a freshly opened note dirty and
+// scheduled a save for a note nobody had touched.
+func (e *Editor) withLoading(fn func()) {
+	prev := e.loading
+	e.loading = true
+	defer func() { e.loading = prev }()
+	fn()
 }
 
 // InsertAtCursor inserts text at the caret (replacing the selection, if any),

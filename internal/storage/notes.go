@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -46,21 +47,79 @@ func atomicWrite(path string, data []byte) error {
 }
 
 // normalizeRel cleans a vault-relative note identifier: forward slashes, no
-// leading slash, no extension.
+// leading slash, no extension — and, critically, no way out of the vault.
+// Segments that would escape it ("..") or mean nothing (".", "") are dropped
+// rather than resolved, so a note titled "../../secrets" becomes "secrets"
+// inside the vault instead of a file two directories above it. Names reach this
+// function straight from the title field, the tree's rename prompt and a
+// synced vault's own filenames, so this is the one place that has to hold.
 func normalizeRel(rel string) string {
 	rel = strings.TrimSuffix(rel, noteExt)
 	rel = filepath.ToSlash(rel)
-	rel = strings.TrimPrefix(rel, "/")
-	rel = path.Clean(rel)
-	if rel == "." {
-		rel = ""
+	var segments []string
+	for _, seg := range strings.Split(rel, "/") {
+		switch strings.TrimSpace(seg) {
+		case "", ".", "..":
+			continue
+		}
+		segments = append(segments, strings.TrimSpace(seg))
 	}
-	return rel
+	return strings.Join(segments, "/")
+}
+
+// errOutsideVault is returned when a path would land outside the vault. After
+// normalizeRel this should be unreachable; it is kept as a second line of
+// defense, because the cost of being wrong here is writing to arbitrary files.
+var errOutsideVault = errors.New("path is outside the vault")
+
+// resolve maps a vault-relative identifier to an absolute path and verifies the
+// result really is inside the vault.
+func (s *Store) resolve(rel string) (string, error) {
+	rel = normalizeRel(rel)
+	if rel == "" {
+		return "", errors.New("empty note name")
+	}
+	abs := filepath.Join(s.VaultPath, filepath.FromSlash(rel))
+	if !withinVault(s.VaultPath, abs) {
+		return "", fmt.Errorf("%q: %w", rel, errOutsideVault)
+	}
+	return abs, nil
+}
+
+// resolveFolder is resolve for folders (which have no file extension). An empty
+// folder is the vault root, which is valid.
+func (s *Store) resolveFolder(rel string) (string, error) {
+	rel = normalizeRel(rel)
+	abs := filepath.Join(s.VaultPath, filepath.FromSlash(rel))
+	if !withinVault(s.VaultPath, abs) {
+		return "", fmt.Errorf("%q: %w", rel, errOutsideVault)
+	}
+	return abs, nil
+}
+
+// withinVault reports whether abs is the vault directory or something under it.
+func withinVault(vault, abs string) bool {
+	rel, err := filepath.Rel(vault, abs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
 }
 
 // notePath maps a vault-relative identifier to its absolute .md.zst file path.
+// It does not validate containment; callers that touch the filesystem go
+// through notePathSafe.
 func (s *Store) notePath(rel string) string {
 	return filepath.Join(s.VaultPath, filepath.FromSlash(normalizeRel(rel))+noteExt)
+}
+
+// notePathSafe is notePath with the vault-containment check applied.
+func (s *Store) notePathSafe(rel string) (string, error) {
+	abs, err := s.resolve(rel)
+	if err != nil {
+		return "", err
+	}
+	return abs + noteExt, nil
 }
 
 // WriteNote compresses and atomically writes content, then refreshes the index.
@@ -69,7 +128,10 @@ func (s *Store) WriteNote(rel, content string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
-	abs := s.notePath(rel)
+	abs, err := s.notePathSafe(rel)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return err
 	}
@@ -82,7 +144,11 @@ func (s *Store) WriteNote(rel, content string) error {
 
 // ReadNote reads and decompresses a note's markdown.
 func (s *Store) ReadNote(rel string) (string, error) {
-	data, err := os.ReadFile(s.notePath(rel))
+	abs, err := s.notePathSafe(rel)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(abs)
 	if err != nil {
 		return "", err
 	}
@@ -98,10 +164,14 @@ func (s *Store) DeleteNote(rel string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
-	if err := os.Remove(s.notePath(rel)); err != nil && !os.IsNotExist(err) {
+	abs, err := s.notePathSafe(rel)
+	if err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`DELETE FROM notes WHERE path = ?`, rel)
+	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	_, err = s.db.Exec(`DELETE FROM notes WHERE path = ?`, rel)
 	return err
 }
 
@@ -111,18 +181,25 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 	defer s.writeMu.Unlock()
 	oldRel = normalizeRel(oldRel)
 	newRel = normalizeRel(newRel)
-	newAbs := s.notePath(newRel)
+	oldAbs, err := s.notePathSafe(oldRel)
+	if err != nil {
+		return err
+	}
+	newAbs, err := s.notePathSafe(newRel)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(s.notePath(oldRel), newAbs); err != nil {
+	if err := os.Rename(oldAbs, newAbs); err != nil {
 		return err
 	}
 	folder := path.Dir(newRel)
 	if folder == "." {
 		folder = ""
 	}
-	_, err := s.db.Exec(`UPDATE notes SET path = ?, folder = ? WHERE path = ?`, newRel, folder, oldRel)
+	_, err = s.db.Exec(`UPDATE notes SET path = ?, folder = ? WHERE path = ?`, newRel, folder, oldRel)
 	return err
 }
 

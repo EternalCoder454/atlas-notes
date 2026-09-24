@@ -72,15 +72,18 @@ type App struct {
 	vaultLabel    *gtk.Label
 	taskProgress  *gtk.Label
 
-	fontMode       string // text-rendering mode currently applied (see fonts.go)
-	reindexPending bool   // the vault scan runs after the first frame
-	welcomeBuilt   bool   // the home screen is constructed on first use
-	currentNote    string
-	dirty          bool
-	saveState      int
-	autosaveGen    int
-	saveInFlight   bool           // an async save is running
-	saveWG         sync.WaitGroup // tracks the in-flight async save goroutine
+	fontMode        string // text-rendering mode currently applied (see fonts.go)
+	reindexPending  bool   // the vault scan runs after the first frame
+	welcomeBuilt    bool   // the home screen is constructed on first use
+	recents         []*recentRow
+	recentsHeading  *gtk.Label
+	currentNote     string
+	dirty           bool
+	saveState       int
+	autosaveGen     int
+	autosavePending bool           // an autosave timer is in flight
+	saveInFlight    bool           // an async save is running
+	saveWG          sync.WaitGroup // tracks the in-flight async save goroutine
 
 	toastOverlay  *adw.ToastOverlay
 	aiUndoContent string // note content before the last AI change (one-step undo)
@@ -368,16 +371,31 @@ func (a *App) undoAIContent() {
 	a.aiUndoContent, a.aiUndoNote = "", ""
 }
 
-// scheduleAutosave debounces the autosave: every edit bumps a generation counter
-// and arms a timer; only the latest timer performs the save, so the note is
-// written once typing pauses for autosaveDelayMs. Idle CPU stays at zero.
+// scheduleAutosave debounces the autosave: the note is written once typing has
+// paused for autosaveDelayMs.
+//
+// Only one timer is ever in flight. The obvious version — arm a timer per edit
+// and let the newest one win — leaves a timer per keystroke pending, and the
+// bindings keep every timer's callback alive for the life of the process, so a
+// long writing session accumulated thousands of them. Instead the pending timer
+// re-arms itself when edits arrived while it was waiting.
 func (a *App) scheduleAutosave() {
 	a.autosaveGen++
+	if a.autosavePending {
+		return // a timer is already running; it will see the newer generation
+	}
+	a.autosavePending = true
 	gen := a.autosaveGen
 	coreglib.TimeoutAdd(autosaveDelayMs, func() bool {
-		if gen == a.autosaveGen && a.dirty {
-			a.saveCurrent()
+		a.autosavePending = false
+		if !a.dirty {
+			return false
 		}
+		if a.autosaveGen != gen {
+			a.scheduleAutosave() // edits landed while waiting: wait again
+			return false
+		}
+		a.saveCurrent()
 		return false
 	})
 }

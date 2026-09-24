@@ -157,12 +157,12 @@ func (e *Editor) replaceLine(ln int, text string, dropAnchor bool) {
 	if !end.EndsLine() {
 		end.ForwardToLineEnd()
 	}
-	e.loading = true
-	e.buffer.Delete(start, end)
-	if at, ok := e.buffer.IterAtLine(ln); ok {
-		e.buffer.Insert(at, text)
-	}
-	e.loading = false
+	e.withLoading(func() {
+		e.buffer.Delete(start, end)
+		if at, ok := e.buffer.IterAtLine(ln); ok {
+			e.buffer.Insert(at, text)
+		}
+	})
 	e.markDirty(ln, ln)
 	_ = dropAnchor // deleting the line range removes the anchor with it
 }

@@ -73,9 +73,8 @@ func (a *App) buildWelcome() *gtk.Widget {
 	}
 	content.Append(grid)
 
-	if recents := a.recentRows(); recents != nil {
-		content.Append(recents)
-	}
+	content.Append(a.buildRecents())
+	a.refreshRecents()
 
 	content.Append(a.welcomeFooter())
 
@@ -122,15 +121,22 @@ func (a *App) welcomeCard(icon, title, subtitle, accel string, activate func()) 
 	return btn
 }
 
-// recentRows lists the notes touched most recently, or nil in a fresh vault.
-func (a *App) recentRows() *gtk.Box {
-	if a.store == nil {
-		return nil
-	}
-	notes, err := a.store.RecentNotes(4)
-	if err != nil || len(notes) == 0 {
-		return nil
-	}
+// recentSlots is how many recent notes the home screen offers.
+const recentSlots = 4
+
+// recentRow is one row of the home screen's recent list. The rows are built
+// once and re-pointed at different notes, because every widget the bindings
+// wrap stays resident once created — rebuilding the page on each visit grew
+// memory for the life of the session.
+type recentRow struct {
+	button *gtk.Button
+	name   *gtk.Label
+	when   *gtk.Label
+	rel    string
+}
+
+// buildRecents creates the fixed set of recent-note rows.
+func (a *App) buildRecents() *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationVertical, 2)
 	box.AddCSSClass("welcome-recents")
 
@@ -138,32 +144,64 @@ func (a *App) recentRows() *gtk.Box {
 	heading.SetXAlign(0)
 	heading.AddCSSClass("welcome-section")
 	box.Append(heading)
+	a.recentsHeading = heading
 
-	for _, n := range notes {
-		note := n
-		row := gtk.NewButton()
-		row.AddCSSClass("welcome-recent")
-		row.ConnectClicked(func() { a.openNote(note.Path) })
+	a.recents = make([]*recentRow, 0, recentSlots)
+	for i := 0; i < recentSlots; i++ {
+		r := &recentRow{button: gtk.NewButton()}
+		r.button.AddCSSClass("welcome-recent")
+		r.button.ConnectClicked(func() {
+			if r.rel != "" {
+				a.openNote(r.rel)
+			}
+		})
 
 		line := gtk.NewBox(gtk.OrientationHorizontal, 8)
 		icon := gtk.NewImageFromIconName("text-x-generic-symbolic")
 		icon.AddCSSClass("dim-label")
 		line.Append(icon)
 
-		name := gtk.NewLabel(path.Base(note.Path))
-		name.SetXAlign(0)
-		name.SetHExpand(true)
-		name.SetEllipsize(3) // PANGO_ELLIPSIZE_END
-		line.Append(name)
+		r.name = gtk.NewLabel("")
+		r.name.SetXAlign(0)
+		r.name.SetHExpand(true)
+		r.name.SetEllipsize(3) // PANGO_ELLIPSIZE_END
+		line.Append(r.name)
 
-		when := gtk.NewLabel(relativeTime(note.ModifiedAt))
-		when.AddCSSClass("welcome-recent-time")
-		line.Append(when)
+		r.when = gtk.NewLabel("")
+		r.when.AddCSSClass("welcome-recent-time")
+		line.Append(r.when)
 
-		row.SetChild(line)
-		box.Append(row)
+		r.button.SetChild(line)
+		box.Append(r.button)
+		a.recents = append(a.recents, r)
 	}
 	return box
+}
+
+// refreshRecents re-points the existing rows at the latest notes.
+func (a *App) refreshRecents() {
+	if len(a.recents) == 0 {
+		return
+	}
+	var notes []storage.NoteMeta
+	if a.store != nil {
+		notes, _ = a.store.RecentNotes(recentSlots)
+	}
+	if a.recentsHeading != nil {
+		a.recentsHeading.SetVisible(len(notes) > 0)
+	}
+	for i, r := range a.recents {
+		if i >= len(notes) {
+			r.rel = ""
+			r.button.SetVisible(false)
+			continue
+		}
+		n := notes[i]
+		r.rel = n.Path
+		r.name.SetText(path.Base(n.Path))
+		r.when.SetText(relativeTime(n.ModifiedAt))
+		r.button.SetVisible(true)
+	}
 }
 
 // welcomeFooter states where the notes actually live — the app's main promise,

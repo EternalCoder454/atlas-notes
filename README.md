@@ -202,6 +202,8 @@ inert unless one of these is set:
 | `ATLAS_BENCH=idle=10` | sit idle 10s, report the CPU, memory and I/O consumed |
 | `ATLAS_BENCH=editor=300` | 300 type-and-render cycles on the open note, report latency |
 | `ATLAS_BENCH=open=100` | open notes round-robin, report per-note latency |
+| `ATLAS_BENCH=soak=1500` | run an editing session against the live UI, reporting memory at checkpoints |
+| `ATLAS_PPROF=heap.out` | write a Go heap profile at the end of the run |
 | `ATLAS_DEBUG_FONTS=1` | print the text-rendering settings and each monitor's scale |
 
 ### Text looks soft or uneven

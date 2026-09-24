@@ -227,7 +227,6 @@ func (a *App) showWelcome() {
 	if a.centerStack == nil {
 		return
 	}
-	first := !a.welcomeBuilt
 	a.welcomeBuilt = true
 	a.currentNote = ""
 	a.dirty = false
@@ -237,30 +236,26 @@ func (a *App) showWelcome() {
 	if a.tree != nil {
 		a.tree.SetCurrent("")
 	}
-	if first {
-		a.buildWelcomePage()
-	} else {
-		a.refreshWelcome()
-	}
+	a.refreshWelcome()
 	a.centerStack.SetVisibleChildName("welcome")
 	a.setWindowSubtitle("")
 }
 
-// refreshWelcome rebuilds the home screen so its recent-notes list is current.
-// It is a no-op until the home screen has actually been shown once.
+// refreshWelcome brings the home screen up to date. The page itself is built
+// once, the first time it is shown, and afterwards only its contents change —
+// rebuilding the widgets each time would keep every previous copy resident.
 func (a *App) refreshWelcome() {
 	if a.centerStack == nil || !a.welcomeBuilt {
 		return
 	}
-	a.buildWelcomePage()
-}
-
-// buildWelcomePage replaces the home-screen page with a freshly built one.
-func (a *App) buildWelcomePage() {
-	if old := a.centerStack.ChildByName("welcome"); old != nil {
-		a.centerStack.Remove(old)
+	if a.centerStack.ChildByName("welcome") == nil || len(a.recents) == 0 {
+		if old := a.centerStack.ChildByName("welcome"); old != nil {
+			a.centerStack.Remove(old)
+		}
+		a.centerStack.AddNamed(a.buildWelcome(), "welcome")
+		return
 	}
-	a.centerStack.AddNamed(a.buildWelcome(), "welcome")
+	a.refreshRecents()
 }
 
 // showEditorPage switches the center panel to the note editor.

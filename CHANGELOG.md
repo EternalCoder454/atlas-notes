@@ -5,6 +5,72 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-24
+
+A testing pass — fuzzing, soak runs, a race detector run and a look at the
+filesystem paths — and the fixes it turned up. Three of these are the kind of
+bug that only shows up after the app has been open for a while.
+
+### Fixed
+- **Memory no longer grows for as long as the app is open.** A 1500-cycle soak
+  (open note · type · toggle task · save · refresh vault · home screen) grew the
+  process from 73 MB to 1.36 GB. It now settles at around 180 MB and stays
+  there — **92% less growth**, and the curve flattens instead of climbing. Three
+  separate causes:
+  - GTK 4 does not destroy a checkbox embedded in the text buffer when the line
+    holding it is deleted; it stays parented to the editor, invisible, forever.
+    Every note opened leaked one widget per task line. Rows are now removed when
+    their anchor goes, and reused for the next note instead of being rebuilt.
+  - The vault tree rebuilt its entire list — and with it every row widget — on
+    any refresh, including after a save that changed nothing it displays. It now
+    rebuilds only when what it shows actually differs.
+  - The home screen was reconstructed from scratch on every visit. It is built
+    once and its recent-notes list updated in place.
+- **A note containing `<!-->` crashed the app.** The checklist parser searched
+  for the closing comment marker from the start of the line, found the `-->`
+  inside the opening `<!--`, and sliced backwards. Found by fuzzing; the corpus
+  entry is now a regression test.
+- **Opening a note marked it as edited.** A render pass cleared the flag that
+  suppresses change notifications, so loading a note looked like typing in it:
+  the indicator showed unsaved changes and an autosave was scheduled for a note
+  nobody had touched.
+- **Typing scheduled one timer per keystroke.** Each was harmless on its own,
+  but the bindings keep every timer's callback alive for the life of the
+  process, so a long writing session accumulated thousands. Autosave now keeps a
+  single timer in flight, re-armed while typing continues.
+
+### Security
+- **Note and folder names can no longer escape the vault.** A note titled
+  `../../secrets` was resolved literally: it wrote outside the vault directory,
+  and renaming onto an existing path could overwrite a file elsewhere on the
+  disk. Names are sanitized (`..` segments are dropped, not resolved) and every
+  filesystem operation re-checks that the result is still inside the vault.
+  Titles come straight from the title field, the tree's rename prompt, and the
+  filenames in a synced vault, so this is now covered by tests.
+- **Decompression is bounded.** A note is refused if it expands past 128 MiB, so
+  a few kilobytes of hostile input in a synced vault can't exhaust memory.
+
+### Added
+- Fuzz tests for the checklist parser, the editor's markdown scanner and the
+  assistant's Pango renderer (the last one checks that no markup the model emits
+  can escape into the label).
+- A concurrency test covering the real access pattern — the UI reading while the
+  autosave goroutine writes and a vault scan runs — passing under `-race`.
+- Tests for vault containment, corrupt and empty note files, and the
+  decompression limit.
+- `ATLAS_BENCH=soak=N` runs an editing session against the live UI and reports
+  memory at checkpoints; `ATLAS_PPROF=file` writes a heap profile. Both are how
+  the leaks above were found.
+
+### Performance
+- Opening a note is now faster than v0.4.3 (0.4 ms → 0.3 ms median on a
+  2000-note vault) rather than slower, because rows are reused rather than
+  rebuilt.
+- Idle CPU is down a further ~25% against v0.4.3 (user time), with system time
+  down ~45%.
+
+[0.5.1]: https://github.com/EternalCoder454/atlas-notes/releases/tag/v0.5.1
+
 ## [0.5.0] - 2026-09-23
 
 A large interface pass, a new default model, and a performance pass across

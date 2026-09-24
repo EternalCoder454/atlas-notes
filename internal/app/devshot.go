@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strconv"
 	"strings"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -32,6 +33,13 @@ func (a *App) runDevView() {
 		case "search":
 			if a.tree != nil {
 				a.tree.SetSearch(arg)
+			}
+		case "item-menu":
+			// Open a task line's context menu (arg = line number) so the
+			// screenshot tooling can capture it.
+			if a.editor != nil {
+				ln, _ := strconv.Atoi(arg)
+				a.editor.ShowItemMenu(ln)
 			}
 		}
 		return false

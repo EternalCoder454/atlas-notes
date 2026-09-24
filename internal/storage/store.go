@@ -14,6 +14,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// maxNoteBytes bounds how large a note may be once decompressed.
+const maxNoteBytes = 128 << 20 // 128 MiB
+
 // Store is the storage layer: vault file I/O plus the SQLite index. It is safe
 // to use from the GTK main thread; all SQLite access is serialized onto a single
 // connection.
@@ -59,7 +62,11 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	dec, err := zstd.NewReader(nil)
+	// Cap what a single note may decompress to. The vault is the user's own
+	// directory, but a note can arrive from a synced folder or a backup, and an
+	// unbounded DecodeAll turns a few kilobytes of hostile input into an
+	// out-of-memory kill. No real note comes close to this.
+	dec, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxNoteBytes))
 	if err != nil {
 		enc.Close()
 		return nil, err

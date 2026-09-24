@@ -5,9 +5,11 @@ package ui
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +60,13 @@ type Tree struct {
 	// scanning the whole vault for each of those calls made opening a large
 	// vault quadratic.
 	childIndex map[string][]*node
+	// childModels caches the GTK list model handed to the tree for each folder,
+	// and signature is what the last Refresh rendered. Rebuilding either when
+	// nothing changed is not free: every model and every row object the
+	// bindings wrap stays resident for the life of the process, so a refresh
+	// after each save used to cost about a megabyte.
+	childModels map[string]*gioutil.ListModel[*node]
+	signature   string
 
 	searchEntry *gtk.SearchEntry
 	countLabel  *gtk.Label
@@ -268,8 +277,22 @@ func (t *Tree) Widget() gtk.Widgetter { return t.widget }
 // expansion state and re-selecting the open note (so a rename or autosave no
 // longer collapses folders or loses the highlight).
 func (t *Tree) Refresh() {
+	t.refresh(false)
+}
+
+// ForceRefresh rebuilds the tree even when its contents look unchanged.
+func (t *Tree) ForceRefresh() {
+	t.refresh(true)
+}
+
+func (t *Tree) refresh(force bool) {
 	expanded := t.snapshotExpanded()
 	t.reloadCache()
+	if sig := t.vaultSignature(); !force && sig == t.signature {
+		return // nothing the tree shows has changed
+	} else {
+		t.signature = sig
+	}
 	if n := t.rootModel.Len(); n > 0 {
 		t.rootModel.Splice(0, n)
 	}
@@ -294,6 +317,30 @@ func (t *Tree) Refresh() {
 	}
 	t.updateHeader(len(t.cachedNotes))
 	t.updateEmptyState(len(t.cachedNotes) + len(t.cachedFolders))
+}
+
+// vaultSignature summarizes everything the panel actually displays, so a
+// refresh that would render the same rows can skip the rebuild.
+//
+// Modification times are part of it only when the panel is sorting by them.
+// Otherwise every save would change the signature and rebuild the list for a
+// change nobody can see — and rebuilding is expensive: GTK recreates the row
+// widgets, and every widget the bindings wrap stays resident afterwards.
+func (t *Tree) vaultSignature() string {
+	h := fnv.New64a()
+	fmt.Fprintf(h, "q=%s r=%v\n", t.query, t.sortRecent)
+	for _, f := range t.cachedFolders {
+		h.Write([]byte(f))
+		h.Write([]byte{0})
+	}
+	for _, n := range t.cachedNotes {
+		h.Write([]byte(n.Path))
+		if t.sortRecent {
+			fmt.Fprintf(h, "|%d", n.ModifiedAt.Unix())
+		}
+		h.Write([]byte{'\n'})
+	}
+	return strconv.FormatUint(h.Sum64(), 36)
 }
 
 // matchingNotes returns the notes whose name contains the search query, best
@@ -579,7 +626,17 @@ func (t *Tree) createChildModel(item *coreglib.Object) *gio.ListModel {
 	if len(children) == 0 {
 		return nil
 	}
-	m := gioutil.NewListModel[*node]()
+	m, ok := t.childModels[n.rel]
+	if !ok {
+		m = gioutil.NewListModel[*node]()
+		if t.childModels == nil {
+			t.childModels = map[string]*gioutil.ListModel[*node]{}
+		}
+		t.childModels[n.rel] = m
+	}
+	if prev := m.Len(); prev > 0 {
+		m.Splice(0, prev)
+	}
 	for _, c := range children {
 		m.Append(c)
 	}

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path"
@@ -42,19 +43,32 @@ func (s *Store) ListFolders() ([]string, error) {
 func (s *Store) CreateFolder(rel string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return os.MkdirAll(filepath.Join(s.VaultPath, filepath.FromSlash(rel)), 0o755)
+	abs, err := s.resolveFolder(rel)
+	if err != nil {
+		return err
+	}
+	if abs == s.VaultPath {
+		return errors.New("empty folder name")
+	}
+	return os.MkdirAll(abs, 0o755)
 }
 
 // DeleteFolder removes a folder and everything under it, pruning the index.
 func (s *Store) DeleteFolder(rel string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	rel = strings.TrimPrefix(filepath.ToSlash(rel), "/")
-	abs := filepath.Join(s.VaultPath, filepath.FromSlash(rel))
+	rel = normalizeRel(rel)
+	abs, err := s.resolveFolder(rel)
+	if err != nil {
+		return err
+	}
+	if abs == s.VaultPath {
+		return errors.New("refusing to delete the vault itself")
+	}
 	if err := os.RemoveAll(abs); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`DELETE FROM notes WHERE folder = ? OR folder LIKE ?`, rel, rel+"/%")
+	_, err = s.db.Exec(`DELETE FROM notes WHERE folder = ? OR folder LIKE ?`, rel, rel+"/%")
 	return err
 }
 
@@ -63,10 +77,19 @@ func (s *Store) DeleteFolder(rel string) error {
 func (s *Store) RenameFolder(oldRel, newRel string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	oldRel = strings.TrimPrefix(filepath.ToSlash(oldRel), "/")
-	newRel = strings.TrimPrefix(filepath.ToSlash(newRel), "/")
-	oldAbs := filepath.Join(s.VaultPath, filepath.FromSlash(oldRel))
-	newAbs := filepath.Join(s.VaultPath, filepath.FromSlash(newRel))
+	oldRel = normalizeRel(oldRel)
+	newRel = normalizeRel(newRel)
+	oldAbs, err := s.resolveFolder(oldRel)
+	if err != nil {
+		return err
+	}
+	newAbs, err := s.resolveFolder(newRel)
+	if err != nil {
+		return err
+	}
+	if oldAbs == s.VaultPath || newAbs == s.VaultPath {
+		return errors.New("empty folder name")
+	}
 	if err := os.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
 		return err
 	}
@@ -77,7 +100,7 @@ func (s *Store) RenameFolder(oldRel, newRel string) error {
 	// Rewrite the oldRel prefix to newRel for every note under the folder.
 	oldSlash := oldRel + "/%"
 	skip := len(oldRel) + 1 // SQLite substr is 1-based; skip "oldRel"
-	_, err := s.db.Exec(`
+	_, err = s.db.Exec(`
 		UPDATE notes
 		SET path = ? || substr(path, ?),
 		    folder = CASE
