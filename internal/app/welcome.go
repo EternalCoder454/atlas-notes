@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
@@ -277,19 +278,37 @@ func summarizeOpening(content string) string {
 		if line == "" {
 			continue
 		}
+		// Separate the lines rather than running them together: a preview made
+		// of three bullets joined by spaces reads as one broken sentence.
 		if b.Len() > 0 {
-			b.WriteString(" ")
+			b.WriteString(" · ")
 		}
 		b.WriteString(line)
 		if b.Len() >= snippetChars {
 			break
 		}
 	}
-	out := strings.TrimSpace(b.String())
-	if len(out) > snippetChars {
-		out = strings.TrimSpace(out[:snippetChars]) + "…"
+	return truncate(strings.TrimSpace(b.String()), snippetChars)
+}
+
+// truncate shortens s to at most n bytes and appends an ellipsis.
+//
+// It cuts on a character boundary, and then back to a word boundary. Slicing
+// the string at n directly splits whatever character spans that byte, and the
+// preview ends in a replacement glyph: the separator this builds previews with
+// is itself two bytes wide, so it happened readily.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	return out
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	if space := strings.LastIndexByte(s[:cut], ' '); space > n/2 {
+		cut = space
+	}
+	return strings.TrimRight(strings.TrimSpace(s[:cut]), "·,;:") + "…"
 }
 
 // isRule reports whether a line is a horizontal rule, which carries no words.
@@ -302,7 +321,10 @@ func isRule(line string) bool {
 }
 
 // stripMarkers removes the markdown a snippet has no way to render: list
-// bullets and task boxes at the front, emphasis and code marks throughout.
+// bullets and task boxes at the front, emphasis and code marks throughout, and
+// the HTML comment a task line carries its priority and due date in. That last
+// one is not decoration the reader can ignore — left in, the home screen shows
+// "Renew the travel insurance <!-- priority:high due:2026-10-05 -->".
 func stripMarkers(line string) string {
 	for _, prefix := range []string{"- [ ] ", "- [x] ", "- [X] ", "> ", "- ", "* ", "+ "} {
 		if strings.HasPrefix(line, prefix) {
@@ -310,9 +332,28 @@ func stripMarkers(line string) string {
 			break
 		}
 	}
+	line = stripComments(line)
 	return strings.TrimSpace(strings.NewReplacer(
 		"**", "", "*", "", "~~", "", "`", "", "__", "", "_", "",
 	).Replace(line))
+}
+
+// stripComments removes every "<!-- … -->" span from a line. An unterminated
+// one takes the rest of the line with it: whatever it was meant to hide is not
+// something to show by accident.
+func stripComments(line string) string {
+	for {
+		open := strings.Index(line, "<!--")
+		if open < 0 {
+			return line
+		}
+		rest := line[open+len("<!--"):]
+		close := strings.Index(rest, "-->")
+		if close < 0 {
+			return strings.TrimSpace(line[:open])
+		}
+		line = line[:open] + rest[close+len("-->"):]
+	}
 }
 
 // welcomeFooter states where the notes actually live — the app's main promise,

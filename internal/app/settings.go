@@ -106,7 +106,7 @@ func (a *App) buildGeneralPage() generalFields {
 	box.Append(promptGroup)
 
 	treeGroup := groupCard("Hover previews")
-	summary := gtk.NewCheckButtonWithLabel("Show a 1-sentence AI summary when you hover a note")
+	summary := wrappingCheck("Show a 1-sentence AI summary when you hover a note")
 	summary.SetActive(a.cfg.EnableTreeSummaries)
 	treeGroup.Append(summary)
 	box.Append(treeGroup)
@@ -123,6 +123,7 @@ func (a *App) buildGeneralPage() generalFields {
 	fontGroup.Append(fonts)
 	fontHint := gtk.NewLabel("Automatic picks per screen. Takes effect on the next launch.")
 	fontHint.SetXAlign(0)
+	fontHint.SetWrap(true)
 	fontHint.AddCSSClass("dim-label")
 	fontHint.AddCSSClass("caption")
 	fontGroup.Append(fontHint)
@@ -323,12 +324,30 @@ func sectionBox() *gtk.Box {
 	return box
 }
 
+// pageScroll wraps a settings page so it scrolls vertically only. Horizontal
+// scrolling is switched off deliberately: with it on, the page is as wide as
+// its widest unwrappable label, and anything past the dialog's edge is simply
+// cut off rather than reachable. Held to the viewport's width, labels that can
+// wrap do, and the page fits.
 func pageScroll(child gtk.Widgetter) *gtk.ScrolledWindow {
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetChild(child)
 	scroll.SetVExpand(true)
 	scroll.SetHExpand(true)
+	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	return scroll
+}
+
+// wrappingCheck is a check button whose label wraps. The stock one's label
+// does not, so a sentence long enough to explain the setting sets a minimum
+// width for the whole page.
+func wrappingCheck(text string) *gtk.CheckButton {
+	check := gtk.NewCheckButton()
+	label := gtk.NewLabel(text)
+	label.SetWrap(true)
+	label.SetXAlign(0)
+	check.SetChild(label)
+	return check
 }
 
 func fieldLabel(text string) *gtk.Label {

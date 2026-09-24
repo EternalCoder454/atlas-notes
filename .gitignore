@@ -8,3 +8,6 @@
 *.test
 *.out
 *.prof
+
+# Screenshots for design review; regenerated on demand, not part of the source.
+/screenshots/
