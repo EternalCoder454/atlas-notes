@@ -4,6 +4,14 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each — the detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.5.7
+- You can now password-protect a note, or a whole folder — right-click it in the vault
+- Protected notes are properly encrypted, so nothing else on your computer can read them
+- If you forget the password those notes can't be opened again, by anything — there's no way round it
+- Star a note or folder to mark it a favourite
+- Lock your protected notes again without quitting, with Ctrl+Shift+L
+- Change your password in Settings, under App
+
 ## 0.5.6
 - Every icon comes from one set now, so nothing looks out of place
 - Recent notes on the home screen show a preview of what's in them
