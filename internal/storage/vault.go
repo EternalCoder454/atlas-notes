@@ -200,7 +200,7 @@ func (s *Store) Reindex() error {
 				folder = ""
 			}
 			unix := e.modified.Unix()
-			if _, err := stmt.Exec(e.rel, folder, deriveTitle(e.rel), unix, unix); err != nil {
+			if _, err := stmt.Exec(e.rel, folder, unix, unix); err != nil {
 				return err
 			}
 		}

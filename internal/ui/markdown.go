@@ -11,13 +11,13 @@ var (
 	mdItalic = regexp.MustCompile(`\*([^*]+)\*`)
 )
 
+// pangoEscaper escapes the characters that are special in Pango markup. A
+// replacer walks the string once; the three passes it replaces also had to get
+// the order right, since escaping "&" after "<" would double-escape.
+var pangoEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 // pangoEscape escapes the characters that are special in Pango markup.
-func pangoEscape(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	return s
-}
+func pangoEscape(s string) string { return pangoEscaper.Replace(s) }
 
 // markdownToPango converts the small Markdown subset the assistant emits — bold,
 // italics, inline code, bullet lists and headings — into Pango markup for a

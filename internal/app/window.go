@@ -185,16 +185,6 @@ func (a *App) buildMainMenu() *gio.Menu {
 	return menu
 }
 
-// iconName returns preferred when the icon theme has it, and fallback when it
-// does not — bundled icons are unpacked at startup, but a theme can always
-// surprise us.
-func iconName(preferred, fallback string) string {
-	if hasIcon(preferred) {
-		return preferred
-	}
-	return fallback
-}
-
 // panePosition falls back to a default when the stored width is unset or absurd.
 func panePosition(stored, fallback int) int {
 	if stored < 120 || stored > 900 {

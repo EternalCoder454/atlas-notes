@@ -179,7 +179,6 @@ CREATE TABLE IF NOT EXISTS notes (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
 	path        TEXT    NOT NULL UNIQUE,
 	folder      TEXT    NOT NULL DEFAULT '',
-	title       TEXT    NOT NULL DEFAULT '',
 	modified_at INTEGER NOT NULL DEFAULT 0,
 	created_at  INTEGER NOT NULL DEFAULT 0
 );

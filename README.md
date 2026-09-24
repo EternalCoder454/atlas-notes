@@ -241,16 +241,21 @@ then `sudo systemctl restart ollama`). Confirm with `ollama ps` (it should show
 atlas-notes/
 ├── main.go                   # AdwApplication entry point; embeds style.css
 ├── assets/                   # style.css + app icon
-├── internal/app/icons/       # symbolic icons the desktop theme has no icon for
 ├── packaging/                # .desktop entry
 ├── scripts/install-fedora.sh # one-command Fedora install/update
 └── internal/
-    ├── app/      # window, three-panel layout, autosave, Ctrl+S, in-app updater
-    ├── editor/   # GtkTextView WYSIWYG + checklist rendering
+    ├── app/      # window, panels, actions, settings, the in-app updater
+    │   ├── app.go        # application lifecycle
+    │   ├── notes.go      # the open note: loading, saving, renaming
+    │   ├── center.go     # editor page: title, toolbar, status bar
+    │   ├── welcome.go    # the home screen
+    │   ├── icons/        # symbolic icons the desktop theme has none for
+    │   └── bench.go      # the measurement harness (see above)
+    ├── editor/   # GtkTextView WYSIWYG, checklist rows and their menu
     ├── storage/  # vault I/O, zstd, atomic writes, SQLite index, config
     ├── checklist/# pure checklist model (parse / serialize / sort)
     ├── ai/       # Ollama HTTP client
-    └── ui/       # folder tree panel + AI sidebar
+    └── ui/       # vault panel (tree*.go) + assistant panel (sidebar*.go)
 ```
 
 ## Roadmap

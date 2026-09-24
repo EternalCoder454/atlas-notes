@@ -84,7 +84,7 @@ func parseLineSpans(line string, reveal bool) []span {
 	// Prose is the common case: a line with no inline marker at all needs no
 	// character-by-character scan. IndexAny is a vectorized search, so this is
 	// far cheaper than running the state machine over the line.
-	if strings.IndexAny(line[body:n], "*`~") < 0 {
+	if !strings.ContainsAny(line[body:n], "*`~") {
 		return charSpans(line, spans)
 	}
 

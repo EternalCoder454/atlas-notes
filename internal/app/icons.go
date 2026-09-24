@@ -40,6 +40,35 @@ Type=Scalable
 Context=Actions
 `
 
+// iconCache memoizes icon-theme lookups. Each one is a query into GTK through
+// cgo, and the toolbar and home screen ask about a dozen icons while the window
+// is being built.
+var iconCache = map[string]bool{}
+
+// hasIcon reports whether the current icon theme can draw name.
+func hasIcon(name string) bool {
+	if known, ok := iconCache[name]; ok {
+		return known
+	}
+	display := gdk.DisplayGetDefault()
+	if display == nil {
+		return false
+	}
+	known := gtk.IconThemeGetForDisplay(display).HasIcon(name)
+	iconCache[name] = known
+	return known
+}
+
+// iconName returns preferred when the icon theme has it, and fallback when it
+// does not — bundled icons are unpacked at startup, but a theme can always
+// surprise us.
+func iconName(preferred, fallback string) string {
+	if hasIcon(preferred) {
+		return preferred
+	}
+	return fallback
+}
+
 // iconDir is where the bundled icons are unpacked: the app's own data
 // directory, in the layout an icon theme has.
 func iconDir() string { return filepath.Join(storage.DataDir(), "icons") }

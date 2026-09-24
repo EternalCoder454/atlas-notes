@@ -263,18 +263,6 @@ func (a *App) runBench() {
 			}
 			benchReport["icons"] = found
 			a.emitReport()
-		case "anchors":
-			if n <= 0 {
-				n = 5000
-			}
-			a.benchAnchors(n)
-			a.emitReport()
-		case "widgets":
-			if n <= 0 {
-				n = 20000
-			}
-			benchWidgets(n)
-			a.emitReport()
 		case "chaos":
 			if n <= 0 {
 				n = 2000
@@ -374,8 +362,7 @@ func (a *App) benchSoak(total int) {
 	benchReport["soak_ops"] = ops
 
 	words := []string{"alpha ", "beta ", "gamma ", "- [ ] task\n"}
-	var step func() bool
-	step = func() bool {
+	step := func() bool {
 		for i := 0; i < batch && done < total; i, done = i+1, done+1 {
 			if doOpen {
 				a.openNote(notes[done%len(notes)].Path)
@@ -403,7 +390,7 @@ func (a *App) benchSoak(total int) {
 		if done >= total {
 			a.flushDirty()
 			sampleNow()
-			benchReport["items_created"] = editor.ItemsCreated
+			benchReport["rows_built"] = editor.RowsBuilt()
 			benchReport["soak_cycles"] = total
 			benchReport["soak_checkpoints"] = checkpoint
 			a.emitReport()
@@ -432,47 +419,6 @@ func (a *App) benchSearch(n int) {
 	benchReport["search_ms"] = latency(durs)
 }
 
-// benchAnchors measures what one embedded-checkbox position costs: a text
-// child anchor created, used, and deleted again. It is the floor under the
-// editor's memory behaviour, since a task line cannot be rendered without one.
-func (a *App) benchAnchors(n int) {
-	if a.editor == nil {
-		return
-	}
-	before := takeSample()
-	for i := 0; i < n; i++ {
-		a.editor.SetContent("- [ ] task one\n- [ ] task two\n")
-	}
-	runtime.GC()
-	after := takeSample()
-	benchReport["anchor_rounds"] = n
-	benchReport["anchor_bytes_each"] = float64(after.RSSKB-before.RSSKB) * 1024 / float64(n*2)
-}
-
-// benchWidgets measures the cost of creating and dropping GTK widgets that are
-// never parented — i.e. object churn through the bindings alone, with no text
-// view, anchors or signal handlers involved.
-func benchWidgets(n int) {
-	gcEvery, _ := strconv.Atoi(os.Getenv("ATLAS_WIDGET_GC"))
-	before := takeSample()
-	for i := 0; i < n; i++ {
-		box := gtk.NewBox(gtk.OrientationHorizontal, 0)
-		cb := gtk.NewCheckButton()
-		box.Append(cb)
-		_ = box
-		if gcEvery > 0 && i%gcEvery == 0 {
-			runtime.GC()
-		}
-	}
-	runtime.GC()
-	runtime.GC()
-	after := takeSample()
-	benchReport["widgets_created"] = n
-	benchReport["widgets_rss_before_kb"] = before.RSSKB
-	benchReport["widgets_rss_after_kb"] = after.RSSKB
-	benchReport["widgets_bytes_each"] = float64(after.RSSKB-before.RSSKB) * 1024 / float64(n)
-}
-
 // benchChaos drives the app the way an impatient user would, in a random but
 // reproducible order: create, rename, delete, search, type, tick boxes, switch
 // notes, toggle panels, jump home. It is a stability test — anything that
@@ -488,8 +434,7 @@ func (a *App) benchChaos(total int) {
 	done := 0
 	counts := map[string]int{}
 
-	var step func() bool
-	step = func() bool {
+	step := func() bool {
 		for i := 0; i < batch && done < total; i, done = i+1, done+1 {
 			notes, _ := a.store.ListNotes()
 			pick := func() string {

@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -13,13 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/core/gioutil"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
-	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
-	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"atlas-notes/internal/ai"
 	"atlas-notes/internal/storage"
@@ -62,9 +58,9 @@ type Tree struct {
 	rootModel *gioutil.ListModel[*node]
 
 	cachedFolders []string
-	cachedNotes   []storage.NoteMeta
-	// entries is the searchable form of cachedNotes: names already split and
-	// lower-cased, so filtering does no allocation per keystroke.
+	// entries is the vault's notes in the form the panel needs them: names
+	// already split out and lower-cased, so filtering allocates nothing per
+	// keystroke.
 	entries    []vaultEntry
 	cacheValid bool
 	// childIndex groups the cached entries by parent folder. GTK asks for a
@@ -323,8 +319,8 @@ func (t *Tree) refresh(force bool) {
 	if t.currentRel != "" {
 		t.revealAndSelect(t.currentRel)
 	}
-	t.updateHeader(len(t.cachedNotes))
-	t.updateEmptyState(len(t.cachedNotes) + len(t.cachedFolders))
+	t.updateHeader(len(t.entries))
+	t.updateEmptyState(len(t.entries) + len(t.cachedFolders))
 }
 
 // vaultSignature summarizes everything the panel actually displays, so a
@@ -341,10 +337,11 @@ func (t *Tree) vaultSignature() string {
 		h.Write([]byte(f))
 		h.Write([]byte{0})
 	}
-	for _, n := range t.cachedNotes {
-		h.Write([]byte(n.Path))
+	for i := range t.entries {
+		e := &t.entries[i]
+		h.Write([]byte(e.meta.Path))
 		if t.sortRecent {
-			fmt.Fprintf(h, "|%d", n.ModifiedAt.Unix())
+			fmt.Fprintf(h, "|%d", e.meta.ModifiedAt.Unix())
 		}
 		h.Write([]byte{'\n'})
 	}
@@ -452,7 +449,6 @@ func (t *Tree) updateEmptyState(n int) {
 
 // reloadCache snapshots the folder and note lists once, so childrenOf (which
 // GTK calls per folder while probing expandability) doesn't re-walk the
-// filesystem each time — the main cause of slow post-rename refreshes.
 // reloadCache re-reads the vault, unless the copy in hand is still good. The
 // vault only changes when the app changes it, so typing in the search field —
 // which refreshes on every keystroke — reuses this instead of walking the
@@ -463,19 +459,9 @@ func (t *Tree) reloadCache() {
 	}
 	t.cacheValid = true
 	t.cachedFolders, _ = t.store.ListFolders()
-	t.cachedNotes, _ = t.store.ListNotes()
+	notes, _ := t.store.ListNotes()
 
-	t.entries = make([]vaultEntry, 0, len(t.cachedNotes))
-	for _, n := range t.cachedNotes {
-		base := path.Base(n.Path)
-		t.entries = append(t.entries, vaultEntry{
-			meta:        n,
-			name:        base,
-			lowerName:   strings.ToLower(base),
-			lowerFolder: strings.ToLower(n.Folder),
-		})
-	}
-
+	t.entries = make([]vaultEntry, 0, len(notes))
 	t.childIndex = make(map[string][]*node, len(t.cachedFolders)+1)
 	for _, f := range t.cachedFolders {
 		parent := parentFolder(f)
@@ -483,9 +469,16 @@ func (t *Tree) reloadCache() {
 			name: path.Base(f), rel: f, isFolder: true,
 		})
 	}
-	for _, n := range t.cachedNotes {
+	for _, n := range notes {
+		base := path.Base(n.Path)
+		t.entries = append(t.entries, vaultEntry{
+			meta:        n,
+			name:        base,
+			lowerName:   strings.ToLower(base),
+			lowerFolder: strings.ToLower(n.Folder),
+		})
 		t.childIndex[n.Folder] = append(t.childIndex[n.Folder], &node{
-			name: path.Base(n.Path), rel: n.Path, folder: n.Folder,
+			name: base, rel: n.Path, folder: n.Folder,
 			created: n.CreatedAt, modified: n.ModifiedAt,
 		})
 	}
@@ -613,71 +606,6 @@ func (t *Tree) moveInto(srcRel, folderRel string) bool {
 	return true
 }
 
-// nodeFromExpander returns the node currently bound to a row's expander.
-func nodeFromExpander(expander *gtk.TreeExpander) *node {
-	row := expander.ListRow()
-	if row == nil {
-		return nil
-	}
-	return gioutil.ObjectValue[*node](row.Item())
-}
-
-// tooltipFor builds a row's hover tooltip: full name, created/modified dates,
-// and (when enabled) the cached one-sentence AI summary.
-func (t *Tree) tooltipFor(n *node) string {
-	if n.isFolder {
-		return n.name
-	}
-	var b strings.Builder
-	b.WriteString(n.name)
-	if !n.created.IsZero() && n.created.Unix() > 0 {
-		b.WriteString("\nCreated: " + n.created.Format("Jan 2, 2006 3:04 PM"))
-	}
-	if !n.modified.IsZero() && n.modified.Unix() > 0 {
-		b.WriteString("\nModified: " + n.modified.Format("Jan 2, 2006 3:04 PM"))
-	}
-	if t.summariesEnabled {
-		if s := t.summaries[n.rel]; s != "" {
-			b.WriteString("\n\n" + s)
-		} else {
-			b.WriteString("\n\n(generating summary…)")
-		}
-	}
-	return b.String()
-}
-
-// ensureSummary lazily generates and caches a one-sentence AI summary for a note
-// (off the main thread, once per note per session).
-func (t *Tree) ensureSummary(rel string) {
-	if t.ai == nil {
-		return
-	}
-	if _, done := t.summaries[rel]; done {
-		return
-	}
-	if t.summaryPending[rel] {
-		return
-	}
-	t.summaryPending[rel] = true
-	go func() {
-		content, err := t.store.ReadNote(rel)
-		if err != nil {
-			coreglib.IdleAdd(func() bool { delete(t.summaryPending, rel); return false })
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		summary, _, gerr := t.ai.RunAction(ctx, "Summarize this note in one short sentence:\n\n{content}", content, -1, nil)
-		coreglib.IdleAdd(func() bool {
-			delete(t.summaryPending, rel)
-			if gerr == nil && strings.TrimSpace(summary) != "" {
-				t.summaries[rel] = strings.TrimSpace(summary)
-			}
-			return false
-		})
-	}()
-}
-
 // createChildModel supplies the children of an expandable (folder) row.
 func (t *Tree) createChildModel(item *coreglib.Object) *gio.ListModel {
 	n := gioutil.ObjectValue[*node](item)
@@ -704,333 +632,6 @@ func (t *Tree) createChildModel(item *coreglib.Object) *gio.ListModel {
 // straight out of the index built by reloadCache.
 func (t *Tree) childrenOf(folderRel string) []*node {
 	return t.childIndex[folderRel]
-}
-
-func (t *Tree) setupItem(obj *coreglib.Object) {
-	item, ok := obj.Cast().(*gtk.ListItem)
-	if !ok {
-		return
-	}
-	expander := gtk.NewTreeExpander()
-	expander.SetIndentForDepth(false) // depth indent is applied manually (indentStep) in bindItem
-	box := gtk.NewBox(gtk.OrientationHorizontal, 6)
-	icon := gtk.NewImage()
-	label := gtk.NewLabel("")
-	label.SetXAlign(0)
-	label.SetEllipsize(pango.EllipsizeEnd) // long names truncate with "…" instead of overflowing
-	label.SetHExpand(true)
-	caption := gtk.NewLabel("")
-	caption.AddCSSClass("row-caption")
-	caption.SetEllipsize(pango.EllipsizeStart)
-	caption.SetVisible(false)
-	box.Append(icon)
-	box.Append(label)
-	box.Append(caption)
-	expander.SetChild(box)
-
-	// Drag a note row onto a folder row to move it into that folder.
-	drag := gtk.NewDragSource()
-	drag.SetActions(gdk.ActionMove)
-	drag.ConnectPrepare(func(x, y float64) *gdk.ContentProvider {
-		n := nodeFromExpander(expander)
-		if n == nil || n.isFolder {
-			return nil // only notes are draggable
-		}
-		return gdk.NewContentProviderForValue(coreglib.NewValue(n.rel))
-	})
-	expander.AddController(drag)
-
-	drop := gtk.NewDropTarget(coreglib.TypeString, gdk.ActionMove)
-	drop.ConnectDrop(func(value *coreglib.Value, x, y float64) bool {
-		n := nodeFromExpander(expander)
-		if n == nil || !n.isFolder {
-			return false // only folders accept drops
-		}
-		return t.moveInto(value.String(), n.rel)
-	})
-	expander.AddController(drop)
-
-	// Right-click a row → contextual menu (create / rename / delete).
-	menu := gtk.NewGestureClick()
-	menu.SetButton(3)
-	menu.ConnectPressed(func(_ int, x, y float64) {
-		menu.SetState(gtk.EventSequenceClaimed) // don't also trigger the empty-space menu
-		t.showContextMenu(expander, x, y, nodeFromExpander(expander))
-	})
-	expander.AddController(menu)
-
-	// Double-click a note's text to rename it.
-	dbl := gtk.NewGestureClick()
-	dbl.SetButton(1)
-	dbl.ConnectPressed(func(nPress int, x, y float64) {
-		if nPress < 2 {
-			return
-		}
-		if n := nodeFromExpander(expander); n != nil && !n.isFolder {
-			t.promptRename(n)
-		}
-	})
-	label.AddController(dbl)
-
-	item.SetChild(expander)
-}
-
-func (t *Tree) bindItem(obj *coreglib.Object) {
-	item, ok := obj.Cast().(*gtk.ListItem)
-	if !ok {
-		return
-	}
-	row, ok := item.Item().Cast().(*gtk.TreeListRow)
-	if !ok {
-		return
-	}
-	expander, ok := item.Child().(*gtk.TreeExpander)
-	if !ok {
-		return
-	}
-	expander.SetListRow(row)
-
-	n := gioutil.ObjectValue[*node](row.Item())
-	if n == nil {
-		return
-	}
-	box, ok := expander.Child().(*gtk.Box)
-	if !ok {
-		return
-	}
-	box.SetMarginStart(int(row.Depth()) * indentStep) // manual, tighter depth indent
-	icon, ok := box.FirstChild().(*gtk.Image)
-	if !ok {
-		return
-	}
-	if n.isFolder {
-		icon.SetFromIconName("folder-symbolic")
-	} else {
-		icon.SetFromIconName("text-x-generic-symbolic")
-	}
-	if label, ok := icon.NextSibling().(*gtk.Label); ok {
-		label.SetText(n.name)
-		if caption, ok := label.NextSibling().(*gtk.Label); ok {
-			// In search results the folder is shown beside the name, since the
-			// flattened list loses the tree's context.
-			if t.query != "" && n.folder != "" {
-				caption.SetText(n.folder)
-				caption.SetVisible(true)
-			} else {
-				caption.SetVisible(false)
-			}
-		}
-	}
-	expander.SetTooltipText(t.tooltipFor(n))
-	if !n.isFolder && t.summariesEnabled {
-		t.ensureSummary(n.rel)
-	}
-}
-
-// onActivate handles single-click: toggle folders, open notes.
-func (t *Tree) onActivate(position uint) {
-	obj := t.selection.Item(position)
-	if obj == nil {
-		return
-	}
-	row, ok := obj.Cast().(*gtk.TreeListRow)
-	if !ok {
-		return
-	}
-	n := gioutil.ObjectValue[*node](row.Item())
-	if n == nil {
-		return
-	}
-	if n.isFolder {
-		row.SetExpanded(!row.Expanded())
-		return
-	}
-	if t.OnOpenNote != nil {
-		t.OnOpenNote(n.rel)
-	}
-}
-
-// showContextMenu pops up the create/rename/delete menu at (x,y) in parent's
-// coordinate space. n is the row under the pointer, or nil for empty space.
-func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
-	pop := gtk.NewPopover()
-	pop.SetAutohide(true)
-	pop.SetHasArrow(false)
-	rect := gdk.NewRectangle(int(x), int(y), 1, 1)
-	pop.SetPointingTo(&rect)
-
-	box := gtk.NewBox(gtk.OrientationVertical, 2)
-	box.SetMarginTop(4)
-	box.SetMarginBottom(4)
-	box.SetMarginStart(4)
-	box.SetMarginEnd(4)
-
-	add := func(label string, destructive bool, fn func()) {
-		b := gtk.NewButtonWithLabel(label)
-		b.AddCSSClass("flat")
-		b.SetHAlign(gtk.AlignFill)
-		if l, ok := b.Child().(*gtk.Label); ok {
-			l.SetXAlign(0)
-		}
-		if destructive {
-			b.AddCSSClass("destructive-action")
-		}
-		b.ConnectClicked(func() {
-			pop.Popdown()
-			fn()
-		})
-		box.Append(b)
-	}
-
-	folder := folderFor(n)
-	add("New Note", false, func() { t.promptNewNote(folder) })
-	add("New Folder", false, func() { t.promptNewFolder(folder) })
-	if n != nil {
-		box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
-		add("Rename", false, func() { t.promptRename(n) })
-		add("Delete", true, func() { t.promptDelete(n) })
-	}
-
-	pop.SetChild(box)
-	pop.SetParent(parent)
-	pop.ConnectClosed(func() { pop.Unparent() })
-	pop.Popup()
-}
-
-// folderFor returns the folder a new item should be created in for a context
-// target: inside a folder, alongside a note, or at the root for empty space.
-func folderFor(n *node) string {
-	switch {
-	case n == nil:
-		return ""
-	case n.isFolder:
-		return n.rel
-	default:
-		return parentFolder(n.rel)
-	}
-}
-
-func (t *Tree) promptNewNote(folder string) {
-	t.promptText("New Note", "Create", "", func(name string) {
-		rel := joinRel(folder, name)
-		if err := t.store.WriteNote(rel, "# "+name+"\n\n"); err != nil {
-			log.Printf("atlas-notes: new note: %v", err)
-			return
-		}
-		t.ForceRefresh()
-		t.notifyChanged()
-		if t.OnOpenNote != nil {
-			t.OnOpenNote(rel)
-		}
-	})
-}
-
-func (t *Tree) promptNewFolder(folder string) {
-	t.promptText("New Folder", "Create", "", func(name string) {
-		if err := t.store.CreateFolder(joinRel(folder, name)); err != nil {
-			log.Printf("atlas-notes: new folder: %v", err)
-			return
-		}
-		t.ForceRefresh()
-	})
-}
-
-func (t *Tree) promptRename(n *node) {
-	if n == nil {
-		return
-	}
-	t.promptText("Rename", "Rename", n.name, func(newName string) {
-		newRel := joinRel(parentFolder(n.rel), newName)
-		var err error
-		if n.isFolder {
-			err = t.store.RenameFolder(n.rel, newRel)
-		} else {
-			err = t.store.RenameNote(n.rel, newRel)
-		}
-		if err != nil {
-			log.Printf("atlas-notes: rename: %v", err)
-			return
-		}
-		if !n.isFolder && t.currentRel == n.rel {
-			if t.OnMoved != nil {
-				t.OnMoved(n.rel, newRel) // keep the open note in sync
-			}
-		}
-		t.ForceRefresh()
-	})
-}
-
-// notifyChanged tells the app the vault's contents changed.
-func (t *Tree) notifyChanged() {
-	if t.OnChanged != nil {
-		t.OnChanged()
-	}
-}
-
-func (t *Tree) promptDelete(n *node) {
-	if n == nil {
-		return
-	}
-	what := "note"
-	if n.isFolder {
-		what = "folder and all its contents"
-	}
-	t.confirm("Delete?", "Delete the "+what+" \""+n.name+"\"? This cannot be undone.", "Delete", func() {
-		var err error
-		if n.isFolder {
-			err = t.store.DeleteFolder(n.rel)
-		} else {
-			err = t.store.DeleteNote(n.rel)
-		}
-		if err != nil {
-			log.Printf("atlas-notes: delete: %v", err)
-		} else if t.OnDeleted != nil {
-			t.OnDeleted(n.rel, n.isFolder)
-		}
-		t.ForceRefresh()
-		t.notifyChanged()
-	})
-}
-
-// promptText shows a single-entry dialog and calls onOK with the trimmed value.
-func (t *Tree) promptText(title, okLabel, initial string, onOK func(string)) {
-	dialog := adw.NewAlertDialog(title, "")
-	entry := gtk.NewEntry()
-	if initial != "" {
-		entry.Buffer().SetText(initial, -1)
-	}
-	entry.SetHExpand(true)
-	dialog.SetExtraChild(entry)
-	dialog.AddResponse("cancel", "Cancel")
-	dialog.AddResponse("ok", okLabel)
-	dialog.SetResponseAppearance("ok", adw.ResponseSuggested)
-	dialog.SetDefaultResponse("ok")
-	dialog.SetCloseResponse("cancel")
-	dialog.ConnectResponse(func(response string) {
-		if response != "ok" {
-			return
-		}
-		if name := strings.TrimSpace(entry.Buffer().Text()); name != "" {
-			onOK(name)
-		}
-	})
-	dialog.Present(t.parent)
-}
-
-// confirm shows a destructive confirmation dialog.
-func (t *Tree) confirm(title, body, okLabel string, onOK func()) {
-	dialog := adw.NewAlertDialog(title, body)
-	dialog.AddResponse("cancel", "Cancel")
-	dialog.AddResponse("ok", okLabel)
-	dialog.SetResponseAppearance("ok", adw.ResponseDestructive)
-	dialog.SetDefaultResponse("cancel")
-	dialog.SetCloseResponse("cancel")
-	dialog.ConnectResponse(func(response string) {
-		if response == "ok" {
-			onOK()
-		}
-	})
-	dialog.Present(t.parent)
 }
 
 func parentFolder(rel string) string {

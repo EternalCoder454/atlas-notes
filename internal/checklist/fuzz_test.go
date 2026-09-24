@@ -38,19 +38,22 @@ func FuzzParseLine(f *testing.F) {
 	})
 }
 
-// FuzzProgress makes sure the whole-document counter never panics or reports
-// more finished tasks than there are tasks.
-func FuzzProgress(f *testing.F) {
-	f.Add("- [ ] a\n- [x] b\ntext\n")
+// FuzzTaskLine checks the line-level task test against arbitrary input, and
+// that it agrees with the full parser about what is a task.
+func FuzzTaskLine(f *testing.F) {
+	f.Add("- [ ] a")
+	f.Add("- [x] b")
+	f.Add("text")
 	f.Add("")
-	f.Add(strings.Repeat("- [x] x\n", 100))
-	f.Fuzz(func(t *testing.T, content string) {
-		done, total := Progress(content)
-		if done > total || done < 0 || total < 0 {
-			t.Fatalf("Progress(%q) = %d/%d", content, done, total)
+	f.Add(strings.Repeat("- [x] x", 50))
+	f.Fuzz(func(t *testing.T, line string) {
+		checked, ok := TaskLine(line)
+		it, parsed := ParseLine(line)
+		if ok != parsed {
+			t.Fatalf("TaskLine(%q) says %v but ParseLine says %v", line, ok, parsed)
 		}
-		if n := len(Parse(content)); n != total {
-			t.Fatalf("Parse found %d items but Progress counted %d", n, total)
+		if ok && checked != it.Checked {
+			t.Fatalf("TaskLine(%q) checked=%v but ParseLine says %v", line, checked, it.Checked)
 		}
 	})
 }

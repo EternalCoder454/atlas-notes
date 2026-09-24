@@ -191,19 +191,6 @@ func Parse(content string) []Item {
 	return items
 }
 
-// HasItems reports whether content contains at least one checklist item.
-func HasItems(content string) bool {
-	found := false
-	eachLine(content, func(line string) bool {
-		if _, ok := ParseLine(line); ok {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
-}
-
 // eachLine calls fn for every line in s, stopping early when fn returns false.
 // It avoids the allocation strings.Split makes for a whole document.
 func eachLine(s string, fn func(string) bool) {
@@ -220,8 +207,13 @@ func eachLine(s string, fn func(string) bool) {
 	}
 }
 
-// Meta returns the trailing HTML-comment metadata for the item, or "".
-func (it Item) Meta() string { return it.metaComment() }
+// TaskLine reports whether a single line is a checklist item, and whether it is
+// ticked. It only matches the prefix — no metadata is parsed — which is what a
+// counter walking a whole document wants.
+func TaskLine(line string) (checked, ok bool) {
+	_, checked, ok = cutTaskPrefix(line)
+	return checked, ok
+}
 
 // TextOffset returns the rune offset at which the item text begins (just after
 // the "- [x] " prefix), or -1 when line is not a checklist item.
@@ -232,22 +224,4 @@ func TextOffset(line string) int {
 	}
 	// The prefix is ASCII, so its rune count equals its byte length.
 	return utf8.RuneCountInString(line[:len(line)-len(rest)])
-}
-
-// Progress counts finished and total checklist items in content. It is used for
-// the editor's "n of m tasks" indicator, so it only matches the task prefix and
-// never parses metadata.
-func Progress(content string) (done, total int) {
-	eachLine(content, func(line string) bool {
-		_, checked, ok := cutTaskPrefix(line)
-		if !ok {
-			return true
-		}
-		total++
-		if checked {
-			done++
-		}
-		return true
-	})
-	return done, total
 }

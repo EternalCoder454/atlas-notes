@@ -118,7 +118,7 @@ func TestNoteRoundTrip(t *testing.T) {
 	}
 }
 
-func TestIndexAndTitle(t *testing.T) {
+func TestIndexMetadata(t *testing.T) {
 	s := testStore(t)
 	if err := s.WriteNote("Work/Plan", "# My Plan\n\n- [ ] step one\n"); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestIndexAndTitle(t *testing.T) {
 		t.Fatalf("ListNotes len = %d want 1", len(notes))
 	}
 	n := notes[0]
-	if n.Path != "Work/Plan" || n.Folder != "Work" || n.Title != "Plan" {
+	if n.Path != "Work/Plan" || n.Folder != "Work" {
 		t.Errorf("meta = %+v", n)
 	}
 }
@@ -208,7 +208,7 @@ func TestReindexAndWelcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, _ := s2.ListNotes()
-	if len(n) != 1 || n[0].Title == "" {
+	if len(n) != 1 || n[0].Path != "Getting Started" {
 		t.Errorf("after reindex: %+v", n)
 	}
 }

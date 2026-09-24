@@ -5,6 +5,42 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-09-24
+
+A cleanup pass: dead code removed, files split along the seams they had grown
+past, and a few hot paths simplified. No behaviour changes.
+
+### Changed
+- **The footer's counters walk the note once.** Words, characters and task
+  progress were three separate passes over the document; they are now one,
+  and the line-level task test (`checklist.TaskLine`) replaced the
+  whole-document counter that wrapped it.
+- **The vault panel builds its caches in a single pass** instead of walking the
+  note list three times, and no longer keeps a second copy of it.
+- **Large files were split along what they actually do**: the vault panel into
+  the panel, its row factory and its editing menu; the assistant into its
+  widgets and the calls it makes; the editor's checklist into rendering and its
+  menu; and `app.go` into the application's lifecycle and the open note.
+- The assistant's replies are escaped for Pango in one pass rather than three.
+
+### Removed
+- `checklist.HasItems`, `checklist.Progress` and `Item.Meta`, the editor's
+  `View`, and the app's unread save-state field — all unreachable.
+- The `title` column in the note index. It stored each note's file name, which
+  is the tail of the path it sits beside, and nothing read it.
+- The widget- and anchor-cost probes from the harness. They existed to measure
+  what the GTK bindings retain during the leak hunt, and that question is
+  answered; `ATLAS_BENCH` now offers only what the README documents.
+- A stale import anchor and a comment left over from an earlier implementation.
+
+### Verified
+`staticcheck` and `deadcode` report nothing across the tree. Tests, race
+detector, the stability battery (7/7), 3,000 randomized operations with GLib
+criticals fatal, and the benchmarks all hold: typing 0.08 ms, search 0.07 ms,
+opening a note 0.37 ms, launch 85 ms on a 2,000-note vault.
+
+[0.5.4]: https://github.com/EternalCoder454/atlas-notes/releases/tag/v0.5.4
+
 ## [0.5.3] - 2026-09-24
 
 Consistent icons, and a stability pass that drove the app at random until

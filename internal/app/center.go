@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
-	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/checklist"
@@ -120,25 +119,6 @@ func (a *App) buildSavePill() *gtk.Box {
 type formatButton struct {
 	icon, label, tooltip string
 	action               func()
-}
-
-// iconCache memoizes icon-theme lookups. Each one is a query into GTK through
-// cgo, and the toolbar and home screen ask about a dozen icons while the window
-// is being built.
-var iconCache = map[string]bool{}
-
-// hasIcon reports whether the current icon theme can draw name.
-func hasIcon(name string) bool {
-	if known, ok := iconCache[name]; ok {
-		return known
-	}
-	display := gdk.DisplayGetDefault()
-	if display == nil {
-		return false
-	}
-	known := gtk.IconThemeGetForDisplay(display).HasIcon(name)
-	iconCache[name] = known
-	return known
 }
 
 // buildFormatBar is the formatting toolbar. Everything it offers was previously
@@ -275,11 +255,18 @@ func (a *App) showEditorPage() {
 	}
 }
 
+func (a *App) updateStats() {
+	if a.editor != nil {
+		a.statsDirty = false
+		a.updateStatsWith(a.editor.Content())
+	}
+}
+
 // updateStatsWith refreshes the footer and the checklist progress from content
 // that has already been fetched once. Words, characters and tasks are counted
 // in a single walk of the document — this runs after every pause in typing.
 func (a *App) updateStatsWith(content string) {
-	words, chars := countWords(content)
+	words, chars, done, total := documentStats(content)
 	if a.statusLabel != nil {
 		a.statusLabel.SetText(fmt.Sprintf("%s · %s", plural(words, "word"), plural(chars, "character")))
 		if a.readTimeLabel != nil {
@@ -287,7 +274,6 @@ func (a *App) updateStatsWith(content string) {
 		}
 	}
 	if a.taskProgress != nil {
-		done, total := checklist.Progress(content)
 		if total == 0 {
 			a.taskProgress.SetVisible(false)
 		} else {
@@ -302,14 +288,21 @@ func (a *App) updateStatsWith(content string) {
 	}
 }
 
-// countWords returns the word and character counts of s in one pass, without
-// the slice strings.Fields would allocate for every word in the note.
-func countWords(s string) (words, chars int) {
+// documentStats counts everything the footer shows in a single walk of the
+// note: words, characters, and how many of its tasks are done. It allocates
+// nothing — strings.Fields would build a slice of every word in the note, and
+// counting the tasks separately would mean a second pass.
+func documentStats(s string) (words, chars, done, total int) {
 	inWord := false
-	for _, r := range s {
+	lineStart := 0
+	for i, r := range s {
 		chars++
 		switch r {
-		case ' ', '\t', '\n', '\r', '\v', '\f':
+		case '\n':
+			done, total = countTask(s[lineStart:i], done, total)
+			lineStart = i + len("\n")
+			inWord = false
+		case ' ', '\t', '\r', '\v', '\f':
 			inWord = false
 		default:
 			if !inWord {
@@ -318,7 +311,20 @@ func countWords(s string) (words, chars int) {
 			}
 		}
 	}
-	return words, chars
+	done, total = countTask(s[lineStart:], done, total)
+	return words, chars, done, total
+}
+
+// countTask folds one line into the running task tally.
+func countTask(line string, done, total int) (int, int) {
+	checked, ok := checklist.TaskLine(line)
+	if !ok {
+		return done, total
+	}
+	if checked {
+		done++
+	}
+	return done, total + 1
 }
 
 // readingTime is a rough estimate at 200 words per minute, shown only once a

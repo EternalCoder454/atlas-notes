@@ -1,10 +1,6 @@
 package editor
 
-import (
-	"strings"
-
-	"github.com/diamondburned/gotk4/pkg/gtk/v4"
-)
+import "strings"
 
 // This file implements the editing commands behind the formatting toolbar and
 // its keyboard shortcuts. They all work the way a word processor's do: with a
@@ -177,6 +173,3 @@ func (e *Editor) afterEdit() {
 
 // Focus puts the caret in the text view.
 func (e *Editor) Focus() { e.view.GrabFocus() }
-
-// View exposes the underlying text view (used to attach shortcut controllers).
-func (e *Editor) View() *gtk.TextView { return e.view }

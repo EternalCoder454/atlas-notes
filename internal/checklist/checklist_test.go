@@ -50,20 +50,14 @@ func TestMarshalRoundTrip(t *testing.T) {
 	}
 }
 
-func TestParseAndHasItems(t *testing.T) {
+func TestParseDocument(t *testing.T) {
 	content := "# Title\n\n- [ ] one\nsome text\n- [x] two\n"
-	if !HasItems(content) {
-		t.Fatal("HasItems = false, want true")
-	}
 	items := Parse(content)
 	if len(items) != 2 {
 		t.Fatalf("Parse len = %d want 2", len(items))
 	}
 	if items[0].Text != "one" || items[1].Text != "two" || !items[1].Checked {
 		t.Errorf("Parse = %+v", items)
-	}
-	if HasItems("# just a title\nno tasks here") {
-		t.Error("HasItems = true for content without tasks")
 	}
 }
 
@@ -119,13 +113,23 @@ func TestTextOffset(t *testing.T) {
 	}
 }
 
-func TestProgress(t *testing.T) {
-	content := "# Title\n\n- [ ] one\n- [x] two\nsome prose\n- [X] three\n"
-	done, total := Progress(content)
-	if done != 2 || total != 3 {
-		t.Errorf("Progress = %d/%d want 2/3", done, total)
+func TestTaskLine(t *testing.T) {
+	cases := []struct {
+		line            string
+		checked, isTask bool
+	}{
+		{"- [ ] one", false, true},
+		{"- [x] two", true, true},
+		{"- [X] three", true, true},
+		{"  - [ ] indented", false, true},
+		{"some prose", false, false},
+		{"# Title", false, false},
+		{"", false, false},
 	}
-	if done, total := Progress("no tasks here"); done != 0 || total != 0 {
-		t.Errorf("Progress(no tasks) = %d/%d want 0/0", done, total)
+	for _, c := range cases {
+		checked, ok := TaskLine(c.line)
+		if ok != c.isTask || checked != c.checked {
+			t.Errorf("TaskLine(%q) = (%v, %v), want (%v, %v)", c.line, checked, ok, c.checked, c.isTask)
+		}
 	}
 }
