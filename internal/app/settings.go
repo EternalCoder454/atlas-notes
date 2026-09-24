@@ -18,7 +18,7 @@ type actionRow struct {
 	mode   *gtk.DropDown
 }
 
-// showSettings opens the settings dialog: a sidebar with "Model & Prompt",
+// showSettings opens the settings dialog: a sidebar with "General",
 // "Prompt Shortcuts" and "App" sections.
 func (a *App) showSettings() { a.showSettingsPage("") }
 
@@ -36,7 +36,11 @@ func (a *App) showSettingsPage(page string) {
 	stack := gtk.NewStack()
 	stack.SetHExpand(true)
 	stack.SetVExpand(true)
-	stack.AddTitled(fields.page, "general", "Model & Prompt")
+	// "General", not "Model & Prompt": the page holds the assistant's name,
+	// model and prompt, but also hover previews, the formatting toolbar and
+	// text rendering, none of which are either. The name had stopped
+	// describing the contents.
+	stack.AddTitled(fields.page, "general", "General")
 	stack.AddTitled(shortcutsPage, "shortcuts", "Prompt Shortcuts")
 	stack.AddTitled(a.buildAppPage(), "app", "App")
 
@@ -69,7 +73,7 @@ func (a *App) showSettingsPage(page string) {
 	dialog.Present(a.win)
 }
 
-// generalFields holds the editable widgets of the "Model & Prompt" section.
+// generalFields holds the editable widgets of the "General" section.
 type generalFields struct {
 	name    *gtk.Entry
 	model   *gtk.Entry
@@ -85,7 +89,7 @@ var fontRenderingModes = []string{
 	storage.FontRenderingAuto, storage.FontRenderingCrisp, storage.FontRenderingSmooth,
 }
 
-// buildGeneralPage builds the "Model & Prompt" section.
+// buildGeneralPage builds the "General" section.
 func (a *App) buildGeneralPage() generalFields {
 	box := sectionBox()
 

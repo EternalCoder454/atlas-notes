@@ -5,6 +5,14 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **The first Settings section is called "General"**, not "Model & Prompt". It
+  holds the assistant's name, model and prompt, but also hover previews, the
+  formatting toolbar and text rendering, none of which are either. The name had
+  stopped describing the contents.
+
 ## [0.5.8] - 2026-09-24
 
 Acting on an outside review of the interface.
