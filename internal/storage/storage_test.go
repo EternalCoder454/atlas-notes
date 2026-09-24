@@ -425,6 +425,11 @@ func TestHasTasksIsIndexed(t *testing.T) {
 	if err := s.Reindex(); err != nil {
 		t.Fatal(err)
 	}
+	// The scan marks them; resolving is a separate step, so that a first
+	// launch is not held up reading the whole vault.
+	if _, err := s.ResolveTaskFlags(); err != nil {
+		t.Fatal(err)
+	}
 	check("after reindexing")
 
 	// Editing the tasks out has to clear it again.
@@ -500,6 +505,9 @@ func TestHasTasksBackfillsOnUpgrade(t *testing.T) {
 	if err := reopened.Reindex(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := reopened.ResolveTaskFlags(); err != nil {
+		t.Fatal(err)
+	}
 	notes, err := reopened.ListNotes()
 	if err != nil {
 		t.Fatal(err)
@@ -540,5 +548,74 @@ func TestLockedNoteIsNotGuessedToBeAChecklist(t *testing.T) {
 		if n.Path == "Secret" && n.HasTasks {
 			t.Error("a locked note the scan could not read was drawn as a checklist")
 		}
+	}
+}
+
+// TestScanDoesNotReadNotes is the property that keeps launching independent of
+// how large a vault is: the scan works from names and modification times and
+// opens nothing. Reading every note to find the checklists cost 68 ms on a
+// first launch of a 10,000-note vault, before the window appeared.
+//
+// It is checked by making the notes unreadable. A scan that opens them fails;
+// one that does not, does not care.
+func TestScanDoesNotReadNotes(t *testing.T) {
+	s := testStore(t)
+	for _, name := range []string{"One", "Two", "Three"} {
+		if err := s.WriteNote(name, "# "+name+"\n\n- [ ] a task\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Forget everything, and take away the right to read the files.
+	if _, err := s.db.Exec(`DELETE FROM notes`); err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, name := range []string{"One", "Two", "Three"} {
+		p := filepath.Join(s.VaultPath, name+noteExt)
+		paths = append(paths, p)
+		if err := os.Chmod(p, 0o000); err != nil {
+			t.Skipf("cannot make files unreadable here: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, p := range paths {
+			os.Chmod(p, 0o644)
+		}
+	})
+
+	if err := s.Reindex(); err != nil {
+		t.Fatalf("the scan opened a note it did not need to: %v", err)
+	}
+	n, err := s.CountNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 3 {
+		t.Fatalf("indexed %d notes, want 3", n)
+	}
+	// Resolving is the step that does read, and it has to survive not being
+	// able to, leaving the flag unresolved rather than failing the launch.
+	if _, err := s.ResolveTaskFlags(); err != nil {
+		t.Errorf("ResolveTaskFlags failed on unreadable notes: %v", err)
+	}
+}
+
+// TestResolveTaskFlagsIsIdempotent: it runs on every launch, and must do
+// nothing at all once there is nothing left to resolve.
+func TestResolveTaskFlagsIsIdempotent(t *testing.T) {
+	s := testStore(t)
+	if err := s.WriteNote("Listy", "# Listy\n\n- [ ] a task\n"); err != nil {
+		t.Fatal(err)
+	}
+	// Writing records the flag, so there is nothing stale to resolve.
+	if n, err := s.ResolveTaskFlags(); err != nil || n != 0 {
+		t.Errorf("after a write: resolved %d, %v; want 0 and no error", n, err)
+	}
+	if err := s.Reindex(); err != nil {
+		t.Fatal(err)
+	}
+	// The note is unchanged on disk, so the scan should not have marked it.
+	if n, err := s.ResolveTaskFlags(); err != nil || n != 0 {
+		t.Errorf("after an unchanged rescan: resolved %d, %v; want 0", n, err)
 	}
 }

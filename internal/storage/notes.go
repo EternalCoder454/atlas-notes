@@ -303,13 +303,23 @@ const upsertNoteSQL = `
 		folder      = excluded.folder,
 		modified_at = excluded.modified_at,
 		locked      = excluded.locked,
-		-- A negative value means "could not tell": the vault scan cannot read a
-		-- locked note, and must not report it as having no tasks.
-		has_tasks   = CASE WHEN excluded.has_tasks < 0
+		-- tasksUnknown means "could not tell", and keeps whatever was known.
+		-- Anything else, tasksStale included, is written through.
+		has_tasks   = CASE WHEN excluded.has_tasks = -1
 		                   THEN notes.has_tasks ELSE excluded.has_tasks END`
 
-// tasksUnknown is passed for a note whose content could not be read.
-const tasksUnknown = -1
+// Two negative markers stand in for a checklist flag that is not a yes or a
+// no. Both read as "not a checklist" until they are resolved, because the one
+// thing the interface must not do is guess.
+const (
+	// tasksUnknown is a note the scan could not read: a locked one. There is no
+	// resolving it without the password, so the index keeps what it knew.
+	tasksUnknown = -1
+	// tasksStale is a note that changed on disk and has not been read since.
+	// The scan never opens files, so it marks them and ResolveTaskFlags does
+	// the reading once the window is up.
+	tasksStale = -2
+)
 
 // indexNote upserts a note's metadata row.
 func (s *Store) indexNote(rel string, modified time.Time, locked, hasTasks bool) error {
@@ -446,4 +456,70 @@ func (s *Store) CountNotes() (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM notes`).Scan(&n)
 	return n, err
+}
+
+// ResolveTaskFlags reads the notes the vault scan marked as stale and records
+// whether each is a checklist.
+//
+// It is separate from the scan on purpose. The scan opens nothing, which is
+// what keeps launching independent of the size of the vault, and reading ten
+// thousand notes to find out which are checklists cost 68 ms on a first launch
+// when it was done there. Here it happens after the window is up, and only for
+// notes that actually changed — in a normal session, none, because the write
+// path records the flag from content it already holds.
+//
+// It returns how many notes it resolved.
+func (s *Store) ResolveTaskFlags() (int, error) {
+	rows, err := s.db.Query(`SELECT path FROM notes WHERE has_tasks = ?`, tasksStale)
+	if err != nil {
+		return 0, err
+	}
+	var stale []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		stale = append(stale, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if len(stale) == 0 {
+		return 0, nil
+	}
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`UPDATE notes SET has_tasks = ? WHERE path = ?`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
+	done := 0
+	for _, rel := range stale {
+		abs, perr := s.notePathSafe(rel)
+		if perr != nil {
+			continue
+		}
+		flag := tasksUnknown
+		if raw, rerr := os.ReadFile(abs); rerr == nil {
+			if out, derr := s.dec.DecodeAll(raw, nil); derr == nil {
+				flag = boolToInt(HasTasks(string(out)))
+			}
+		}
+		if _, err := stmt.Exec(flag, rel); err != nil {
+			return done, err
+		}
+		done++
+	}
+	return done, tx.Commit()
 }

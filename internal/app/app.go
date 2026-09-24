@@ -202,20 +202,35 @@ func (a *App) shutdown() {
 // happens on an idle callback at low priority, so the first frame paints first;
 // the tree is refreshed only if the scan actually changed something.
 func (a *App) scheduleReindex() {
-	if !a.reindexPending || a.store == nil {
+	if a.store == nil {
 		return
 	}
+	pending := a.reindexPending
 	a.reindexPending = false
 	coreglib.IdleAddPriority(coreglib.PriorityLow, func() bool {
-		before, _ := a.store.CountNotes()
-		if err := a.store.Reindex(); err != nil {
-			log.Printf("atlas-notes: reindex: %v", err)
-			return false
+		changed := false
+		if pending {
+			before, _ := a.store.CountNotes()
+			if err := a.store.Reindex(); err != nil {
+				log.Printf("atlas-notes: reindex: %v", err)
+				return false
+			}
+			if err := a.store.EnsureWelcome(); err != nil {
+				log.Printf("atlas-notes: welcome note: %v", err)
+			}
+			after, _ := a.store.CountNotes()
+			changed = after != before
 		}
-		if err := a.store.EnsureWelcome(); err != nil {
-			log.Printf("atlas-notes: welcome note: %v", err)
+		// Which notes are checklists is worked out here rather than during the
+		// scan, so a first launch is not held up reading the whole vault to
+		// find out. Nothing to do in a normal session: the write path records
+		// the flag, and only notes changed by something else are left over.
+		if n, err := a.store.ResolveTaskFlags(); err != nil {
+			log.Printf("atlas-notes: checklist flags: %v", err)
+		} else if n > 0 {
+			changed = true
 		}
-		if after, _ := a.store.CountNotes(); after != before && a.tree != nil {
+		if changed && a.tree != nil {
 			a.tree.ForceRefresh()
 			a.refreshWelcome()
 		}

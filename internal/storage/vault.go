@@ -174,7 +174,13 @@ func (s *Store) Reindex() error {
 		if prev, ok := known[rel]; ok && prev == modified.Unix() {
 			return nil // unchanged since the last run
 		}
-		changed = append(changed, entry{rel, modified, locked, s.scanTasks(p, locked)})
+		// The scan does not open files. A note that changed is marked for
+		// ResolveTaskFlags to read later; a locked one cannot be read at all.
+		tasks := tasksStale
+		if locked {
+			tasks = tasksUnknown
+		}
+		changed = append(changed, entry{rel, modified, locked, tasks})
 		return nil
 	})
 	if err != nil {
@@ -254,33 +260,4 @@ func (s *Store) indexedModTimes() (map[string]int64, error) {
 func (s *Store) IsIndexEmpty() bool {
 	n, err := s.CountNotes()
 	return err != nil || n == 0
-}
-
-// scanTasks reports whether a note on disk contains checklist items, for the
-// vault scan.
-//
-// The scan is deliberately cheap: it reads names and modification times and
-// opens nothing, which is what keeps launching independent of how large a
-// vault is. This is the one exception, and it applies only to files the scan
-// has already decided have changed since last time. A note written through the
-// app never reaches here with work to do, because the write path records the
-// flag from the content it already holds; what lands here is a vault copied in,
-// restored from a backup, or edited by something else.
-//
-// A locked note cannot be read without the password, and reporting it as
-// having no tasks would be a guess. It returns tasksUnknown, and the index
-// keeps whatever it knew.
-func (s *Store) scanTasks(abs string, locked bool) int {
-	if locked {
-		return tasksUnknown
-	}
-	raw, err := os.ReadFile(abs)
-	if err != nil {
-		return tasksUnknown
-	}
-	out, err := s.dec.DecodeAll(raw, nil)
-	if err != nil {
-		return tasksUnknown
-	}
-	return boolToInt(HasTasks(string(out)))
 }

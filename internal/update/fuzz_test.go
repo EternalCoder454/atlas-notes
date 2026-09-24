@@ -31,6 +31,13 @@ func FuzzParseNotes(f *testing.F) {
 		if rel.Version == "" {
 			t.Fatal("a release with no version would render as 'Update Found — v'")
 		}
+		// The version is put straight into a window heading, so whatever the
+		// server sent, what comes out is digits and dots and nothing else.
+		for _, r := range rel.Version {
+			if (r < '0' || r > '9') && r != '.' {
+				t.Fatalf("version %q would reach the dialog carrying %q", rel.Version, r)
+			}
+		}
 		if len(rel.Notes) > maxNoteLines {
 			t.Fatalf("%d notes, more than the %d the dialog shows", len(rel.Notes), maxNoteLines)
 		}

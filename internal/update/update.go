@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultNotesURL is where the user-facing release notes for a branch live.
@@ -107,17 +108,27 @@ func ParseNotes(r io.Reader) (*Release, error) {
 	var rel *Release
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+		// Release notes are text. A line that is not is a wrong URL, a
+		// captive portal, or something worse, and none of it should be
+		// picked over for a version heading.
+		if !utf8.ValidString(line) || strings.ContainsRune(line, 0) {
+			return nil, fmt.Errorf("release notes: not text")
+		}
 		switch {
 		case strings.HasPrefix(line, "## "):
 			if rel != nil {
 				return rel, nil // the next heading ends the newest entry
 			}
-			version := strings.TrimSpace(strings.TrimPrefix(line, "## "))
-			version = strings.Trim(version, "vV[]")
-			if version == "" {
-				continue
+			// The version ends up in a window heading, so what is kept is the
+			// canonical number rather than the rest of the line. A heading of
+			// "## 9.9.9 and your vault is corrupt, see ..." carried all of
+			// that through to the dialog.
+			heading := strings.TrimSpace(strings.TrimPrefix(line, "## "))
+			nums, ok := parseVersion(strings.Trim(heading, "vV[]"))
+			if !ok {
+				continue // not a version heading
 			}
-			rel = &Release{Version: version}
+			rel = &Release{Version: formatVersion(nums)}
 		case rel != nil && (strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ")):
 			if len(rel.Notes) < maxNoteLines {
 				rel.Notes = append(rel.Notes, strings.TrimSpace(line[2:]))
@@ -163,8 +174,12 @@ func parseVersion(s string) ([]int, bool) {
 	if s == "" {
 		return nil, false
 	}
+	fields := strings.Split(s, ".")
+	if len(fields) > maxVersionFields {
+		return nil, false
+	}
 	var out []int
-	for _, field := range strings.Split(s, ".") {
+	for _, field := range fields {
 		n, err := strconv.Atoi(field)
 		if err != nil || n < 0 {
 			return nil, false
@@ -173,6 +188,21 @@ func parseVersion(s string) ([]int, bool) {
 	}
 	return out, true
 }
+
+// formatVersion renders parsed numbers back as a version string. It is what
+// the interface displays, so by construction it is digits and dots and
+// nothing else.
+func formatVersion(v []int) string {
+	parts := make([]string, len(v))
+	for i, n := range v {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, ".")
+}
+
+// maxVersionFields bounds how many numbers a version may have, so a heading
+// of ten thousand dots cannot become a heading of ten thousand zeroes.
+const maxVersionFields = 6
 
 func at(v []int, i int) int {
 	if i < len(v) {

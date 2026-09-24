@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+Measured against a frozen 10,000-note vault, before and after, median of
+repeated interleaved runs. Everything below was tuned against 2,000 notes
+before this pass.
+
+| | before | after |
+| --- | --- | --- |
+| First launch, no index yet | 242 ms | **168 ms** (-31%) |
+| Search, per keystroke | 0.59 ms | **0.28 ms** (-53%) |
+| Warm launch | 130 ms | 133 ms (within noise) |
+| Open a note | 0.25 ms | 0.26 ms |
+| Resident memory | 101 MB | 100 MB |
+
+- **Working out which notes are checklists left the launch path.** The vault
+  scan had started opening and decompressing every changed note to find its
+  task lines, and on a first launch — when the index is built before the window
+  appears — that was 68 ms of a 10,000-note vault's 242 ms. The scan is back to
+  reading names and modification times and opening nothing; it marks what
+  changed, and `ResolveTaskFlags` reads those notes once the window is up. In a
+  normal session there is nothing to resolve, because the write path records
+  the flag from content it already holds.
+- **The vault panel's refresh signature stopped formatting.** Lock, checklist
+  and favourite state were added to it with a `fmt.Fprintf` per note, which is
+  a reflective call per note; on 10,000 notes that was about 7 ms on every
+  refresh. Search refreshes on every keystroke, which is why it is the path
+  that gained most. It writes bytes now.
+
+### Security
+- **The version a server sends can no longer carry anything into the update
+  dialog.** A heading of `## 9.9.9 and your vault is corrupt, see evil.example`
+  parsed as 9.9.9 for the comparison but kept the whole line as the version,
+  and that line goes straight into a window heading. Only the canonical number
+  is kept now, so what is displayed is digits and dots by construction. Pinned
+  in the fuzzer, not just a test.
+- **Release notes that are not text are refused.** A body with invalid UTF-8 or
+  a NUL byte was still picked over for a version heading; a binary file
+  containing the bytes `## 1` produced an update offer.
+- A version may have at most six numbers, so a heading of ten thousand dots
+  cannot become a heading of ten thousand zeroes.
+
+### Added
+- Tests for the update check against a hostile server: a body that never ends,
+  a single line longer than the read limit, a server that accepts the
+  connection and never answers, an endless redirect, binary and HTML bodies,
+  and versions built to be rendered rather than read.
+- `TestConcurrentLockingIsSafe`, which drives saving, reading, locking,
+  unlocking and dropping the key from many goroutines at once. The two mutexes
+  are taken in both orders across the package, which is only safe because the
+  key accessor releases one before it returns; this holds that property in
+  place under `-race`.
+- `TestScanDoesNotReadNotes`, which makes the notes unreadable and then scans.
+  A scan that opens them fails. It is how the launch path is kept honest.
+
 ### Changed
 - **The first Settings section is called "General"**, not "Model & Prompt". It
   holds the assistant's name, model and prompt, but also hover previews, the
