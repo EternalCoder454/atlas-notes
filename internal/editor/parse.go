@@ -1,9 +1,14 @@
 package editor
 
 import (
+	"os"
 	"strings"
 	"unicode/utf8"
 )
+
+// hideMarkers is whether markdown markers are hidden outright rather than
+// dimmed. See the note in parseLineSpans.
+var hideMarkers = os.Getenv("ATLAS_NO_HIDE") == ""
 
 // span is a tag application over a character range within a single line.
 type span struct {
@@ -31,9 +36,21 @@ func parseLineSpans(line string, reveal bool) []span {
 	var spans []span
 	add := func(tag string, s, e int) { spans = append(spans, span{tag, s, e}) }
 	hide := func(s, e int) {
-		if !reveal {
-			add("invisible", s, e)
+		if reveal {
+			return
 		}
+		// Markers are normally hidden outright. GTK's invisible-text support
+		// is documented as incomplete, and hit-testing a line that carries it
+		// converts a layout byte offset back to a buffer position — the call
+		// that has been aborting this app with "byte index off the end of the
+		// line" while selecting text. ATLAS_NO_HIDE dims the markers instead
+		// of hiding them, which keeps the buffer's visible length equal to its
+		// real length and takes that machinery out of the picture.
+		if hideMarkers {
+			add("invisible", s, e)
+			return
+		}
+		add("marker", s, e)
 	}
 	// dim leaves a marker visible but recessive — used for list bullets and
 	// quote bars, where hiding the character would change the text's shape.

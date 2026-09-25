@@ -282,6 +282,13 @@ Runs with any of these set are not single-instance, so they neither hand off to
 nor disturb a copy of Atlas Notes you already have open.
 | `ATLAS_DEBUG_FONTS=1` | print the text-rendering settings and each monitor's scale |
 
+### Atlas Notes closes itself while you select or copy text
+
+Fixed in 0.5.10. If it ever happens again, start it with `ATLAS_NO_HIDE=1`:
+Markdown markers then show dimmed instead of hiding, which keeps the app out of
+the GTK code path that caused it. `ATLAS_DEBUG_EDITOR=1` records what the
+editor was doing just before, which is what a bug report needs.
+
 ### Text looks soft or uneven
 
 GTK 4 renders glyphs unhinted, which suits a HiDPI screen but looks soft at 1x —

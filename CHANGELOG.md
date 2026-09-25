@@ -66,6 +66,48 @@ before this pass.
   formatting toolbar and text rendering, none of which are either. The name had
   stopped describing the contents.
 
+## [0.5.10] - 2026-09-24
+
+The actual fix for the crash. v0.5.9 said it fixed this and did not.
+
+### Fixed
+- **Selecting or copying text could close the app.** Three things had to line
+  up, which is why no harness ever hit it.
+
+  The editor hides Markdown markers with GTK's `invisible` tag. Selecting with
+  the mouse makes GTK hit-test the lines under the pointer, and hit-testing a
+  line that carries invisible text converts a layout byte offset back into a
+  buffer position. Meanwhile the editor re-tagged on every move of the insert
+  mark — and dragging a selection moves it with every pixel, so a slow drag
+  scheduled a re-tag every 50 ms *underneath the selection being made*. Each
+  one changed which characters were invisible while GTK was measuring against
+  them, and the conversion then ran off the end of the line. That is an
+  error-level GLib message, which calls `abort()`, so the app vanished with no
+  Go stack and the crash landing in cgo.
+
+  The rule now is that the editor never re-tags while text is selected. The
+  markers stay as they are until the selection collapses, and the pass that was
+  owed runs then. Nothing is removed and nothing looks different.
+
+  Found by elimination with the person it was happening to: `ATLAS_NO_HIDE=1`,
+  which dims markers instead of hiding them, stopped the crash, and that
+  narrowed it to the invisible tags. Reproducing it needed a real mouse drag,
+  which is why chaos, soak, editor, resize and copy harnesses all came back
+  clean against a copy of the very vault it happened on.
+
+### Added
+- `ATLAS_NO_HIDE=1` is kept and documented in the README as a fallback: it dims
+  Markdown markers rather than hiding them, keeping the app out of GTK's
+  invisible-text handling entirely.
+
+### Note on v0.5.9
+That release removed the assistant panel's automatic collapse on narrow
+windows, on the reasoning that it was the newest code in the first build that
+crashed. It was not the cause, and the crash continued. The collapse stays
+removed regardless: it changed what was visible from inside a size
+notification, which is its own re-entrancy problem, and it can come back later
+built on `AdwBreakpoint` rather than a hand-rolled handler.
+
 ## [0.5.9] - 2026-09-24
 
 A crash fix. v0.5.8 could abort while a note was being edited.

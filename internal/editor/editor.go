@@ -25,6 +25,7 @@ type Editor struct {
 	tags   map[string]*gtk.TextTag
 
 	reparseScheduled bool
+	reparseDeferred  bool // a re-tag was due while text was selected
 	loading          bool
 
 	// Dirty range: the lines edited since the last render pass. Re-tagging the
@@ -103,6 +104,15 @@ func New() *Editor {
 			e.revealCaret = true
 		}
 		e.scheduleReparse()
+	})
+
+	// When a selection goes away, run the pass that was held back while it
+	// existed (see reparse).
+	e.buffer.NotifyProperty("has-selection", func() {
+		if !e.buffer.HasSelection() && e.reparseDeferred {
+			e.reparseDeferred = false
+			e.scheduleReparse()
+		}
 	})
 
 	return e
@@ -276,6 +286,25 @@ func (e *Editor) scheduleReparse() {
 // A pass after a single keystroke therefore costs the same in a 200-line note
 // as in a 5-line one.
 func (e *Editor) reparse() {
+	// Never re-tag while text is selected.
+	//
+	// Re-tagging changes which characters are invisible, and GTK converts a
+	// layout byte offset back into a buffer position whenever it hit-tests a
+	// line — which is what selecting with the mouse does, continuously. Doing
+	// that against a line whose invisible runs have just moved underneath it
+	// aborts the process: "byte index off the end of the line", which is an
+	// error-level GLib message and so calls abort().
+	//
+	// Dragging a selection moves the insert mark with every pixel, and each
+	// move scheduled a re-tag 50 ms later, so a slow drag re-tagged the
+	// document repeatedly while GTK was hit-testing it. The markers stay as
+	// they are until the selection collapses, and then the pass that was owed
+	// runs.
+	if e.buffer.HasSelection() {
+		e.reparseDeferred = true
+		return
+	}
+
 	cursorLine := -1
 	if ins := e.buffer.IterAtMark(e.buffer.GetInsert()); ins != nil {
 		cursorLine = ins.Line()

@@ -4,6 +4,9 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each — the detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.5.10
+- Really fixes Atlas Notes closing itself when you select or copy text. 0.5.9 did not
+
 ## 0.5.9
 - Fixes Atlas Notes closing itself while you were typing
 
