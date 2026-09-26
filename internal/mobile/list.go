@@ -67,6 +67,7 @@ func (a *App) layoutList(gtx layout.Context) layout.Dimensions {
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(a.layoutTopBar),
+				layout.Rigid(a.layoutUpdateBanner),
 				layout.Flexed(1, a.layoutRows),
 			)
 		}),

@@ -69,6 +69,35 @@ before this pass.
 ## [Unreleased]
 
 ### Added
+- **The Android build is signed with a fixed key**, held in the repository's
+  secrets. Android refuses to replace an app with one signed by a different
+  key, and `gogio` invents a throwaway key per build when it is not given one —
+  so without this, every release was a different app wearing the same name and
+  no update could ever install. The key is the same one the other Atlas apps
+  use, under the same secret names, so one certificate covers them.
+
+  A build without the secrets still works and still installs; it just cannot
+  update a signed one, so a fork or a local build is not broken by it. Every
+  release prints the certificate's SHA-256 digest in its log, so "this release
+  can update the last" is something the build shows rather than asserts.
+
+  gogio's own `-signkey` is not used: it passes neither a key alias nor a
+  separate key password to `apksigner`, so it only works for a keystore holding
+  one key whose password matches the store's. The APK is re-signed afterwards
+  instead, which handles both.
+
+- **The phone build checks for updates**, using the same check as the desktop:
+  one anonymous read of a text file from this repository, with nothing about
+  the device or its notes sent, and silence when there is nothing new or the
+  network is not there. What it finds appears as a dismissible strip above the
+  note list with the first few changes.
+
+  It says where the new version is rather than installing it. Android installs
+  packages through the system installer and will not let an application hand
+  itself a new version without going through it, and reaching that installer
+  from Gio means JNI and a Java source tree this build does not have.
+
+### Added
 - **Atlas Notes runs on Windows.** The same GTK interface, built on a Windows
   runner under MSYS2 rather than cross-compiled: MSYS2 packages GTK4 and
   libadwaita for Windows and Linux distributions package neither for mingw, so

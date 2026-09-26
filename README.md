@@ -64,10 +64,46 @@ machine, which a phone does not have, and sending notes to someone else's
 server is the one thing this app promises not to do. The phone build has no
 network code in it at all.
 
+**The Android build is signed with a fixed key.** Android refuses to replace an
+app with one signed by a different key, so the key is what makes one build an
+update to the last rather than a different app wearing its name. It lives in
+the repository's secrets, not in the repository: this one is public, and a
+signing key in it would let anyone build something Android treats as an upgrade
+to Atlas Notes. A build without the secrets still works and still installs; it
+just cannot update a signed one, so a fork or a local build is not broken.
+
+If you installed an unsigned build, Android will refuse the signed one with
+*"App not installed as package conflicts with an existing package"*. Uninstall
+it once and the signed builds update each other from then on.
+
 **Windows updates itself differently.** The Linux build installs by fetching
 the source and rebuilding, so it can update in place. The Windows build arrives
 as a packaged binary, and Windows will not let a running executable be
 replaced, so *Update & Restart* opens the downloads page instead.
+
+### Signing the Android build
+
+Four repository secrets, the same names and the same key as the other Atlas
+apps, so one certificate covers them:
+
+| Secret | What it is |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | the keystore, base64-encoded |
+| `ANDROID_KEYSTORE_PASSWORD` | its password |
+| `ANDROID_KEY_PASSWORD` | the key's password, if it differs |
+| `ANDROID_KEY_ALIAS` | which key, if the store holds more than one |
+
+Only the first two are required. Set them from the keystore itself, so the
+value never appears in a shell history or a terminal:
+
+```bash
+base64 -w0 path/to/release-signing.jks | gh secret set ANDROID_KEYSTORE_BASE64
+gh secret set ANDROID_KEYSTORE_PASSWORD   # prompts, does not echo
+```
+
+Every release prints the signing certificate's SHA-256 digest in its build log.
+It has to be the same string every time: that is the check that this release
+can update the last one, shown rather than asserted.
 
 ### Where notes live
 

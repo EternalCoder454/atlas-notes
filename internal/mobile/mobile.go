@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"gioui.org/app"
@@ -67,6 +68,14 @@ type App struct {
 	lastSaved  string
 	editorLock bool // the open note is encrypted
 
+	// The update banner. The check runs on a goroutine, so what it finds is
+	// behind a mutex; everything else here is touched only while laying out a
+	// frame, which is one goroutine by construction.
+	mu              sync.Mutex
+	update          updateState
+	updateClose     widget.Clickable
+	updateDismissed bool
+
 	// The password prompt.
 	password    widget.Editor
 	unlockBtn   widget.Clickable
@@ -88,8 +97,10 @@ type taskRow struct {
 	check widget.Bool
 }
 
-// Run opens the vault and runs the interface until the window closes.
-func Run() error {
+// Run opens the vault and runs the interface until the window closes. version
+// is what this build calls itself, which the update check compares against
+// what has been published.
+func Run(version string) error {
 	dir, err := app.DataDir()
 	if err != nil {
 		return fmt.Errorf("no place to keep notes: %w", err)
@@ -130,6 +141,7 @@ func Run() error {
 	w := new(app.Window)
 	w.Option(app.Title("Atlas Notes"))
 	a.win = w
+	a.startUpdateCheck(version)
 
 	var ops op.Ops
 	for {

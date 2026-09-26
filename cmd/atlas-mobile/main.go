@@ -18,9 +18,13 @@ import (
 	"atlas-notes/internal/mobile"
 )
 
+// version is what this build calls itself. The release job stamps it from
+// internal/app/version.go, which is the one source of truth for it.
+var version = "0.0.0"
+
 func main() {
 	go func() {
-		if err := mobile.Run(); err != nil {
+		if err := mobile.Run(version); err != nil {
 			log.Println("atlas-notes:", err)
 			os.Exit(1)
 		}
