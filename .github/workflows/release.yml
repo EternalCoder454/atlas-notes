@@ -1,6 +1,6 @@
 name: Release builds
 
-# Builds the downloadable artifacts for a tagged release.
+# Builds the downloadable artifacts: the Windows .zip and the Android .apk.
 #
 # Windows is built on a Windows runner under MSYS2 rather than cross-compiled,
 # because that is the supported way to build GTK4 and libadwaita for Windows:
@@ -8,21 +8,28 @@ name: Release builds
 # mingw at all. Cross-compiling would mean assembling that sysroot by hand and
 # keeping it working.
 #
-# Run it by pushing a tag, or from the Actions tab against any branch to check
-# a build before tagging.
+# Android builds the Go core with gomobile and the app around it with Gradle.
+#
+# It runs on pushes to beta as well as on tags, so a build is checked before it
+# is tagged rather than after. Two things dominate the wall clock and both are
+# cached between runs: compiling gotk4, which is a very large CGO binding, and
+# compiling the Go core once per Android architecture.
 
 on:
   push:
+    branches: [beta]
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      attach:
-        description: "Attach the artifacts to the release for this tag"
-        type: boolean
-        default: false
 
 permissions:
   contents: write
+
+# Pushing three times in five minutes should not mean three full builds. A run
+# supersedes the one before it on the same ref -- except on a tag, where the run
+# is producing something people will download.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   windows:
@@ -38,12 +45,22 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update: true
-          # go here is MSYS2's, which is built against this toolchain: the Go
+          # `update` is left at its default of false. Setting it to true runs a
+          # full pacman system update on every run, which cost minutes and
+          # updated nothing this build depends on.
+          #
+          # Caching is also on by default, so after the first run these packages
+          # come from the action's cache rather than from a mirror.
+          #
+          # gcc rather than the `toolchain` group: cgo needs a C compiler and a
+          # linker, and gcc already pulls binutils, the CRT and the headers. The
+          # group adds make, gdb and the rest, which nothing here calls.
+          #
+          # go here is MSYS2's, which is built against this toolchain. The Go
           # from the runner image would use a different C toolchain and fail to
           # link against these libraries.
           install: >-
-            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-go
             mingw-w64-ucrt-x86_64-gtk4
@@ -54,6 +71,27 @@ jobs:
         run: |
           pkg-config --modversion gtk4 libadwaita-1
           go version
+
+      # Compiling gotk4 from cold is most of this job, so the build cache is
+      # carried between runs: it is the difference between about ten minutes and
+      # about one. The key is unique per run so that every run saves whatever it
+      # added, and restore-keys falls back to the closest previous one -- a
+      # build cache is only useful if it keeps growing into the next run.
+      - name: Work out where Go keeps its caches
+        id: gocache
+        run: |
+          echo "build=$(cygpath -w "$(go env GOCACHE)")" >> "$GITHUB_OUTPUT"
+          echo "mod=$(cygpath -w "$(go env GOMODCACHE)")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+          key: windows-go-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            windows-go-${{ hashFiles('go.sum') }}-
+            windows-go-
 
       - name: Build
         env:
@@ -151,7 +189,7 @@ jobs:
           body_path: dist/release-notes.md
 
   android:
-    name: Android (arm64 + arm)
+    name: Android
     runs-on: ubuntu-latest
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -161,22 +199,27 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # On by default; named here because this is the cache that matters.
+          # gomobile compiles the whole dependency tree once per architecture,
+          # and modernc.org/sqlite alone is a great deal of Go.
+          cache: true
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # The runner image already carries the Android SDK, so this only adds the
-      # pieces the build actually names. The NDK is for gomobile, which needs a
-      # C toolchain per architecture to build the Go core into a library.
-      - name: Install what we build against
+      # The runner image already carries the Android SDK, the platform and the
+      # build tools this compiles against, and an NDK. Installing our own cost a
+      # download of about a gigabyte on every run to arrive at a toolchain that
+      # does the same job.
+      - name: Use the SDK the runner already has
         run: |
           set -eu
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
-          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_ROOT" >> "$GITHUB_ENV"
+          echo "ndk:         $ANDROID_NDK_ROOT"
+          echo "platforms:   $(ls "$ANDROID_HOME/platforms" | tr '\n' ' ')"
+          echo "build-tools: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')"
 
       # The Go core, built into an .aar the Kotlin app links against. This is
       # the same storage, checklist and encryption code the desktop runs: the
@@ -189,14 +232,25 @@ jobs:
       - name: Build the Go core for Android
         run: |
           set -eu
+          # Both architectures for a release; for a branch build just the one
+          # that nearly every phone made in the last decade uses, which halves
+          # the slowest step in this job.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TARGETS=android/arm64,android/arm
+          else
+            TARGETS=android/arm64
+          fi
+          echo "targets: $TARGETS"
+
           V=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
           echo "gomobile $V"
           go install "golang.org/x/mobile/cmd/gomobile@$V"
           go install "golang.org/x/mobile/cmd/gobind@$V"
           gomobile init
+
           mkdir -p packaging/android/app/libs
           gomobile bind \
-            -target=android/arm64,android/arm \
+            -target="$TARGETS" \
             -androidapi 24 \
             -javapkg io.github.atlasnotes.core \
             -o packaging/android/app/libs/atlasbridge.aar \
@@ -209,9 +263,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          # Pinned rather than taken from the runner image, so the build does
-          # not change under us the next time that image is rebuilt. AGP 8.7
-          # needs 8.9 or newer.
+          # The runner ships Gradle 9, which is newer than AGP 8.7 was built
+          # against. This version is pinned instead, and the action caches the
+          # distribution after the first run.
           gradle-version: "8.11.1"
 
       # The signing key, from the repository's secrets rather than the
@@ -219,7 +273,7 @@ jobs:
       # different key, so the key is what makes one build an update to the last
       # rather than a different app wearing its name.
       #
-      # Without the secret the build still works and still produces an
+      # Without the secrets the build still works and still produces an
       # installable app, signed with the debug key. It just cannot update a
       # release-signed one, so a fork or a local build is not broken by this.
       - name: Unlock the signing key
@@ -236,7 +290,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: gradle --no-daemon assembleRelease
+        run: gradle --no-daemon --build-cache assembleRelease
 
       - name: Name it after the version
         run: |
