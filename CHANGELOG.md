@@ -175,6 +175,17 @@ Android: storage, the checklist model, the update check, the encryption and the
 assistant client. `internal/editor`, `internal/ui` and `internal/app` are GTK,
 and are what each platform still needs.
 
+- **The phone app draws its own icons**, the Material Symbols from
+  `assets/icons-src` that the desktop already embeds, so the two show the same
+  padlock rather than two that merely resemble each other. They replace
+  `material-icons-extended`, which ships every Material icon there is -- some
+  two thousand -- to supply the nine this app draws, and was most of a 32 MB
+  `classes.dex`. The download is about 4 MB smaller for it.
+
+  The password field says "Show" and "Hide" rather than drawing the usual
+  crossed-out eye, which is not in Material's core set and was not worth two
+  thousand others.
+
 - **The Gio phone interface is gone**, along with `internal/mobile`,
   `cmd/atlas-mobile` and the `gogio` build, replaced by the Kotlin app above.
   `gogio` signed every APK with a key it invented on the spot, so the build had
