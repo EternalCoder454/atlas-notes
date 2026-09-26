@@ -12,7 +12,10 @@ plugins {
 // costs four lines and cannot drift.
 val atlasVersion: String by lazy {
 	val src = rootProject.file("../../internal/app/version.go")
-	val m = Pattern.compile("""^var version = "(.*)"""", Pattern.MULTILINE).matcher(src.readText())
+	// An ordinary escaped string, not a raw one: a raw string ending in a quote
+	// runs its closing quotes together with the content's, which is a fight with
+	// the lexer that this regex does not need to have.
+	val m = Pattern.compile("^var version = \"(.*)\"", Pattern.MULTILINE).matcher(src.readText())
 	require(m.find()) { "no version found in $src" }
 	m.group(1)
 }

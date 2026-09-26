@@ -59,17 +59,26 @@ jobs:
           # go here is MSYS2's, which is built against this toolchain. The Go
           # from the runner image would use a different C toolchain and fail to
           # link against these libraries.
+          #
+          # gobject-introspection is needed explicitly. gotk4 asks pkg-config
+          # for gobject-introspection-1.0 while compiling, and gtk4 depends only
+          # on the -runtime package, which ships the libraries without the .pc
+          # file pkg-config reads.
           install: >-
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-go
             mingw-w64-ucrt-x86_64-gtk4
             mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-gobject-introspection
             zip
 
       - name: Confirm the libraries are actually there
         run: |
-          pkg-config --modversion gtk4 libadwaita-1
+          # gobject-introspection-1.0 is included deliberately: gotk4 asks for
+          # it part-way through a long compile, and finding out then costs
+          # several minutes to learn one line.
+          pkg-config --modversion gtk4 libadwaita-1 gobject-introspection-1.0
           go version
 
       # Compiling gotk4 from cold is most of this job, so the build cache is
@@ -220,6 +229,19 @@ jobs:
           echo "ndk:         $ANDROID_NDK_ROOT"
           echo "platforms:   $(ls "$ANDROID_HOME/platforms" | tr '\n' ' ')"
           echo "build-tools: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')"
+
+      # Ten seconds, before the several minutes below. An ordinary `go build`
+      # on Linux never compiles the files behind `//go:build android`, so a
+      # mistake in one of them would otherwise surface only after gomobile has
+      # been installed and has compiled the whole dependency tree. CGO is off
+      # because this is a type check, not the real build.
+      - name: Check the core compiles for Android at all
+        run: |
+          set -eu
+          for arch in arm64 arm; do
+            echo "android/$arch"
+            GOOS=android GOARCH=$arch CGO_ENABLED=0 go build ./mobile
+          done
 
       # The Go core, built into an .aar the Kotlin app links against. This is
       # the same storage, checklist and encryption code the desktop runs: the
