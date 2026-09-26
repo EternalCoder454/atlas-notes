@@ -4,7 +4,6 @@ import android.app.Activity
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,7 +38,7 @@ fun UpdateCard(release: Vault.Release, onDismiss: () -> Unit) {
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.SystemUpdate, contentDescription = null)
+                Icon(IconUpgrade, contentDescription = null)
                 Spacer(Modifier.width(12.dp))
                 Text(
                     "Atlas Notes ${release.version} is available",

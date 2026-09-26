@@ -8,12 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -49,7 +44,7 @@ fun NoteList(model: VaultModel) {
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { model.create() },
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                icon = { Icon(IconAdd, contentDescription = null) },
                 text = { Text("New note") },
             )
         },
@@ -91,7 +86,7 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit, modifier
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
         placeholder = { Text("Search your notes") },
-        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+        leadingIcon = { Icon(IconSearch, contentDescription = null) },
         trailingIcon = {
             if (value.isNotEmpty()) {
                 IconButton(onClick = { onValueChange("") }) {
@@ -115,9 +110,9 @@ private fun NoteRow(note: Vault.Note, onClick: () -> Unit) {
         leadingContent = {
             Icon(
                 imageVector = when {
-                    note.locked -> Icons.Outlined.Lock
-                    note.hasTasks -> Icons.Outlined.Checklist
-                    else -> Icons.Outlined.Description
+                    note.locked -> IconLock
+                    note.hasTasks -> IconChecklist
+                    else -> IconNote
                 },
                 contentDescription = null,
                 tint = if (note.locked) MaterialTheme.colorScheme.onSurfaceVariant
@@ -152,7 +147,7 @@ private fun EmptyState(searching: Boolean) {
     Box(Modifier.fillMaxSize().padding(32.dp), Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
-                if (searching) Icons.Outlined.Search else Icons.Outlined.Description,
+                if (searching) IconSearch else IconNote,
                 contentDescription = null,
                 modifier = Modifier.size(48.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,

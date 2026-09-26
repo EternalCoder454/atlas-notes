@@ -4,9 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -63,14 +60,12 @@ fun PasswordDialog(ask: VaultModel.Ask, error: String?, onCancel: () -> Unit) {
                     visualTransformation =
                         if (visible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    // A word rather than the usual crossed-out eye. That icon
+                    // is not in Material's core set, and it is not worth two
+                    // thousand others to say something two words say better.
                     trailingIcon = {
-                        IconButton(onClick = { visible = !visible }) {
-                            Icon(
-                                if (visible) Icons.Outlined.VisibilityOff
-                                else Icons.Outlined.Visibility,
-                                contentDescription =
-                                    if (visible) "Hide the password" else "Show the password",
-                            )
+                        TextButton(onClick = { visible = !visible }) {
+                            Text(if (visible) "Hide" else "Show")
                         }
                     },
                 )

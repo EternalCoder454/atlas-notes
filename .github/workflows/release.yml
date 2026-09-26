@@ -230,19 +230,6 @@ jobs:
           echo "platforms:   $(ls "$ANDROID_HOME/platforms" | tr '\n' ' ')"
           echo "build-tools: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')"
 
-      # Ten seconds, before the several minutes below. An ordinary `go build`
-      # on Linux never compiles the files behind `//go:build android`, so a
-      # mistake in one of them would otherwise surface only after gomobile has
-      # been installed and has compiled the whole dependency tree. CGO is off
-      # because this is a type check, not the real build.
-      - name: Check the core compiles for Android at all
-        run: |
-          set -eu
-          for arch in arm64 arm; do
-            echo "android/$arch"
-            GOOS=android GOARCH=$arch CGO_ENABLED=0 go build ./mobile
-          done
-
       # The Go core, built into an .aar the Kotlin app links against. This is
       # the same storage, checklist and encryption code the desktop runs: the
       # phone app is a different interface onto it, not a second implementation
@@ -259,10 +246,15 @@ jobs:
           # the slowest step in this job.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TARGETS=android/arm64,android/arm
+            ABIS=arm64-v8a,armeabi-v7a
           else
             TARGETS=android/arm64
+            ABIS=arm64-v8a
           fi
           echo "targets: $TARGETS"
+          # Gradle reads this to keep the APK's advertised ABIs down to the ones
+          # the core was just built for.
+          echo "ATLAS_ABIS=$ABIS" >> "$GITHUB_ENV"
 
           V=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
           echo "gomobile $V"
@@ -312,7 +304,9 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: gradle --no-daemon --build-cache assembleRelease
+        # No --no-daemon: Gradle's own guidance for CI is against it, and it
+        # stops the Kotlin compiler daemon being reused within the build.
+        run: gradle --build-cache assembleRelease
 
       - name: Name it after the version
         run: |

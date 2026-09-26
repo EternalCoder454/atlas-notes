@@ -44,6 +44,22 @@ android {
 		// update check on the phone compares against the same number the
 		// desktop would.
 		buildConfigField("String", "ATLAS_VERSION", "\"$atlasVersion\"")
+
+		ndk {
+			// Only the ABIs the Go core was actually built for.
+			//
+			// Compose ships a native library for four of them, so without this
+			// the APK advertises all four while carrying libgojni.so for one.
+			// Android picks the best ABI the device supports that the APK
+			// mentions and unpacks only that one, so a 32-bit phone would
+			// install happily and then die on the first call into the vault.
+			//
+			// Naming them makes such a device refuse to install instead, which
+			// is the same news delivered before it matters. The release build
+			// passes both, so this only narrows branch builds.
+			abiFilters += (System.getenv("ATLAS_ABIS") ?: "arm64-v8a,armeabi-v7a")
+				.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+		}
 	}
 
 	// Signing.
@@ -126,9 +142,11 @@ dependencies {
 	implementation("androidx.compose.ui:ui")
 	implementation("androidx.compose.ui:ui-graphics")
 	implementation("androidx.compose.material3:material3")
-	// The icon set, which is Material Symbols: the same family the desktop
-	// installs, so the two do not disagree about what a padlock looks like.
-	implementation("androidx.compose.material:material-icons-extended")
+	// The core icon set only. The app's own icons are in ui/Icons.kt, built
+	// from the Material Symbols in assets/icons-src that the desktop embeds.
+	// material-icons-extended carries every Material icon there is, some two
+	// thousand of them, to supply the nine this app draws.
+	implementation("androidx.compose.material:material-icons-core")
 	debugImplementation("androidx.compose.ui:ui-tooling")
 	implementation("androidx.compose.ui:ui-tooling-preview")
 }

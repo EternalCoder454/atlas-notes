@@ -5,10 +5,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.DriveFileRenameOutline
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,7 +45,7 @@ fun NoteEditor(model: VaultModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (model.openLocked) {
                             Icon(
-                                Icons.Outlined.Lock,
+                                IconLock,
                                 contentDescription = "This note is locked",
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -68,11 +64,11 @@ fun NoteEditor(model: VaultModel) {
                         Spacer(Modifier.width(8.dp))
                     }
                     IconButton(onClick = { renaming = true }) {
-                        Icon(Icons.Outlined.DriveFileRenameOutline, contentDescription = "Rename")
+                        Icon(IconRename, contentDescription = "Rename")
                     }
                     IconButton(onClick = { model.toggleLock() }) {
                         Icon(
-                            if (model.openLocked) Icons.Outlined.LockOpen else Icons.Outlined.Lock,
+                            if (model.openLocked) IconLockOpen else IconLock,
                             contentDescription =
                                 if (model.openLocked) "Remove the password from this note"
                                 else "Protect this note with a password",
@@ -80,7 +76,7 @@ fun NoteEditor(model: VaultModel) {
                     }
                     IconButton(onClick = { confirmDelete = true }) {
                         Icon(
-                            Icons.Outlined.DeleteOutline,
+                            IconDelete,
                             contentDescription = "Delete this note",
                             tint = MaterialTheme.colorScheme.error,
                         )
