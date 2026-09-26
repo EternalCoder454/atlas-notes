@@ -86,7 +86,7 @@ func (a *App) buildNoteHeader() *gtk.Box {
 	a.titleEntry.SetPlaceholderText("Untitled note")
 	a.titleEntry.AddCSSClass("note-title")
 	a.titleEntry.SetHasFrame(false)
-	a.titleEntry.SetTooltipText("The note's name is its filename — press Enter to rename")
+	a.titleEntry.SetTooltipText("The note's name is its filename. Press Enter to rename")
 	a.titleEntry.ConnectActivate(a.onTitleActivate)
 	titles.Append(a.titleEntry)
 
@@ -142,7 +142,7 @@ func (a *App) buildFormatBar() *gtk.Box {
 		{"atlas-bullet-list-symbolic", "•", "Bullet list", func() { a.withEditor((*editor.Editor).ToggleBullet) }},
 		{"atlas-task-symbolic", "☑", "Task (Ctrl+Shift+T)", func() { a.withEditor((*editor.Editor).ToggleTask) }},
 		{"atlas-quote-symbolic", "❝", "Quote", func() { a.withEditor((*editor.Editor).ToggleQuote) }},
-		{"atlas-divider-symbolic", "—", "Divider", func() { a.withEditor((*editor.Editor).InsertDivider) }},
+		{"atlas-divider-symbolic", "─", "Divider", func() { a.withEditor((*editor.Editor).InsertDivider) }},
 	}}
 
 	for i, group := range groups {
@@ -366,7 +366,7 @@ func (a *App) refreshHeader() {
 		}
 	}
 	if a.titleEntry != nil {
-		tip := "The note's name is its filename — press Enter to rename"
+		tip := "The note's name is its filename. Press Enter to rename"
 		if a.currentNote != "" {
 			tip += "\n\nIn your vault: " + a.currentNote + noteFileSuffix
 		}

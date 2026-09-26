@@ -5,7 +5,7 @@ package storage
 // inline parser works line by line.
 const welcomeMarkdown = `# Getting Started
 
-Atlas Notes keeps your writing in plain Markdown files on this machine. No account, no cloud, no telemetry — and an optional AI assistant that also runs locally.
+Atlas Notes keeps your writing in plain Markdown files on this machine. No account, no cloud, no telemetry, and an optional AI assistant that also runs locally.
 
 ## Writing
 
@@ -19,10 +19,10 @@ The toolbar above the note does the same thing with one click, and **Ctrl+B**, *
 
 ## Checklists
 
-Start a line with ` + "`- [ ]`" + ` — or press **Ctrl+Shift+T** — and it becomes a real checkbox. Right-click a checkbox to set a priority or a due date.
+Start a line with ` + "`- [ ]`" + `, or press **Ctrl+Shift+T**, and it becomes a real checkbox. Right-click a checkbox to set a priority or a due date.
 
 - [ ] Tick this off when you have read it
-- [ ] Set a priority — the colored bar shows it <!-- priority:medium -->
+- [ ] Set a priority and the colored bar shows it <!-- priority:medium -->
 - [ ] Give a task a due date and it appears beside the box <!-- priority:high due:2030-01-01 -->
 
 The counter above the note tracks how many are done.
@@ -37,18 +37,18 @@ Drag a note onto a folder to move it. Right-click in the vault panel to create, 
 
 ## The assistant (optional)
 
-The right-hand panel talks to [Ollama](https://ollama.com) running on this machine — the default model is ` + "`qwen3.5:9b`" + `. The dot is **green** when Ollama is reachable and **red** when it is not; everything else works either way.
+The right-hand panel talks to [Ollama](https://ollama.com) running on this machine. The default model is ` + "`qwen3.5:9b`" + `. The dot is **green** when Ollama is reachable and **red** when it is not; everything else works either way.
 
-- **Summarize Note** — what this note says, briefly.
-- **Clean & Format** — fixes grammar and tidies the Markdown in place.
-- **Sort Priorities** — reorders a checklist by urgency.
+- **Summarize Note**: what this note says, briefly.
+- **Clean & Format**: fixes grammar and tidies the Markdown in place.
+- **Sort Priorities**: reorders a checklist by urgency.
 - Or ask it anything about the note you have open.
 
 No green dot? Install Ollama with ` + "`curl -fsSL https://ollama.com/install.sh | sh`" + `, then run ` + "`ollama pull qwen3.5:9b`" + `.
 
 ## Where your notes live
 
-Notes are compressed Markdown files under ` + "`~/.local/share/atlas-notes/vault/`" + ` and your settings sit in ` + "`~/.config/atlas-notes/config.json`" + `. Point ` + "`vault_path`" + ` anywhere you like — a synced folder works fine.
+Notes are compressed Markdown files under ` + "`~/.local/share/atlas-notes/vault/`" + ` and your settings sit in ` + "`~/.config/atlas-notes/config.json`" + `. Point ` + "`vault_path`" + ` anywhere you like; a synced folder works fine.
 
 Delete this note whenever you are ready. Happy writing.
 `

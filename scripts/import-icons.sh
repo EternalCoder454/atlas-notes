@@ -43,6 +43,7 @@ map=(
     # Window and navigation
     menu:menu
     home:home
+    settings:settings
     left_panel_open:panel-left
     right_panel_open:panel-right
     search:search

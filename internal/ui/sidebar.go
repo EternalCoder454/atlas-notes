@@ -153,7 +153,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	})
 	s.editToggle = gtk.NewToggleButton()
 	s.editToggle.SetIconName("atlas-edit-symbolic")
-	s.editToggle.SetTooltipText("Edit mode — apply the reply to the note instead of answering")
+	s.editToggle.SetTooltipText("Edit mode: apply the reply to the note instead of answering")
 	s.editToggle.AddCSSClass("flat")
 	s.editToggle.ConnectToggled(s.onModeToggled)
 	s.askEntry = gtk.NewEntry()
@@ -401,13 +401,13 @@ func (s *Sidebar) onProbe(model string, models []string, err error) {
 	case !reachable:
 		s.setupTitle.SetText("Ollama required")
 		s.setupBody.SetText("Run Ollama locally to use the assistant. Install it and pull " +
-			model + " — this card clears once it's ready.")
+			model + ". This card clears once it's ready.")
 		s.setupCmd.SetText("curl -fsSL https://ollama.com/install.sh | sh\nollama pull " + model)
 		s.setupCard.SetVisible(true)
 	case !s.ready:
 		s.setupTitle.SetText("Model required")
-		s.setupBody.SetText(fmt.Sprintf("Ollama is running, but %s isn't installed. Pull it once — "+
-			"a few GB — and this card clears.", model))
+		s.setupBody.SetText(fmt.Sprintf("Ollama is running, but %s isn't installed. Pull it once, "+
+			"a few GB, and this card clears.", model))
 		s.setupCmd.SetText("ollama pull " + model)
 		s.setupCard.SetVisible(true)
 	default:
@@ -496,7 +496,7 @@ func (s *Sidebar) setAnswerMarkdown(md string) {
 
 // setIdleAnswer shows a faint hint before any question is asked.
 func (s *Sidebar) setIdleAnswer() {
-	s.answer.SetMarkup(`<span alpha='55%'>Ask anything about the note you have open. Nothing is sent anywhere — the model runs on this machine.</span>`)
+	s.answer.SetMarkup(`<span alpha='55%'>Ask anything about the note you have open. Nothing is sent anywhere; the model runs on this machine.</span>`)
 }
 
 // buildSuggestions offers one-tap prompts, so the assistant shows what it can

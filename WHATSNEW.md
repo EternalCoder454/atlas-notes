@@ -1,7 +1,7 @@
 # What's new in Atlas Notes
 
 This file is what the app shows you when an update is available. One version
-per heading, a few plain lines each — the detailed, technical history lives in
+per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
 ## 0.5.10
@@ -19,9 +19,9 @@ CHANGELOG.md.
 - The assistant panel tucks itself away when the window is narrow, and comes back when it isn't
 
 ## 0.5.7
-- You can now password-protect a note, or a whole folder — right-click it in the vault
+- You can now password-protect a note, or a whole folder. Right-click it in the vault
 - Protected notes are properly encrypted, so nothing else on your computer can read them
-- If you forget the password those notes can't be opened again, by anything — there's no way round it
+- If you forget the password those notes can't be opened again, by anything, and there's no way round it
 - Star a note or folder to mark it a favourite
 - Lock your protected notes again without quitting, with Ctrl+Shift+L
 - Change your password in Settings, under App
@@ -49,5 +49,5 @@ CHANGELOG.md.
 - Search your whole vault by name with Ctrl+K
 - A formatting toolbar above every note, and a keyboard shortcut for everything (Ctrl+? shows the list)
 - Tasks show their due date, and finished ones are struck through
-- The assistant now uses the qwen3.5:9b model — run "ollama pull qwen3.5:9b" once to get it
+- The assistant now uses the qwen3.5:9b model. Run "ollama pull qwen3.5:9b" once to get it
 - Text is sharper on 1080p screens

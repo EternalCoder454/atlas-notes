@@ -72,7 +72,7 @@ func (a *App) showUpdateFound(rel *update.Release) {
 	if a.win == nil {
 		return
 	}
-	dialog := adw.NewAlertDialog("Update Found — v"+rel.Version, "")
+	dialog := adw.NewAlertDialog("Update Found: v"+rel.Version, "")
 	dialog.SetExtraChild(updateNotes(rel))
 	dialog.AddResponse("later", "Update Later")
 	dialog.AddResponse("now", "Update Now")

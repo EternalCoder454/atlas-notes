@@ -85,11 +85,19 @@ android {
 			if (!store.isNullOrBlank() && !pass.isNullOrBlank() && file(store).exists()) {
 				storeFile = file(store)
 				storePassword = pass
-				// Optional: a keystore holding a single key does not need to be
-				// told which one, and a key whose password matches the store's
-				// does not need a second.
-				keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-				keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: pass
+				// Optional, and blank rather than absent when unset: Actions
+				// gives an env var for a secret that does not exist and puts
+				// the empty string in it, so `?:` never fires and the build
+				// would sign with an alias of "".
+				//
+				// A keystore holding a single key does not need to be told
+				// which one, and a key whose password matches the store's does
+				// not need a second.
+				System.getenv("ANDROID_KEY_ALIAS")
+					?.takeIf { it.isNotBlank() }
+					?.let { keyAlias = it }
+				keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+					?.takeIf { it.isNotBlank() } ?: pass
 			}
 		}
 	}

@@ -224,7 +224,7 @@ func (c *Client) Ask(ctx context.Context, content, question string, onToken func
 // updated note, for the assistant's "edit the note" mode. A low temperature keeps
 // it faithful — reproducing the note and changing only what the instruction asks.
 func (c *Client) EditNote(ctx context.Context, content, instruction string, onToken func(string)) (string, Stats, error) {
-	prompt := fmt.Sprintf("Apply the instruction to the note below, then output the ENTIRE updated note. Reproduce every original line exactly — all headings, paragraphs, blank lines, and existing '- [ ]' / '- [x]' items — and change only what the instruction requires. Write any new task as a '- [ ] ' checkbox. Output only the note, with no commentary.\n\nInstruction: %s\n\nNote:\n%s", instruction, content)
+	prompt := fmt.Sprintf("Apply the instruction to the note below, then output the ENTIRE updated note. Reproduce every original line exactly, including all headings, paragraphs, blank lines, and existing '- [ ]' / '- [x]' items, and change only what the instruction requires. Write any new task as a '- [ ] ' checkbox. Output only the note, with no commentary.\n\nInstruction: %s\n\nNote:\n%s", instruction, content)
 	return c.generate(ctx, prompt, 0, onToken) // greedy: faithful, deterministic edits
 }
 

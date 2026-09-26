@@ -82,7 +82,7 @@ func (a *App) ensureUnlocked(next func()) {
 		a.askPassword(
 			"Set a Password",
 			"This password protects the notes you choose to lock. It is not stored "+
-				"anywhere and cannot be recovered — if you forget it, those notes "+
+				"anywhere and cannot be recovered. If you forget it, those notes "+
 				"cannot be opened again, by this app or any other.",
 			"Set Password", true,
 			func(password string) {

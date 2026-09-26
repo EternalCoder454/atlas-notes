@@ -81,8 +81,8 @@ func (a *App) buildAppPage() gtk.Widgetter {
 	box.Append(chanLabel)
 
 	channel := gtk.NewDropDownFromStrings([]string{
-		"Release — main branch (stable)",
-		"Beta — beta branch (newest, may be unstable)",
+		"Release (main branch, stable)",
+		"Beta (beta branch, newest and may be unstable)",
 	})
 	channel.SetHAlign(gtk.AlignStart)
 	if a.cfg.UpdateChannel == storage.ChannelBeta {
@@ -189,7 +189,7 @@ func (a *App) installUpdate(branch string, onStatus func(text string, done bool)
 				onStatus("The update didn't finish:\n"+tail(string(out), 400), true)
 				return false
 			}
-			onStatus("Updated — restarting Atlas Notes…", true)
+			onStatus("Updated. Restarting Atlas Notes…", true)
 			a.flushDirty() // synchronous save before we replace the process
 
 			exe, e := installedBinary()
@@ -231,7 +231,7 @@ make -C %[1]q install`, src, repoURL, branch, parent)
 // them on the page meant every visit to Settings showed a block of somebody's
 // home directory.
 func systemInfo() *gtk.Expander {
-	exp := gtk.NewExpander("Atlas Notes v" + version + " — system info")
+	exp := gtk.NewExpander("System info for Atlas Notes v" + version)
 	exp.SetMarginTop(8)
 
 	detail := gtk.NewLabel(buildInfo())

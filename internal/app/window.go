@@ -58,6 +58,18 @@ func (a *App) buildWindow() {
 	menuBtn.SetMenuModel(a.buildMainMenu())
 	header.PackEnd(menuBtn)
 
+	// Settings is in the menu as well, but it is the one thing in there people
+	// go looking for repeatedly, and two clicks behind a hamburger is not where
+	// it belongs. The interface overhaul in 0.5.0 dropped this button and the
+	// documentation went on describing it for five releases.
+	//
+	// The app's own gear is preferred when it is there; the system one is the
+	// fallback, and it ships inside the Windows bundle's Adwaita theme.
+	settingsBtn := gtk.NewButtonFromIconName(iconName("atlas-settings-symbolic", "emblem-system-symbolic"))
+	settingsBtn.SetTooltipText("Settings (Ctrl+,)")
+	settingsBtn.ConnectClicked(a.showSettings)
+	header.PackEnd(settingsBtn)
+
 	a.rightToggle = gtk.NewToggleButton()
 	// The assistant's own mark rather than a second sidebar arrow: the button
 	// toggles the assistant, and the panel it opens carries the same shape.
@@ -217,7 +229,7 @@ func (a *App) setWindowSubtitle(note string) {
 	if fixedWindowTitle {
 		return
 	}
-	a.win.SetTitle(note + " — Atlas Notes")
+	a.win.SetTitle(note + " · Atlas Notes")
 }
 
 // newPanel returns a vertical box with the given CSS class. Width is governed by

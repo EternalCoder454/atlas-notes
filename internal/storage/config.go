@@ -47,9 +47,9 @@ const (
 // Default AI prompts ({content} = note text, {items} = checklist text), tuned for
 // small local models: concise, faithful to the note, and free of preamble.
 const (
-	DefaultSystemPrompt = "You are the assistant inside Atlas Notes, a note-taking app. You work only with the user's current note; never invent facts, names, numbers, or sources that aren't in it. Be clear, concise, and faithful to the note's meaning. Output only the result itself — no preamble, no sign-off, no commentary about what you did."
+	DefaultSystemPrompt = "You are the assistant inside Atlas Notes, a note-taking app. You work only with the user's current note; never invent facts, names, numbers, or sources that aren't in it. Be clear, concise, and faithful to the note's meaning. Output only the result itself, with no preamble, no sign-off, and no commentary about what you did."
 
-	defaultSummarizePrompt = "Summarize the key points of this note, shorter than the note itself — a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
+	defaultSummarizePrompt = "Summarize the key points of this note, shorter than the note itself; a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
 
 	defaultCleanPrompt = "Reformat this note as clean, well-structured Markdown. Fix grammar and spelling, keep the '# ' title, use **bold** for the lead-in label and the key terms of each point, and use '- ' bullet lists for any series of features, items, or steps. Keep narrative paragraphs as paragraphs, preserve every fact (do not invent or drop content), and copy any existing '- [ ]' / '- [x]' task lines through unchanged (never add new checkboxes). Output only the formatted note.\n\n{content}"
 
@@ -65,7 +65,7 @@ const (
 	oldSortPrompt      = "You are given a checklist. Re-evaluate and reorder items by urgency. Assign priority (high/medium/low) to each. Return a JSON array: [{\"text\":\"...\",\"priority\":\"high\",\"order\":1}, ...]. Return only valid JSON, no explanation:\n\n{items}"
 	cleanPromptV2      = "Fix grammar, improve clarity, and clean the markdown formatting of this note. Return only the corrected note content, no explanation:\n\n{content}"
 	cleanPromptV031    = "Rewrite this note with correct grammar and spelling and tidy Markdown formatting. Fix only mistakes: preserve the meaning and the facts, keep the author's distinct points separate, and do not add information. Keep prose as prose and lists as lists, and keep existing headings. Output only the corrected note.\n\n{content}"
-	cleanPromptV032    = "Clean up and format this note using Markdown, keeping its meaning and facts intact. Fix grammar and spelling. Add a '# ' heading if the note has a clear title, use **bold** for key terms, and use '- ' bullet or '1. ' numbered lists only where the note is genuinely listing items or steps — keep ordinary sentences as paragraphs. Do NOT add task checkboxes; copy any existing '- [ ]' or '- [x]' lines through unchanged, and do not add new content. Output only the formatted note.\n\n{content}"
+	cleanPromptV032    = "Clean up and format this note using Markdown, keeping its meaning and facts intact. Fix grammar and spelling. Add a '# ' heading if the note has a clear title, use **bold** for key terms, and use '- ' bullet or '1. ' numbered lists only where the note is genuinely listing items or steps, and keep ordinary sentences as paragraphs. Do NOT add task checkboxes; copy any existing '- [ ]' or '- [x]' lines through unchanged, and do not add new content. Output only the formatted note.\n\n{content}"
 )
 
 // AIAction is a user-configurable AI button shown in the sidebar.

@@ -29,7 +29,7 @@ func FuzzParseNotes(f *testing.F) {
 			t.Fatal("no release and no error")
 		}
 		if rel.Version == "" {
-			t.Fatal("a release with no version would render as 'Update Found — v'")
+			t.Fatal("a release with no version would render as 'Update Found: v'")
 		}
 		// The version is put straight into a window heading, so whatever the
 		// server sent, what comes out is digits and dots and nothing else.

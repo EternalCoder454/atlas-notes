@@ -129,8 +129,8 @@ func (a *App) buildGeneralPage() generalFields {
 	fontGroup := groupCard("Text rendering")
 	fonts := gtk.NewDropDownFromStrings([]string{
 		"Automatic (recommended)",
-		"Crisp — best on 1080p",
-		"Smooth — best on HiDPI",
+		"Crisp (best on 1080p)",
+		"Smooth (best on HiDPI)",
 	})
 	fonts.SetSelected(uint(fontModeIndex(a.cfg.FontRendering)))
 	fontGroup.Append(fonts)

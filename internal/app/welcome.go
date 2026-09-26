@@ -42,7 +42,7 @@ func (a *App) buildWelcome() *gtk.Widget {
 	title.AddCSSClass("welcome-title")
 	content.Append(title)
 
-	subtitle := gtk.NewLabel("Your notes and checklists live on this machine — plain files, no account, no cloud.")
+	subtitle := gtk.NewLabel("Your notes and checklists live on this machine: plain files, no account, no cloud.")
 	subtitle.AddCSSClass("welcome-subtitle")
 	subtitle.SetWrap(true)
 	subtitle.SetJustify(gtk.JustifyCenter)
