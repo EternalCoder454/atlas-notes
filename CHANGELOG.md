@@ -5,6 +5,16 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **The release builds also run on main, for the caches.** Actions scopes a
+  cache to the ref that saved it: a run on a tag cannot read one saved on beta,
+  and only the default branch's caches are readable from every ref. So the
+  v0.6.0 tag built gotk4 from cold and took twenty minutes, while the same
+  commit on beta had taken three. Merging to main warms the cache the tag build
+  then restores.
+
 ## [0.6.0] - 2026-09-26
 
 

@@ -15,9 +15,19 @@ name: Release builds
 # cached between runs: compiling gotk4, which is a very large CGO binding, and
 # compiling the Go core once per Android architecture.
 
+# main is here for the caches rather than for the builds.
+#
+# Actions scopes a cache to the ref that saved it: a run on a tag cannot read
+# one saved on beta, and only the default branch's caches are readable from
+# every ref. So without this, every tagged release built gotk4 from cold and
+# took twenty minutes, which is the one run where that matters most.
+#
+# Merging to main warms that cache; the tag build then restores it. Give the
+# main build time to finish before pushing the tag, or the tag run starts before
+# there is anything to restore.
 on:
   push:
-    branches: [beta]
+    branches: [main, beta]
     tags: ["v*"]
   workflow_dispatch:
 
