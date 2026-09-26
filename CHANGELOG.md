@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
 ### Performance
 Measured against a frozen 10,000-note vault, before and after, median of
 repeated interleaved runs. Everything below was tuned against 2,000 notes
@@ -34,6 +35,7 @@ before this pass.
   refresh. Search refreshes on every keystroke, which is why it is the path
   that gained most. It writes bytes now.
 
+
 ### Security
 - **The version a server sends can no longer carry anything into the update
   dialog.** A heading of `## 9.9.9 and your vault is corrupt, see evil.example`
@@ -47,7 +49,39 @@ before this pass.
 - A version may have at most six numbers, so a heading of ten thousand dots
   cannot become a heading of ten thousand zeroes.
 
+
 ### Added
+- **The phone app is a real Android app**: Kotlin and Jetpack Compose, Material
+  3, in `packaging/android`. It replaces the Gio build, which drew its own
+  widgets and could not reach anything Android only offers through Java — the
+  system installer first among them, which is what an app nobody can update
+  needs most.
+
+  It is not a second implementation of Atlas Notes. The vault, the compressed
+  Markdown, the SQLite index, the checklist model and the encryption are the
+  same Go code the desktop runs, compiled for Android by `gomobile` into an
+  `.aar` the Kotlin app links against. Two implementations of a vault format
+  are two chances to disagree about it, and the one that disagrees about
+  encryption loses notes.
+
+  The interface is a list of notes and one of them open, because that is what a
+  phone screen has room for. Locked notes ask for the password and then open;
+  setting one for the first time asks twice, since it cannot be recovered and a
+  typo would encrypt a note against a string nobody knows. Checklist items are
+  real checkboxes, which is much easier than putting an `x` between two brackets
+  with a touch keyboard, and they edit the same Markdown the desktop reads.
+
+  Light and dark follow the system. Both schemes are built around the accent the
+  desktop uses rather than the phone's wallpaper, so it looks like the same
+  application rather than a relative of it.
+
+- **`mobile/`, the Go core as Android calls it.** An ordinary Go package with no
+  build tags, so it compiles and its tests run on every machine: a change that
+  breaks the phone app now fails on a laptop rather than on a phone. It is
+  covered by tests for the write/read round trip, the checklist line mapping, a
+  locked note refusing to open without the password and opening with it, and
+  every call made before the vault is open failing instead of crashing.
+
 - Tests for the update check against a hostile server: a body that never ends,
   a single line longer than the read limit, a server that accepts the
   connection and never answers, an endless redirect, binary and HTML bodies,
@@ -60,31 +94,18 @@ before this pass.
 - `TestScanDoesNotReadNotes`, which makes the notes unreadable and then scans.
   A scan that opens them fails. It is how the launch path is kept honest.
 
-### Changed
-- **The first Settings section is called "General"**, not "Model & Prompt". It
-  holds the assistant's name, model and prompt, but also hover previews, the
-  formatting toolbar and text rendering, none of which are either. The name had
-  stopped describing the contents.
-
-## [Unreleased]
-
-### Added
 - **The Android build is signed with a fixed key**, held in the repository's
-  secrets. Android refuses to replace an app with one signed by a different
-  key, and `gogio` invents a throwaway key per build when it is not given one —
-  so without this, every release was a different app wearing the same name and
-  no update could ever install. The key is the same one the other Atlas apps
-  use, under the same secret names, so one certificate covers them.
+  secrets and read by Gradle from the environment. Android refuses to replace
+  an app with one signed by a different key, so the key is what makes one build
+  an update to the last rather than a different app wearing its name. The key
+  is the same one the other Atlas apps use, under the same secret names, so one
+  certificate covers them.
 
-  A build without the secrets still works and still installs; it just cannot
-  update a signed one, so a fork or a local build is not broken by it. Every
-  release prints the certificate's SHA-256 digest in its log, so "this release
-  can update the last" is something the build shows rather than asserts.
-
-  gogio's own `-signkey` is not used: it passes neither a key alias nor a
-  separate key password to `apksigner`, so it only works for a keystore holding
-  one key whose password matches the store's. The APK is re-signed afterwards
-  instead, which handles both.
+  A build without the secrets still works and still installs, signed with the
+  debug key; it just cannot update a release-signed one, so a fork or a local
+  build is not broken by it. Every release prints the certificate's SHA-256
+  digest in its log, so "this release can update the last" is something the
+  build shows rather than asserts.
 
 - **The phone build checks for updates**, using the same check as the desktop:
   one anonymous read of a text file from this repository, with nothing about
@@ -92,12 +113,14 @@ before this pass.
   network is not there. What it finds appears as a dismissible strip above the
   note list with the first few changes.
 
-  It says where the new version is rather than installing it. Android installs
-  packages through the system installer and will not let an application hand
-  itself a new version without going through it, and reaching that installer
-  from Gio means JNI and a Java source tree this build does not have.
+  It installs it, too. Android installs packages through the system installer
+  and will not let an application hand itself a new version without going
+  through it, so the app downloads the release and hands it over: the installer
+  shows what it is about to do, and refuses a build signed with a different key
+  from the one already on the phone. A file altered in transit is rejected by
+  Android rather than by Atlas Notes, which is the right place for that
+  decision.
 
-### Added
 - **Atlas Notes runs on Windows.** The same GTK interface, built on a Windows
   runner under MSYS2 rather than cross-compiled: MSYS2 packages GTK4 and
   libadwaita for Windows and Linux distributions package neither for mingw, so
@@ -107,11 +130,10 @@ before this pass.
   does not run from its executable alone, and starts it once on the runner to
   catch the packaging mistake that produces an executable which opens nothing.
 - **Atlas Notes runs on Android**, as a separate interface over the same core.
-  GTK has no Android backend — its backends are Broadway, Wayland and X11 —
-  so the phone interface is Gio, which draws its own widgets and implements
-  Material Design. It reads the same vault, the same compressed Markdown, the
-  same SQLite index and the same encrypted notes: a vault copied between a
-  laptop and a phone opens on both.
+  GTK has no Android backend — its backends are Broadway, Wayland and X11 — so
+  the phone interface is its own, written in Kotlin (see above). It reads the
+  same vault, the same compressed Markdown, the same SQLite index and the same
+  encrypted notes: a vault copied between a laptop and a phone opens on both.
 
   What is there: the note list with search, notes and checklists drawn with
   their own icons, an editor that saves as you type, checklist items as real
@@ -124,11 +146,17 @@ before this pass.
 
 - `.github/workflows/release.yml` builds both on a tag and attaches them to the
   release, and can be run against any branch to check a build before tagging.
-- `make mobile` and `make apk`. The phone interface is behind a build tag, so
-  an ordinary `go build ./...` on a machine without Gio's graphics and keyboard
-  headers is unaffected.
+- `make aar` and `make apk`: the Go bindings, and the phone app built around
+  them. `mobile/` has no build tags, so an ordinary `go build ./...` covers it
+  on any machine.
+
 
 ### Changed
+- **The first Settings section is called "General"**, not "Model & Prompt". It
+  holds the assistant's name, model and prompt, but also hover previews, the
+  formatting toolbar and text rendering, none of which are either. The name had
+  stopped describing the contents.
+
 - **Where notes live is decided per platform.** Linux is untouched and still
   follows the XDG specification exactly, so no existing vault moves. Windows
   gets the vault under `%LOCALAPPDATA%` and settings under `%APPDATA%`, which
@@ -146,6 +174,12 @@ With that, everything except the interface compiles for Windows, macOS and
 Android: storage, the checklist model, the update check, the encryption and the
 assistant client. `internal/editor`, `internal/ui` and `internal/app` are GTK,
 and are what each platform still needs.
+
+- **The Gio phone interface is gone**, along with `internal/mobile`,
+  `cmd/atlas-mobile` and the `gogio` build, replaced by the Kotlin app above.
+  `gogio` signed every APK with a key it invented on the spot, so the build had
+  to strip that signature and re-apply the real one afterwards; Gradle signs
+  once, with the configured key, and there is nothing left to undo.
 
 ## [0.5.10] - 2026-09-24
 

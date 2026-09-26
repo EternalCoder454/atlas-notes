@@ -11,3 +11,12 @@
 
 # Screenshots for design review; regenerated on demand, not part of the source.
 /screenshots/
+
+# The Android app's build output, and the Go bindings it links against. The
+# .aar is a build product of ./mobile, not a source file: `make aar` or the
+# release workflow regenerates it.
+/packaging/android/app/libs/*.aar
+/packaging/android/build/
+/packaging/android/app/build/
+/packaging/android/.gradle/
+/packaging/android/local.properties

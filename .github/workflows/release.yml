@@ -126,12 +126,29 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
+      # Both jobs attach to the same release and whichever finishes last wins.
+      # With no body of its own, a job sends an empty string and wipes the notes
+      # the other one just wrote. Astral shipped a release with an empty body
+      # exactly this way. Sending the same text from both makes the order stop
+      # mattering.
+      - name: Take this version's notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          awk -v v="$VERSION" '
+            $0 == "## " v { taking = 1; next }
+            /^## / && taking  { exit }
+            taking            { print }
+          ' WHATSNEW.md > dist/release-notes.md
+          cat dist/release-notes.md
+
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.zip
           fail_on_unmatched_files: true
+          body_path: dist/release-notes.md
 
   android:
     name: Android (arm64 + arm)
@@ -150,20 +167,61 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      # The runner image already carries the Android SDK, so this only adds the
+      # pieces the build actually names. The NDK is for gomobile, which needs a
+      # C toolchain per architecture to build the Go core into a library.
+      - name: Install what we build against
+        run: |
+          set -eu
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
-      - name: Install the NDK
-        run: sdkmanager --install "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0"
+      # The Go core, built into an .aar the Kotlin app links against. This is
+      # the same storage, checklist and encryption code the desktop runs: the
+      # phone app is a different interface onto it, not a second implementation
+      # of it.
+      #
+      # gomobile is installed at the version go.mod already pins, because
+      # gomobile and the x/mobile package it generates bindings against have to
+      # agree, and "@latest" is how they stop agreeing on some future morning.
+      - name: Build the Go core for Android
+        run: |
+          set -eu
+          V=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          echo "gomobile $V"
+          go install "golang.org/x/mobile/cmd/gomobile@$V"
+          go install "golang.org/x/mobile/cmd/gobind@$V"
+          gomobile init
+          mkdir -p packaging/android/app/libs
+          gomobile bind \
+            -target=android/arm64,android/arm \
+            -androidapi 24 \
+            -javapkg io.github.atlasnotes.core \
+            -o packaging/android/app/libs/atlasbridge.aar \
+            ./mobile
+          ls -la packaging/android/app/libs
+
+      # Held at v4 deliberately, for the same reason Astral holds it there: v6
+      # moved this action's caching into a library that is no longer open
+      # source, and a build this small gains nothing worth that trade.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Pinned rather than taken from the runner image, so the build does
+          # not change under us the next time that image is rebuilt. AGP 8.7
+          # needs 8.9 or newer.
+          gradle-version: "8.11.1"
 
       # The signing key, from the repository's secrets rather than the
       # repository. Android will not replace an app with one signed by a
       # different key, so the key is what makes one build an update to the last
-      # rather than a different app wearing its name — and gogio generates a
-      # throwaway one per build, which is a different key every time.
+      # rather than a different app wearing its name.
       #
       # Without the secret the build still works and still produces an
-      # installable app. It just cannot update a signed one, so a fork or a
-      # local build is not broken by this.
+      # installable app, signed with the debug key. It just cannot update a
+      # release-signed one, so a fork or a local build is not broken by this.
       - name: Unlock the signing key
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
@@ -172,63 +230,40 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      - name: Build the APK
+      - name: Build the app
+        working-directory: packaging/android
         env:
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle --no-daemon assembleRelease
+
+      - name: Name it after the version
         run: |
           set -eu
           VERSION=$(sed -n 's/^var version = "\(.*\)"/\1/p' internal/app/version.go)
-          # gogio wants a monotonic integer for the Android version code, which
-          # a dotted version is not, so the three parts are packed into one.
-          CODE=$(echo "$VERSION" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
-          echo "Atlas Notes $VERSION (version code $CODE)"
+          echo "Atlas Notes $VERSION"
           mkdir -p dist
-          go run gioui.org/cmd/gogio \
-            -target android \
-            -arch arm64,arm \
-            -appid io.github.atlasnotes \
-            -version "$CODE" \
-            -ldflags "-X main.version=$VERSION" \
-            -o "dist/atlas-notes-${VERSION}.apk" \
-            ./cmd/atlas-mobile
-          ls -la dist
+          cp packaging/android/app/build/outputs/apk/release/app-release.apk \
+             "dist/atlas-notes-${VERSION}.apk"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-      # gogio always signs, with a key it invents when it is not given one, so
-      # the APK arrives here signed by something that will never exist again.
-      # apksigner replaces that signature with the real one. The alias is
-      # optional: a keystore holding a single key does not need to be told
-      # which one.
-      - name: Sign it with the release key
-        if: ${{ env.ANDROID_KEYSTORE_PATH != '' }}
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: |
-          set -eu
-          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
-          args=(sign --ks "$ANDROID_KEYSTORE_PATH" --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD")
-          if [ -n "${ANDROID_KEY_ALIAS:-}" ]; then
-            args+=(--ks-key-alias "$ANDROID_KEY_ALIAS")
-          fi
-          if [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
-            args+=(--key-pass "pass:$ANDROID_KEY_PASSWORD")
-          fi
-          "$apksigner" "${args[@]}" "dist/atlas-notes-${VERSION}.apk"
+          ls -la dist
 
       # The certificate digest is printed on every run, so that "this release
       # can update the last" is something the log shows rather than something
       # the build asserts. It has to be the same string every time.
       - name: Show who signed it
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -eu
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
           "$apksigner" verify --print-certs "dist/atlas-notes-${VERSION}.apk" \
             | grep -iE "SHA-256 digest|Signer #1 certificate DN" || true
-          if [ -z "${ANDROID_KEYSTORE_PATH:-}" ]; then
+          if [ -z "${ANDROID_KEYSTORE_PATH:-}" ] || [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]; then
             echo
-            echo "::warning::Signed with a throwaway key: ANDROID_KEYSTORE_BASE64 is not set."
+            echo "::warning::Signed with the debug key, because the release key was not available."
+            echo "::warning::Both ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD must be set."
             echo "::warning::This build installs, but cannot update a release-signed one."
           fi
 
@@ -238,9 +273,21 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
 
+      - name: Take this version's notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          awk -v v="$VERSION" '
+            $0 == "## " v { taking = 1; next }
+            /^## / && taking  { exit }
+            taking            { print }
+          ' WHATSNEW.md > dist/release-notes.md
+          cat dist/release-notes.md
+
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.apk
           fail_on_unmatched_files: true
+          body_path: dist/release-notes.md

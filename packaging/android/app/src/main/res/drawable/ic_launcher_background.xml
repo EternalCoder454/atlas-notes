@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher tile: the blue from assets/atlas-notes.svg, so the phone's launcher icon and the
+     desktop's are the same icon. The UI's purple is an accent, not the mark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0" android:startY="0"
+                android:endX="0" android:endY="108"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF5B8DEF" />
+                <item android:offset="1" android:color="#FF2F6BD8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

@@ -52,7 +52,7 @@ packages are installed.
 | --- | --- | --- |
 | **Linux** | GTK4 + libadwaita | `make install`, or the Fedora script below |
 | **Windows** | GTK4 + libadwaita | A `.zip` on the release page: unpack it anywhere and run `atlas-notes.exe` |
-| **Android** | Gio, Material Design | An `.apk` on the release page |
+| **Android** | Kotlin + Jetpack Compose, Material 3 | An `.apk` on the release page |
 | macOS | GTK4 + libadwaita | Not built yet; the code compiles for it |
 
 Everything below the interface is shared: the same vault format, the same
@@ -312,25 +312,35 @@ working. The job bundles the DLLs, the compiled schemas, the icon themes and
 the pixbuf loaders alongside the executable, because a GTK application on
 Windows does not run from its executable alone.
 
-**Android** is built with `gogio`, which needs the Android SDK and NDK:
+**Android** is a real Android app: Kotlin and Jetpack Compose, in
+`packaging/android`. It is not a port of the desktop interface, because GTK does
+not run on Android and a scaled-down version of three panes would be worse than
+the list a phone is actually good at.
+
+What it is not is a second implementation of Atlas Notes. The vault, the
+compressed Markdown, the SQLite index, the checklist model and the encryption
+are the same Go code the desktop runs, compiled for Android by `gomobile` into
+an `.aar` the Kotlin app links against. Two implementations of a vault format
+are two chances to disagree about it, and the one that disagrees about
+encryption loses notes.
+
+The bridge between them is `mobile/`, which is an ordinary Go package with no
+build tags: it compiles and its tests run on every machine, so a change that
+breaks the phone app fails on a laptop rather than on a phone.
+
+Building it needs the Android SDK, the NDK and Gradle:
 
 ```bash
 make apk
 ```
 
-To look at the phone interface on this machine instead, which needs Gio's
-desktop dependencies:
+`make aar` builds just the Go bindings, which is the part that needs `gomobile`:
 
 ```bash
-sudo dnf install libxkbcommon-devel libxkbcommon-x11-devel mesa-libEGL-devel \
-                 mesa-libGLES-devel wayland-devel libX11-devel libXcursor-devel \
-                 libXfixes-devel libxcb-devel vulkan-loader-devel
-make mobile && ./bin/atlas-mobile
+go install golang.org/x/mobile/cmd/gomobile@latest
+go install golang.org/x/mobile/cmd/gobind@latest
+gomobile init
 ```
-
-The phone interface is behind a build tag (`gio`, and `android` automatically),
-so an ordinary `go build ./...` on a machine without those headers is
-unaffected.
 
 ## Building from source
 
@@ -421,11 +431,11 @@ then `sudo systemctl restart ollama`). Confirm with `ollama ps` (it should show
 ```
 atlas-notes/
 ├── main.go                   # AdwApplication entry point; embeds style.css
-├── cmd/atlas-mobile/         # the phone application's entry point
+├── mobile/                   # the Go core as Android calls it (gomobile)
 ├── .github/workflows/        # the Windows .exe and the Android .apk
 ├── assets/                   # style.css, app icon, icons-src/ (icon sources)
 ├── scripts/import-icons.sh   # Material Symbols -> the icons the app embeds
-├── packaging/                # .desktop entry
+├── packaging/                # .desktop entry, and android/ (the phone app)
 ├── scripts/install-fedora.sh # one-command Fedora install/update
 ├── NOTICE                    # third-party attribution (Material Symbols)
 ├── WHATSNEW.md               # release notes the app shows you (plain language)
@@ -445,9 +455,18 @@ atlas-notes/
     ├── checklist/# pure checklist model (parse / serialize / sort)
     ├── update/   # is there a newer version? (no GTK, no install logic)
     ├── vaultlock/# Argon2id + XChaCha20-Poly1305 (no GTK, no files)
-    ├── mobile/   # the phone interface: Gio, Material Design, no assistant
     ├── ai/       # Ollama HTTP client
     └── ui/       # vault panel (tree*.go) + assistant panel (sidebar*.go)
+
+packaging/android/            # the phone app: Kotlin, Jetpack Compose
+└── app/src/main/
+    ├── java/io/github/atlasnotes/
+    │   ├── MainActivity.kt   # the whole app: a list, and one note open
+    │   ├── Vault.kt          # the Go bindings, as Kotlin sees them
+    │   ├── VaultModel.kt     # what is on screen, and everything that changes it
+    │   ├── Updater.kt        # download a release, hand it to the installer
+    │   └── ui/               # Compose: theme, list, editor, password, update
+    └── res/                  # the launcher icon, themes, the backup rules
 ```
 
 ## Roadmap

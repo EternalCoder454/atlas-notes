@@ -16,7 +16,7 @@ BINDIR  := $(PREFIX)/bin
 APPDIR  := $(PREFIX)/share/applications
 ICONDIR := $(PREFIX)/share/icons/hicolor/scalable/apps
 
-.PHONY: build run install uninstall clean mobile apk
+.PHONY: build run install uninstall clean aar apk
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
@@ -43,21 +43,32 @@ uninstall:
 clean:
 	rm -rf bin/
 
-# The phone build. It shares everything below the interface with the desktop
-# app and none of the interface itself: GTK does not run on Android, so the
-# touch interface is Gio, which draws its own widgets.
+# The phone build.
 #
-# mobile builds it for this machine, which is how to look at it without a
-# phone. It needs Gio's desktop dependencies: on Fedora,
-#   sudo dnf install libxkbcommon-devel libxkbcommon-x11-devel mesa-libEGL-devel \
-#                    mesa-libGLES-devel wayland-devel libX11-devel libXcursor-devel \
-#                    libXfixes-devel libxcb-devel vulkan-loader-devel
-mobile:
-	go build -o bin/atlas-mobile ./cmd/atlas-mobile
+# It shares everything below the interface with the desktop app and none of the
+# interface itself: GTK does not run on Android. The phone interface is Kotlin
+# and Jetpack Compose, in packaging/android, and it reaches the Go core through
+# bindings gomobile generates from ./mobile.
+#
+# aar builds those bindings. It needs the Android NDK, which gomobile finds
+# through ANDROID_NDK_HOME, and gomobile itself:
+#
+#	go install golang.org/x/mobile/cmd/gomobile@$(MOBILE_VERSION)
+#	go install golang.org/x/mobile/cmd/gobind@$(MOBILE_VERSION)
+#	gomobile init
+MOBILE_VERSION := $(shell go list -m -f '{{.Version}}' golang.org/x/mobile)
+AAR := packaging/android/app/libs/atlasbridge.aar
 
-# apk needs the Android SDK and NDK. CI builds this on every tag; this target
-# is for building one by hand.
-apk:
-	go run gioui.org/cmd/gogio -target android -arch arm64,arm \
-		-appid io.github.atlasnotes -version $(shell echo $(VERSION) | awk -F. '{printf "%d", $$1*10000 + $$2*100 + $$3}') \
-		-o bin/atlas-notes-$(VERSION).apk ./cmd/atlas-mobile
+aar:
+	mkdir -p $(dir $(AAR))
+	gomobile bind -target=android/arm64,android/arm -androidapi 24 \
+		-javapkg io.github.atlasnotes.core -o $(AAR) ./mobile
+
+# apk builds the app around those bindings. CI does this on every tag; this
+# target is for building one by hand, and needs the Android SDK and Gradle.
+apk: aar
+	cd packaging/android && gradle --no-daemon assembleRelease
+	@mkdir -p bin
+	cp packaging/android/app/build/outputs/apk/release/app-release.apk \
+		bin/atlas-notes-$(VERSION).apk
+	@echo "bin/atlas-notes-$(VERSION).apk"

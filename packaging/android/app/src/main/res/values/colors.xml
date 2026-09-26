@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The light scheme's surface, from ui/Theme.kt. -->
+    <color name="window_background">#FEF7FF</color>
+    <!-- The launcher tile, which is the logo's blue. -->
+    <color name="ic_launcher_background">#2F6BD8</color>
+</resources>
