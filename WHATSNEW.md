@@ -4,6 +4,14 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.6.0
+- Atlas Notes runs on Windows now. Unpack the .zip from the releases page and run atlas-notes.exe
+- There is an Android app. Install the .apk and your notes come with you, locked ones included
+- The phone app tells you when a new version is out, and installs it for you
+- The settings gear is back in the top right of the window
+- Atlas Notes can check for updates on its own. Turn it off in Settings, under App
+- Opening a large vault for the first time is about a third faster, and searching one is twice as quick
+
 ## 0.5.10
 - Really fixes Atlas Notes closing itself when you select or copy text. 0.5.9 did not
 

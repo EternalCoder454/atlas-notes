@@ -5,7 +5,7 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-26
 
 
 ### Performance
@@ -152,6 +152,23 @@ before this pass.
 
 
 ### Changed
+- **The Settings gear is back in the header.** The interface overhaul in 0.5.0
+  moved Settings into the hamburger menu and deleted the button; the README went
+  on telling people to click "the gear icon, top-right" for five releases after
+  it stopped being there. It sits beside the menu again, with Ctrl+, in its
+  tooltip, and the menu entry stays. The icon is the Material Symbols gear, run
+  through `scripts/import-icons.sh` like every other one.
+- **Dashes are gone from everything the app shows**: the header, the toolbar,
+  Settings, the assistant panel, the update and password dialogs, the guide note
+  written on first launch, the assistant's built-in prompts, and `WHATSNEW.md`,
+  which the update dialog puts on screen. Sentences were rewritten rather than
+  having their punctuation swapped, so none of them read like they lost a word.
+
+  Two were left alone, because neither is prose: the unicode fixture in the
+  checklist tests and the hostile version heading in the update tests both exist
+  to prove those characters are handled. The divider button's fallback glyph did
+  change, from an em dash to U+2500, which draws the same rule without being a
+  dash.
 - **The first Settings section is called "General"**, not "Model & Prompt". It
   holds the assistant's name, model and prompt, but also hover previews, the
   formatting toolbar and text rendering, none of which are either. The name had
