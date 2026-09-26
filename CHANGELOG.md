@@ -68,6 +68,37 @@ before this pass.
 
 ## [Unreleased]
 
+### Added
+- **Atlas Notes runs on Windows.** The same GTK interface, built on a Windows
+  runner under MSYS2 rather than cross-compiled: MSYS2 packages GTK4 and
+  libadwaita for Windows and Linux distributions package neither for mingw, so
+  cross-compiling would mean assembling and maintaining that sysroot by hand.
+  The release job bundles the DLLs, the compiled schemas, the icon themes and
+  the pixbuf loaders with the executable, because a GTK application on Windows
+  does not run from its executable alone, and starts it once on the runner to
+  catch the packaging mistake that produces an executable which opens nothing.
+- **Atlas Notes runs on Android**, as a separate interface over the same core.
+  GTK has no Android backend — its backends are Broadway, Wayland and X11 —
+  so the phone interface is Gio, which draws its own widgets and implements
+  Material Design. It reads the same vault, the same compressed Markdown, the
+  same SQLite index and the same encrypted notes: a vault copied between a
+  laptop and a phone opens on both.
+
+  What is there: the note list with search, notes and checklists drawn with
+  their own icons, an editor that saves as you type, checklist items as real
+  checkboxes with a thumb-sized target, and the password prompt for protected
+  notes. The system back gesture leaves the note rather than the application.
+
+  What is not: the assistant. It needs a model running on the same machine,
+  which a phone does not have, and sending notes to a remote one would break
+  the promise the app is built on. There is no network code in the phone build.
+
+- `.github/workflows/release.yml` builds both on a tag and attaches them to the
+  release, and can be run against any branch to check a build before tagging.
+- `make mobile` and `make apk`. The phone interface is behind a build tag, so
+  an ordinary `go build ./...` on a machine without Gio's graphics and keyboard
+  headers is unaffected.
+
 ### Changed
 - **Where notes live is decided per platform.** Linux is untouched and still
   follows the XDG specification exactly, so no existing vault moves. Windows

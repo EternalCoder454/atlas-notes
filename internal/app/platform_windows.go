@@ -59,3 +59,14 @@ func restartInto(exe string) error {
 	}()
 	return nil
 }
+
+// canSelfUpdate: the Windows build arrives as a packaged binary rather than as
+// source, and Windows will not let a running executable be replaced, so the
+// update is handed to the person instead of attempted.
+const canSelfUpdate = false
+
+// openDownloadPage opens the releases page in whatever the system uses for
+// links. rundll32 is the way to do that without assuming a browser.
+func openDownloadPage() error {
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", releasesURL).Start()
+}

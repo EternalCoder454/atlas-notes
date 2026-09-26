@@ -18,6 +18,10 @@ import (
 // repoURL is the source repository the updater fetches from.
 const repoURL = "https://github.com/EternalCoder454/atlas-notes"
 
+// releasesURL is where a packaged build is downloaded from, for the platforms
+// that cannot rebuild themselves.
+const releasesURL = repoURL + "/releases/latest"
+
 // buildDir is the source directory this binary was built from, injected at build
 // time via -ldflags "-X 'atlas-notes/internal/app.buildDir=<path>'". Shown for
 // reference; the updater itself fetches into its own clone (see updateScript).
@@ -160,6 +164,22 @@ func (a *App) buildAppPage() gtk.Widgetter {
 // (successfully or not) — the Settings page and the launch-time update dialog
 // both drive this, and both need to say what is happening.
 func (a *App) installUpdate(branch string, onStatus func(text string, done bool)) {
+	// Where the app installs itself by rebuilding from source, it can finish
+	// the job on its own. Where it arrives as a signed, packaged binary it
+	// cannot: there is no compiler to assume, and an application cannot
+	// overwrite the executable it is running from. There, the honest thing is
+	// to open the page the download is on and say so.
+	if !canSelfUpdate {
+		if err := openDownloadPage(); err != nil {
+			onStatus("Couldn't open the downloads page: "+err.Error()+
+				"\n"+releasesURL, true)
+			return
+		}
+		onStatus("Opened the downloads page in your browser.\n"+
+			"Close Atlas Notes before installing the new version.", true)
+		return
+	}
+
 	onStatus("Downloading and building the new version…\nThis takes a minute or two.", false)
 
 	go func() {

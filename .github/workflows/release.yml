@@ -1,0 +1,188 @@
+name: Release builds
+
+# Builds the downloadable artifacts for a tagged release.
+#
+# Windows is built on a Windows runner under MSYS2 rather than cross-compiled,
+# because that is the supported way to build GTK4 and libadwaita for Windows:
+# MSYS2 packages both, and Linux distributions do not package libadwaita for
+# mingw at all. Cross-compiling would mean assembling that sysroot by hand and
+# keeping it working.
+#
+# Run it by pushing a tag, or from the Actions tab against any branch to check
+# a build before tagging.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      attach:
+        description: "Attach the artifacts to the release for this tag"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows (x86_64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 with GTK4 and libadwaita
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          # go here is MSYS2's, which is built against this toolchain: the Go
+          # from the runner image would use a different C toolchain and fail to
+          # link against these libraries.
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-go
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            zip
+
+      - name: Confirm the libraries are actually there
+        run: |
+          pkg-config --modversion gtk4 libadwaita-1
+          go version
+
+      - name: Build
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          VERSION=$(sed -n 's/^var version = "\(.*\)"/\1/p' internal/app/version.go)
+          echo "Building Atlas Notes $VERSION"
+          mkdir -p dist/atlas-notes
+          go build -v \
+            -ldflags "-s -w -H windowsgui -X 'atlas-notes/internal/app.version=$VERSION'" \
+            -o dist/atlas-notes/atlas-notes.exe .
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Bundle the GTK runtime
+        # A GTK application on Windows does not run from its executable alone.
+        # It needs the DLLs it links against, the compiled schema database, the
+        # icon theme it falls back to, and the loaders that decode SVG icons.
+        # Leaving any of them out produces an executable that starts and then
+        # shows nothing.
+        run: |
+          set -eu
+          out=dist/atlas-notes
+
+          # Every DLL the executable transitively needs, from the MSYS2 prefix.
+          ldd "$out/atlas-notes.exe" \
+            | awk '/ucrt64/ {print $3}' \
+            | sort -u \
+            | xargs -r -I{} cp -n {} "$out/"
+
+          mkdir -p "$out/share/glib-2.0/schemas" \
+                   "$out/share/icons" \
+                   "$out/lib/gdk-pixbuf-2.0"
+          cp /ucrt64/share/glib-2.0/schemas/gschemas.compiled "$out/share/glib-2.0/schemas/"
+          cp -r /ucrt64/share/icons/Adwaita     "$out/share/icons/"
+          cp -r /ucrt64/share/icons/hicolor     "$out/share/icons/"
+          cp -r /ucrt64/lib/gdk-pixbuf-2.0/*    "$out/lib/gdk-pixbuf-2.0/" || true
+
+          # The SVG loader is what draws the app's own symbolic icons.
+          if [ -f /ucrt64/bin/librsvg-2-2.dll ]; then
+            cp -n /ucrt64/bin/librsvg-2-2.dll "$out/"
+          fi
+
+          cp README.md LICENSE NOTICE WHATSNEW.md "$out/"
+          ls -la "$out"
+
+      - name: Check it starts
+        # A GUI application cannot be opened on a runner, but a missing DLL
+        # fails at load time and is reported by the loader, so starting it and
+        # stopping it catches the common packaging mistake.
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\atlas-notes\atlas-notes.exe" -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited -and $p.ExitCode -ne 0) {
+            Write-Error "atlas-notes.exe exited immediately with $($p.ExitCode)"
+            exit 1
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "started and stayed running"
+
+      - name: Package
+        run: |
+          cd dist
+          zip -qr "atlas-notes-${VERSION}-windows-x86_64.zip" atlas-notes
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas-notes-windows-x86_64
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          fail_on_unmatched_files: true
+
+  android:
+    name: Android (arm64 + arm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the NDK
+        run: sdkmanager --install "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Build the APK
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: |
+          set -eu
+          VERSION=$(sed -n 's/^var version = "\(.*\)"/\1/p' internal/app/version.go)
+          # gogio wants a monotonic integer for the Android version code, which
+          # a dotted version is not, so the three parts are packed into one.
+          CODE=$(echo "$VERSION" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
+          echo "Atlas Notes $VERSION (version code $CODE)"
+          mkdir -p dist
+          go run gioui.org/cmd/gogio \
+            -target android \
+            -arch arm64,arm \
+            -appid io.github.atlasnotes \
+            -version "$CODE" \
+            -o "dist/atlas-notes-${VERSION}.apk" \
+            ./cmd/atlas-mobile
+          ls -la dist
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas-notes-android
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          fail_on_unmatched_files: true

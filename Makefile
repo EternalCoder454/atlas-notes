@@ -16,7 +16,7 @@ BINDIR  := $(PREFIX)/bin
 APPDIR  := $(PREFIX)/share/applications
 ICONDIR := $(PREFIX)/share/icons/hicolor/scalable/apps
 
-.PHONY: build run install uninstall clean
+.PHONY: build run install uninstall clean mobile apk
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
@@ -42,3 +42,22 @@ uninstall:
 
 clean:
 	rm -rf bin/
+
+# The phone build. It shares everything below the interface with the desktop
+# app and none of the interface itself: GTK does not run on Android, so the
+# touch interface is Gio, which draws its own widgets.
+#
+# mobile builds it for this machine, which is how to look at it without a
+# phone. It needs Gio's desktop dependencies: on Fedora,
+#   sudo dnf install libxkbcommon-devel libxkbcommon-x11-devel mesa-libEGL-devel \
+#                    mesa-libGLES-devel wayland-devel libX11-devel libXcursor-devel \
+#                    libXfixes-devel libxcb-devel vulkan-loader-devel
+mobile:
+	go build -o bin/atlas-mobile ./cmd/atlas-mobile
+
+# apk needs the Android SDK and NDK. CI builds this on every tag; this target
+# is for building one by hand.
+apk:
+	go run gioui.org/cmd/gogio -target android -arch arm64,arm \
+		-appid io.github.atlasnotes -version $(shell echo $(VERSION) | awk -F. '{printf "%d", $$1*10000 + $$2*100 + $$3}') \
+		-o bin/atlas-notes-$(VERSION).apk ./cmd/atlas-mobile

@@ -28,3 +28,11 @@ func processCPU() (userMs, sysMs float64) {
 func restartInto(exe string) error {
 	return syscall.Exec(exe, []string{exe}, os.Environ())
 }
+
+// canSelfUpdate: the Unix build installs itself by fetching the source and
+// rebuilding, so it can carry the update through without help.
+const canSelfUpdate = true
+
+// openDownloadPage is unused where the app updates itself, and exists so the
+// updater reads the same on every platform.
+func openDownloadPage() error { return nil }

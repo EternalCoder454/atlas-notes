@@ -46,6 +46,40 @@ packages are installed.
   drag-resizable and collapsible from the header bar, with a home screen that
   puts new notes, search and your recent work one click away.
 
+## Platforms
+
+| | Interface | How it is built |
+| --- | --- | --- |
+| **Linux** | GTK4 + libadwaita | `make install`, or the Fedora script below |
+| **Windows** | GTK4 + libadwaita | A `.zip` on the release page: unpack it anywhere and run `atlas-notes.exe` |
+| **Android** | Gio, Material Design | An `.apk` on the release page |
+| macOS | GTK4 + libadwaita | Not built yet; the code compiles for it |
+
+Everything below the interface is shared: the same vault format, the same
+compressed Markdown files, the same SQLite index, the same encryption. A vault
+copied between machines opens on any of them.
+
+**On Android the assistant is absent.** It needs a model running on the same
+machine, which a phone does not have, and sending notes to someone else's
+server is the one thing this app promises not to do. The phone build has no
+network code in it at all.
+
+**Windows updates itself differently.** The Linux build installs by fetching
+the source and rebuilding, so it can update in place. The Windows build arrives
+as a packaged binary, and Windows will not let a running executable be
+replaced, so *Update & Restart* opens the downloads page instead.
+
+### Where notes live
+
+| | Vault | Settings |
+| --- | --- | --- |
+| Linux | `~/.local/share/atlas-notes/` | `~/.config/atlas-notes/` |
+| Windows | `%LOCALAPPDATA%\Atlas Notes\` | `%APPDATA%\Atlas Notes\` |
+| macOS | `~/Library/Application Support/Atlas Notes/` | same |
+| Android | the app's private directory | same |
+
+`ATLAS_DATA_HOME` and `ATLAS_CONFIG_HOME` override both anywhere.
+
 ## Install on Fedora
 
 One command installs the build dependencies, fetches the source, builds, and adds
@@ -228,6 +262,40 @@ on first run:
 
 Most of this is editable from the in-app Settings dialog.
 
+## Building for other platforms
+
+Release artifacts are built by `.github/workflows/release.yml` when a tag is
+pushed, and can be run from the Actions tab against any branch to check a build
+before tagging.
+
+**Windows** is built on a Windows runner under MSYS2, not cross-compiled. That
+is the supported way to build GTK4 and libadwaita for Windows: MSYS2 packages
+both, and Linux distributions do not package libadwaita for mingw at all, so
+cross-compiling would mean assembling that sysroot by hand and keeping it
+working. The job bundles the DLLs, the compiled schemas, the icon themes and
+the pixbuf loaders alongside the executable, because a GTK application on
+Windows does not run from its executable alone.
+
+**Android** is built with `gogio`, which needs the Android SDK and NDK:
+
+```bash
+make apk
+```
+
+To look at the phone interface on this machine instead, which needs Gio's
+desktop dependencies:
+
+```bash
+sudo dnf install libxkbcommon-devel libxkbcommon-x11-devel mesa-libEGL-devel \
+                 mesa-libGLES-devel wayland-devel libX11-devel libXcursor-devel \
+                 libXfixes-devel libxcb-devel vulkan-loader-devel
+make mobile && ./bin/atlas-mobile
+```
+
+The phone interface is behind a build tag (`gio`, and `android` automatically),
+so an ordinary `go build ./...` on a machine without those headers is
+unaffected.
+
 ## Building from source
 
 Atlas Notes uses [`gotk4`](https://github.com/diamondburned/gotk4), which binds
@@ -317,6 +385,8 @@ then `sudo systemctl restart ollama`). Confirm with `ollama ps` (it should show
 ```
 atlas-notes/
 ├── main.go                   # AdwApplication entry point; embeds style.css
+├── cmd/atlas-mobile/         # the phone application's entry point
+├── .github/workflows/        # the Windows .exe and the Android .apk
 ├── assets/                   # style.css, app icon, icons-src/ (icon sources)
 ├── scripts/import-icons.sh   # Material Symbols -> the icons the app embeds
 ├── packaging/                # .desktop entry
@@ -339,6 +409,7 @@ atlas-notes/
     ├── checklist/# pure checklist model (parse / serialize / sort)
     ├── update/   # is there a newer version? (no GTK, no install logic)
     ├── vaultlock/# Argon2id + XChaCha20-Poly1305 (no GTK, no files)
+    ├── mobile/   # the phone interface: Gio, Material Design, no assistant
     ├── ai/       # Ollama HTTP client
     └── ui/       # vault panel (tree*.go) + assistant panel (sidebar*.go)
 ```
