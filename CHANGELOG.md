@@ -66,6 +66,27 @@ before this pass.
   formatting toolbar and text rendering, none of which are either. The name had
   stopped describing the contents.
 
+## [Unreleased]
+
+### Changed
+- **Where notes live is decided per platform.** Linux is untouched and still
+  follows the XDG specification exactly, so no existing vault moves. Windows
+  gets the vault under `%LOCALAPPDATA%` and settings under `%APPDATA%`, which
+  is what those two are for; macOS gets Application Support; Android is told
+  its directory by the host, because there is nothing to guess at there.
+  `ATLAS_DATA_HOME` and `ATLAS_CONFIG_HOME` override any of it.
+- **The two things the app asks of the operating system directly are split per
+  platform**: how much processor time it has used, and how to become the newly
+  installed version of itself. Unix replaces the running process so the window
+  manager sees one continuous application; Windows cannot do that, and will not
+  let a running executable be overwritten either, so it hands over to the new
+  binary and ends.
+
+With that, everything except the interface compiles for Windows, macOS and
+Android: storage, the checklist model, the update check, the encryption and the
+assistant client. `internal/editor`, `internal/ui` and `internal/app` are GTK,
+and are what each platform still needs.
+
 ## [0.5.10] - 2026-09-24
 
 The actual fix for the crash. v0.5.9 said it fixed this and did not.

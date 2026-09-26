@@ -129,12 +129,15 @@ type Config struct {
 	EnableTreeSummaries bool       `json:"enable_tree_summaries"`
 }
 
+// dataDir and configDir are per-platform; see paths_*.go. Both honour an
+// explicit override first, which is how a host application that owns its own
+// storage (Android) says where the vault lives, and how the test and
+// measurement harnesses keep out of a real vault.
 func dataDir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
+	if x := os.Getenv("ATLAS_DATA_HOME"); x != "" {
 		return filepath.Join(x, AppName)
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", AppName)
+	return platformDataDir()
 }
 
 // DataDir is the per-user data directory ($XDG_DATA_HOME/atlas-notes or
@@ -143,11 +146,10 @@ func dataDir() string {
 func DataDir() string { return dataDir() }
 
 func configDir() string {
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+	if x := os.Getenv("ATLAS_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, AppName)
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", AppName)
+	return platformConfigDir()
 }
 
 // ConfigPath is the absolute path of config.json.

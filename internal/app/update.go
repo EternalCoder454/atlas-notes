@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
@@ -179,9 +178,7 @@ func (a *App) installUpdate(branch string, onStatus func(text string, done bool)
 					"\nStart Atlas Notes again to finish.", true)
 				return false
 			}
-			// Replace this process with the freshly installed binary. On success
-			// this never returns; the new process opens a fresh window.
-			if e := syscall.Exec(exe, []string{exe}, os.Environ()); e != nil {
+			if e := restartInto(exe); e != nil {
 				onStatus("Installed, but the app couldn't be restarted: "+e.Error()+
 					"\nStart Atlas Notes again to finish.", true)
 			}

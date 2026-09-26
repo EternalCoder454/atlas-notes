@@ -9,7 +9,6 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -112,11 +111,7 @@ type sample struct {
 
 func takeSample() sample {
 	var s sample
-	var ru syscall.Rusage
-	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) == nil {
-		s.UserMs = float64(ru.Utime.Sec)*1000 + float64(ru.Utime.Usec)/1000
-		s.SysMs = float64(ru.Stime.Sec)*1000 + float64(ru.Stime.Usec)/1000
-	}
+	s.UserMs, s.SysMs = processCPU()
 	for k, v := range procPairs("/proc/self/status") {
 		switch k {
 		case "VmRSS":
