@@ -102,11 +102,11 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 	// Badges sit at the end of the row: a star for a favourite, a padlock for
 	// something encrypted. Both are built once and shown or hidden per row,
 	// because every widget the bindings wrap stays resident once created.
-	star := gtk.NewImageFromIconName("atlas-star-symbolic")
+	star := gtk.NewImageFromIconName("atlasnotes-star-symbolic")
 	star.AddCSSClass("row-badge")
 	star.AddCSSClass("row-star")
 	star.SetVisible(false)
-	lock := gtk.NewImageFromIconName("atlas-lock-symbolic")
+	lock := gtk.NewImageFromIconName("atlasnotes-lock-symbolic")
 	lock.AddCSSClass("row-badge")
 	lock.SetVisible(false)
 
@@ -198,11 +198,11 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 	// it here.
 	switch {
 	case n.isFolder:
-		icon.SetFromIconName("atlas-folder-symbolic")
+		icon.SetFromIconName("atlasnotes-folder-symbolic")
 	case n.tasks:
-		icon.SetFromIconName("atlas-checklist-symbolic")
+		icon.SetFromIconName("atlasnotes-checklist-symbolic")
 	default:
-		icon.SetFromIconName("atlas-note-symbolic")
+		icon.SetFromIconName("atlasnotes-note-symbolic")
 	}
 	if label, ok := icon.NextSibling().(*gtk.Label); ok {
 		label.SetText(n.name)

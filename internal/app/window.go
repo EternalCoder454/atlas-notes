@@ -45,23 +45,23 @@ func (a *App) buildWindow() {
 	header.SetTitleWidget(a.windowTitle)
 
 	a.leftToggle = gtk.NewToggleButton()
-	a.leftToggle.SetIconName("atlas-panel-left-symbolic")
+	a.leftToggle.SetIconName("atlasnotes-panel-left-symbolic")
 	a.leftToggle.SetActive(true)
 	a.leftToggle.SetTooltipText("Show or hide the vault (F9)")
 	header.PackStart(a.leftToggle)
 
-	newBtn := gtk.NewButtonFromIconName("atlas-note-new-symbolic")
+	newBtn := gtk.NewButtonFromIconName("atlasnotes-note-new-symbolic")
 	newBtn.SetTooltipText("New note (Ctrl+N)")
 	newBtn.ConnectClicked(a.actionNewNote)
 	header.PackStart(newBtn)
 
-	homeBtn := gtk.NewButtonFromIconName("atlas-home-symbolic")
+	homeBtn := gtk.NewButtonFromIconName("atlasnotes-home-symbolic")
 	homeBtn.SetTooltipText("Home screen (Ctrl+H)")
 	homeBtn.ConnectClicked(a.showWelcome)
 	header.PackStart(homeBtn)
 
 	menuBtn := gtk.NewMenuButton()
-	menuBtn.SetIconName("atlas-menu-symbolic")
+	menuBtn.SetIconName("atlasnotes-menu-symbolic")
 	menuBtn.SetTooltipText("Main menu")
 	menuBtn.SetPrimary(true)
 	menuBtn.SetMenuModel(a.buildMainMenu())
@@ -74,7 +74,7 @@ func (a *App) buildWindow() {
 	//
 	// The app's own gear is preferred when it is there; the system one is the
 	// fallback, and it ships inside the Windows bundle's Adwaita theme.
-	settingsBtn := gtk.NewButtonFromIconName(iconName("atlas-settings-symbolic", "emblem-system-symbolic"))
+	settingsBtn := gtk.NewButtonFromIconName(iconName("atlasnotes-settings-symbolic", "emblem-system-symbolic"))
 	settingsBtn.SetTooltipText("Settings (Ctrl+,)")
 	settingsBtn.ConnectClicked(a.showSettings)
 	header.PackEnd(settingsBtn)
@@ -82,7 +82,7 @@ func (a *App) buildWindow() {
 	a.rightToggle = gtk.NewToggleButton()
 	// The assistant's own mark rather than a second sidebar arrow: the button
 	// toggles the assistant, and the panel it opens carries the same shape.
-	a.rightToggle.SetIconName(iconName("atlas-assistant-symbolic", "atlas-panel-right-symbolic"))
+	a.rightToggle.SetIconName(iconName("atlasnotes-assistant-symbolic", "atlasnotes-panel-right-symbolic"))
 	a.rightToggle.SetActive(true)
 	a.rightToggle.SetTooltipText("Show or hide the assistant (F10)")
 	header.PackEnd(a.rightToggle)

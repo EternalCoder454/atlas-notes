@@ -130,19 +130,19 @@ func (a *App) buildFormatBar() *gtk.Box {
 	bar.AddCSSClass("format-bar")
 
 	groups := [][]formatButton{{
-		{"atlas-bold-symbolic", "B", "Bold (Ctrl+B)", func() { a.withEditor((*editor.Editor).ToggleBold) }},
-		{"atlas-italic-symbolic", "I", "Italic (Ctrl+I)", func() { a.withEditor((*editor.Editor).ToggleItalic) }},
-		{"atlas-strikethrough-symbolic", "S", "Strikethrough", func() { a.withEditor((*editor.Editor).ToggleStrike) }},
-		{"atlas-code-symbolic", "</>", "Inline code (Ctrl+E)", func() { a.withEditor((*editor.Editor).ToggleCode) }},
+		{"atlasnotes-bold-symbolic", "B", "Bold (Ctrl+B)", func() { a.withEditor((*editor.Editor).ToggleBold) }},
+		{"atlasnotes-italic-symbolic", "I", "Italic (Ctrl+I)", func() { a.withEditor((*editor.Editor).ToggleItalic) }},
+		{"atlasnotes-strikethrough-symbolic", "S", "Strikethrough", func() { a.withEditor((*editor.Editor).ToggleStrike) }},
+		{"atlasnotes-code-symbolic", "</>", "Inline code (Ctrl+E)", func() { a.withEditor((*editor.Editor).ToggleCode) }},
 	}, {
-		{"atlas-heading1-symbolic", "H1", "Heading (Ctrl+1)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(1) }) }},
-		{"atlas-heading2-symbolic", "H2", "Subheading (Ctrl+2)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(2) }) }},
-		{"atlas-paragraph-symbolic", "¶", "Plain text (Ctrl+0)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(0) }) }},
+		{"atlasnotes-heading1-symbolic", "H1", "Heading (Ctrl+1)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(1) }) }},
+		{"atlasnotes-heading2-symbolic", "H2", "Subheading (Ctrl+2)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(2) }) }},
+		{"atlasnotes-paragraph-symbolic", "¶", "Plain text (Ctrl+0)", func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(0) }) }},
 	}, {
-		{"atlas-bullet-list-symbolic", "•", "Bullet list", func() { a.withEditor((*editor.Editor).ToggleBullet) }},
-		{"atlas-task-symbolic", "☑", "Task (Ctrl+Shift+T)", func() { a.withEditor((*editor.Editor).ToggleTask) }},
-		{"atlas-quote-symbolic", "❝", "Quote", func() { a.withEditor((*editor.Editor).ToggleQuote) }},
-		{"atlas-divider-symbolic", "─", "Divider", func() { a.withEditor((*editor.Editor).InsertDivider) }},
+		{"atlasnotes-bullet-list-symbolic", "•", "Bullet list", func() { a.withEditor((*editor.Editor).ToggleBullet) }},
+		{"atlasnotes-task-symbolic", "☑", "Task (Ctrl+Shift+T)", func() { a.withEditor((*editor.Editor).ToggleTask) }},
+		{"atlasnotes-quote-symbolic", "❝", "Quote", func() { a.withEditor((*editor.Editor).ToggleQuote) }},
+		{"atlasnotes-divider-symbolic", "─", "Divider", func() { a.withEditor((*editor.Editor).InsertDivider) }},
 	}}
 
 	for i, group := range groups {

@@ -6,8 +6,12 @@
 #
 #   * Renaming. Icon lookup goes current theme -> parents -> hicolor last, and
 #     an icon called "search-symbolic" would lose to the system theme's own and
-#     never appear. Everything is prefixed "atlas-" so it cannot collide. The
-#     "-symbolic" suffix is what tells GTK the icon may be recoloured.
+#     never appear. Everything is prefixed "atlasnotes-" so it cannot collide.
+#     The prefix used to be "atlas-", which kept clear of the system and not of
+#     the other Atlas apps: Atlas Monitor installs atlas-menu-symbolic and four
+#     more into the shared user theme, which is searched before this app's own
+#     icons, so Atlas Notes was drawing Monitor's. The "-symbolic" suffix is
+#     what tells GTK the icon may be recoloured.
 #   * A black fill. The exports carry whatever colour the website previewed
 #     with, usually a pale grey. GTK overrides it when recolouring, but anything
 #     else that renders the file — a thumbnailer, a browser — would show pale
@@ -25,7 +29,7 @@ cd "$(dirname "$(readlink -f "$0")")/.."
 src_dir=assets/icons-src
 out_dir=internal/app/icons
 
-# <Material Symbols name>:<installed name, without the atlas-/-symbolic wrapper>
+# <Material Symbols name>:<installed name, without the atlasnotes-/-symbolic wrapper>
 map=(
     # Formatting toolbar
     format_bold:bold
@@ -76,7 +80,7 @@ fail=0
 mkdir -p "$out_dir"
 for pair in "${map[@]}"; do
     src="$src_dir/${pair%%:*}.svg"
-    dst="$out_dir/atlas-${pair##*:}-symbolic.svg"
+    dst="$out_dir/atlasnotes-${pair##*:}-symbolic.svg"
 
     if [ ! -f "$src" ]; then
         echo "  missing: $src"

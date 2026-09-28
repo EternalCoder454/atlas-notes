@@ -138,7 +138,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	bar := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	bar.AddCSSClass("ai-input-bar")
 	s.menuBtn = gtk.NewMenuButton()
-	s.menuBtn.SetIconName("atlas-prompts-symbolic")
+	s.menuBtn.SetIconName("atlasnotes-prompts-symbolic")
 	s.menuBtn.SetTooltipText("Note actions")
 	s.menuBtn.AddCSSClass("flat")
 	// The menu's contents are built the first time it is opened: at startup
@@ -152,7 +152,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 		s.rebuildActionsMenu()
 	})
 	s.editToggle = gtk.NewToggleButton()
-	s.editToggle.SetIconName("atlas-edit-symbolic")
+	s.editToggle.SetIconName("atlasnotes-edit-symbolic")
 	s.editToggle.SetTooltipText("Edit mode: apply the reply to the note instead of answering")
 	s.editToggle.AddCSSClass("flat")
 	s.editToggle.ConnectToggled(s.onModeToggled)
@@ -160,7 +160,7 @@ func NewSidebar(client *ai.Client) *Sidebar {
 	s.askEntry.SetHExpand(true)
 	s.askEntry.SetPlaceholderText(s.placeholder())
 	s.askEntry.ConnectActivate(s.onSend)
-	s.sendBtn = gtk.NewButtonFromIconName("atlas-send-symbolic")
+	s.sendBtn = gtk.NewButtonFromIconName("atlasnotes-send-symbolic")
 	s.sendBtn.AddCSSClass("suggested-action")
 	s.sendBtn.AddCSSClass("circular")
 	s.sendBtn.SetTooltipText("Send (Enter)")
@@ -225,10 +225,10 @@ func (s *Sidebar) onModeToggled() {
 	if s.sendBtn != nil {
 		if s.editToggle.Active() {
 			s.sendBtn.SetTooltipText("Apply this instruction to the note")
-			s.sendBtn.SetIconName("atlas-edit-symbolic")
+			s.sendBtn.SetIconName("atlasnotes-edit-symbolic")
 		} else {
 			s.sendBtn.SetTooltipText("Send (Enter)")
-			s.sendBtn.SetIconName("atlas-send-symbolic")
+			s.sendBtn.SetIconName("atlasnotes-send-symbolic")
 		}
 	}
 }
@@ -304,12 +304,12 @@ func (s *Sidebar) buildSetupCard() *gtk.Box {
 
 	btnRow := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	s.copyBtn = gtk.NewButton()
-	s.copyBtn.SetChild(labelledIcon("atlas-copy-symbolic", "Copy commands"))
+	s.copyBtn.SetChild(labelledIcon("atlasnotes-copy-symbolic", "Copy commands"))
 	s.copyBtn.ConnectClicked(func() {
 		s.copyBtn.Clipboard().SetText(s.setupCmd.Text())
-		s.copyBtn.SetChild(labelledIcon("atlas-copy-symbolic", "Copied"))
+		s.copyBtn.SetChild(labelledIcon("atlasnotes-copy-symbolic", "Copied"))
 		coreglib.TimeoutAdd(1200, func() bool {
-			s.copyBtn.SetChild(labelledIcon("atlas-copy-symbolic", "Copy commands"))
+			s.copyBtn.SetChild(labelledIcon("atlasnotes-copy-symbolic", "Copy commands"))
 			return false
 		})
 	})

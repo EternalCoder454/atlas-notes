@@ -206,23 +206,23 @@ func (t *Tree) buildHeader() *gtk.Box {
 	t.countLabel.SetXAlign(0)
 	top.Append(t.countLabel)
 
-	sortBtn := gtk.NewButtonFromIconName("atlas-sort-symbolic")
+	sortBtn := gtk.NewButtonFromIconName("atlasnotes-sort-symbolic")
 	sortBtn.AddCSSClass("flat")
 	sortBtn.SetTooltipText("Sort by name")
 	sortBtn.ConnectClicked(func() {
 		t.sortRecent = !t.sortRecent
 		if t.sortRecent {
 			sortBtn.SetTooltipText("Sort by last edited")
-			sortBtn.SetIconName("atlas-recent-symbolic")
+			sortBtn.SetIconName("atlasnotes-recent-symbolic")
 		} else {
 			sortBtn.SetTooltipText("Sort by name")
-			sortBtn.SetIconName("atlas-sort-symbolic")
+			sortBtn.SetIconName("atlasnotes-sort-symbolic")
 		}
 		t.Refresh()
 	})
 	top.Append(sortBtn)
 
-	newBtn := gtk.NewButtonFromIconName("atlas-add-symbolic")
+	newBtn := gtk.NewButtonFromIconName("atlasnotes-add-symbolic")
 	newBtn.AddCSSClass("flat")
 	newBtn.SetTooltipText("New note here (Ctrl+N)")
 	newBtn.ConnectClicked(func() { t.promptNewNote(t.SelectedFolder()) })
@@ -250,7 +250,7 @@ func (t *Tree) buildEmptyState() *gtk.Box {
 	box.SetVExpand(true)
 	box.SetVisible(false)
 
-	icon := gtk.NewImageFromIconName("atlas-folder-symbolic")
+	icon := gtk.NewImageFromIconName("atlasnotes-folder-symbolic")
 	icon.SetPixelSize(28)
 	icon.AddCSSClass("dim-label")
 	box.Append(icon)
