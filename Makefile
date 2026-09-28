@@ -16,7 +16,7 @@ BINDIR  := $(PREFIX)/bin
 APPDIR  := $(PREFIX)/share/applications
 ICONDIR := $(PREFIX)/share/icons/hicolor/scalable/apps
 
-.PHONY: build run install uninstall clean aar apk
+.PHONY: build run install uninstall clean aar apk bench
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
@@ -42,6 +42,13 @@ uninstall:
 
 clean:
 	rm -rf bin/
+
+# bench measures launch, the work after the first frame, opening, searching and
+# typing against a generated 10,000-note vault, on a virtual display and
+# sandboxed away from the real vault. scripts/bench.sh has the options, and the
+# reason for each of its rules.
+bench:
+	scripts/bench.sh
 
 # The phone build.
 #

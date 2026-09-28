@@ -29,6 +29,9 @@ import (
 //	ATLAS_BENCH=open=N   open notes round-robin N times, report latency
 //	ATLAS_BENCH=soak=N   N edit/save/switch cycles with the main loop running,
 //	                     reporting memory at checkpoints (leak hunting)
+//	ATLAS_BENCH=settle   wait for the work that follows the first frame (the vault
+//	                     scan and the content pass) and report how long it took and
+//	                     the longest the main loop went without running, then quit
 //	ATLAS_BENCH=chaos=N  N randomized operations across the whole UI — creating,
 //	                     renaming and deleting notes and folders, searching,
 //	                     editing, toggling panels — for stability testing, quit
@@ -258,6 +261,8 @@ func (a *App) runBench() {
 			}
 			benchReport["icons"] = found
 			a.emitReport()
+		case "settle":
+			a.benchSettle()
 		case "chaos":
 			if n <= 0 {
 				n = 2000
@@ -271,6 +276,36 @@ func (a *App) runBench() {
 		default:
 			a.emitReport()
 		}
+	})
+}
+
+// benchSettle waits for the after-first-frame work to finish. It reports how
+// long that took, how many notes it had to read, and the longest gap between
+// two turns of the main loop while it ran. The last is the one a person
+// notices: for as long as the main loop is not running, the window does not
+// respond to anything.
+//
+// It is also how scripts/bench.sh makes a vault truly warm. The startup
+// benchmark quits at the first frame, before this work runs, so a vault it
+// has seen still has all of it left to do.
+func (a *App) benchSettle() {
+	start := time.Now()
+	last := start
+	var worst time.Duration
+	coreglib.TimeoutAdd(5, func() bool {
+		now := time.Now()
+		if gap := now.Sub(last); gap > worst {
+			worst = gap
+		}
+		last = now
+		if !a.backgroundDone {
+			return true
+		}
+		benchReport["settle_ms"] = float64(now.Sub(start).Microseconds()) / 1000
+		benchReport["settle_max_stall_ms"] = float64(worst.Microseconds()) / 1000
+		benchReport["settle_notes_read"] = a.backgroundCount
+		a.emitReport()
+		return false
 	})
 }
 

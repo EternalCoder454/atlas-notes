@@ -72,6 +72,8 @@ type App struct {
 
 	fontMode        string // text-rendering mode currently applied (see fonts.go)
 	reindexPending  bool   // the vault scan runs after the first frame
+	backgroundDone  bool   // the scan and content pass after the first frame have finished
+	backgroundCount int    // notes that pass had to read, for the settle benchmark
 	welcomeBuilt    bool   // the home screen is constructed on first use
 	recents         []*recentRow
 	recentsHeading  *gtk.Label
@@ -196,6 +198,7 @@ func (a *App) shutdown() {
 // the tree is refreshed only if the scan actually changed something.
 func (a *App) scheduleReindex() {
 	if a.store == nil {
+		a.backgroundDone = true
 		return
 	}
 	pending := a.reindexPending
@@ -222,11 +225,13 @@ func (a *App) scheduleReindex() {
 			log.Printf("atlas-notes: checklist flags: %v", err)
 		} else if n > 0 {
 			changed = true
+			a.backgroundCount = n
 		}
 		if changed && a.tree != nil {
 			a.tree.ForceRefresh()
 			a.refreshWelcome()
 		}
+		a.backgroundDone = true
 		return false
 	})
 }

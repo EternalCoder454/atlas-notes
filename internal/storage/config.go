@@ -168,6 +168,12 @@ func ConfigPath() string { return filepath.Join(configDir(), "config.json") }
 // DefaultVaultPath is ~/.local/share/atlas-notes/vault.
 func DefaultVaultPath() string { return filepath.Join(dataDir(), "vault") }
 
+// isDefaultVault reports whether path is the default vault, however it is
+// spelled. An empty path means the default too.
+func isDefaultVault(path string) bool {
+	return path == "" || filepath.Clean(path) == filepath.Clean(DefaultVaultPath())
+}
+
 // DefaultDBPath is ~/.local/share/atlas-notes/index.db.
 func DefaultDBPath() string { return filepath.Join(dataDir(), "index.db") }
 
@@ -271,6 +277,15 @@ func upgradePrompts(cfg *Config) {
 func SaveConfig(cfg Config) error {
 	if err := os.MkdirAll(configDir(), 0o755); err != nil {
 		return err
+	}
+	// The default vault is written as "", which LoadConfig reads back as the
+	// default. Writing it out in full pinned the vault to wherever the data
+	// directory happened to be the first time the app ran: restore a backup
+	// under another user, or copy a data directory somewhere else, and the
+	// config went on pointing at the old location. A vault the user chose is
+	// written as it is, because that path means something.
+	if isDefaultVault(cfg.VaultPath) {
+		cfg.VaultPath = ""
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
