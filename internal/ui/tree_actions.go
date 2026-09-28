@@ -76,6 +76,9 @@ func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
 			add("Protect with Password…", false, func() { t.OnLock(n.rel, n.isFolder) })
 		}
 
+		if !n.isFolder && t.OnExport != nil {
+			add("Export…", false, func() { t.OnExport(n.rel) })
+		}
 		add("Delete", true, func() { t.promptDelete(n) })
 	}
 

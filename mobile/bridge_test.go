@@ -219,3 +219,20 @@ func TestCallsBeforeOpenFailRatherThanPanic(t *testing.T) {
 		t.Error("IsUnlocked was true with no vault open")
 	}
 }
+
+func TestExportNote(t *testing.T) {
+	newVault(t)
+	rel, _ := NewNote("Shopping")
+	WriteNote(rel, "# Shopping\n\n- [ ] bread\n")
+	data, err := ExportNote(rel, "docx")
+	if err != nil || len(data) < 4 || string(data[:2]) != "PK" {
+		t.Fatalf("docx export: %d bytes, %v", len(data), err)
+	}
+	if got := ExportFileName(rel, "odt"); got != "Shopping.odt" {
+		t.Errorf("file name %q", got)
+	}
+	raw, _ := ExportFormats()
+	if !strings.Contains(raw, `"id":"md"`) {
+		t.Errorf("formats: %s", raw)
+	}
+}

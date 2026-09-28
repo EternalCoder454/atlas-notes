@@ -114,6 +114,8 @@ type Tree struct {
 	OnDeleted func(rel string, isFolder bool)
 	// OnMessage shows a short message, such as where a deleted note went.
 	OnMessage func(text string)
+	// OnExport exports a note to another format.
+	OnExport func(rel string)
 	// OnMoved is invoked after a note is dragged into another folder.
 	OnMoved func(oldRel, newRel string)
 	// OnChanged is invoked after the vault's contents change, so the rest of the

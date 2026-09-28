@@ -7,7 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Search inside notes.** The vault panel finds notes by what they say as well
+  as by name. Names match as you type; text matches follow once typing pauses,
+  newest first, from three letters. The index is SQLite FTS5 in its contentless
+  form, which stores which words are in which note and not the notes' text. At
+  10,000 notes it adds 9 MB and answers in 2 to 7 ms.
+- **Locked notes stay out of it, provably.** Triggers on the notes table take a
+  note out of the index whatever marks it locked. Because deleting from an index
+  does not erase the bytes, locking also optimises the index, runs with
+  secure_delete, and truncates the WAL; a test greps the raw database files for a
+  locked note's words, and fails if any one of the three is removed.
+- **Export** a note as a Word document, OpenDocument text, Markdown, a web page
+  or plain text: from the main menu (Ctrl+Shift+E), a note's right-click menu, or
+  the share button on the phone. Headings, lists, checklists with their priority
+  and due date, quotes, code and links carry over; Word and OpenDocument files
+  use the office suites' own heading styles and real lists. LibreOffice opens all
+  three in a test. Exporting a protected note warns that the copy is not.
+- **Deleted notes and folders go to the Trash**, where they can be restored,
+  instead of being gone. Where a drive has no Trash, nothing is deleted until you
+  agree to delete it permanently. Locking a note never sends its plaintext to the
+  Trash; a test holds that.
+- **The phone can use a shared folder**, so a sync app such as Syncthing can keep
+  the same notes on a phone and a computer. The password file lives in the vault,
+  so locked notes open with the same password on both. Each folder has its own
+  index in private storage, and the guide note is never written into a shared
+  folder. The phone now checks the folder for changes when it opens and when it
+  comes back to the front, and finds notes by their text too.
+- **`make bench`**, against a vault generated from a seed, on a virtual display,
+  sandboxed from the real vault with a canary that fails the run if anything
+  real changed.
+
 ### Changed
+- **The assistant folds away below 1200 px again**, as 0.5.8 promised, but only
+  when the window crosses that width, so opening it in a narrow window keeps it
+  open. It has a minimum width now, and its width is only saved while it is
+  showing; it had been saved as 11 px, the width of the drag handle.
+- **Icons are named `atlasnotes-*`.** Atlas Monitor installs five icons with the
+  same `atlas-*` names into the shared user theme, which is searched first, so
+  Atlas Notes had been drawing Monitor's.
+- **Reading notes after the first frame is off the main thread.** A first launch
+  with 10,000 notes stopped the window for 185 ms; with the search index to fill
+  as well it now stops it for 48.5 ms at most.
+- **The default vault is saved as `""`**, so a restored or copied data directory
+  finds its own vault rather than the old path.
 - **The release builds also run on main, for the caches.** Actions scopes a
   cache to the ref that saved it: a run on a tag cannot read one saved on beta,
   and only the default branch's caches are readable from every ref. So the

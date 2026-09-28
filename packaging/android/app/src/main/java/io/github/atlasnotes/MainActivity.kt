@@ -26,6 +26,7 @@ import io.github.atlasnotes.ui.NoteEditor
 import io.github.atlasnotes.ui.NoteList
 import io.github.atlasnotes.ui.PasswordDialog
 import io.github.atlasnotes.ui.VaultFolderDialog
+import io.github.atlasnotes.ui.ExportDialog
 
 /**
  * The whole app: a list of notes, and one of them open.
@@ -92,6 +93,12 @@ private fun Root(model: VaultModel) {
 
     if (model.showFolder) {
         VaultFolderDialog(model)
+    }
+
+    // Kept mounted while a note is open, so the save picker it launches can
+    // report back after the format sheet has closed.
+    if (model.openPath != null) {
+        ExportDialog(model)
     }
 
     // Failures that are not about the password go to a snackbar; the password

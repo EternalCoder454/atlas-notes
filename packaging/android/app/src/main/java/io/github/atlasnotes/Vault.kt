@@ -146,6 +146,26 @@ object Vault {
         (0 until a.length()).map { a.getString(it) }.toSet()
     }
 
+    /** A kind of document a note can be exported as. */
+    data class ExportFormat(val id: String, val name: String, val ext: String, val mime: String)
+
+    suspend fun exportFormats(): List<ExportFormat> = io {
+        JSONArray(Bridge.exportFormats()).map {
+            ExportFormat(it.getString("id"), it.getString("name"), it.getString("ext"), it.getString("mime"))
+        }
+    }
+
+    /** A note rendered as [format], ready to be written to a file. */
+    suspend fun export(path: String, format: String): ByteArray = io {
+        try {
+            Bridge.exportNote(path, format)
+        } catch (e: Exception) {
+            if (e.message == LOCKED) throw Locked() else throw e
+        }
+    }
+
+    fun exportFileName(path: String, format: String): String = Bridge.exportFileName(path, format)
+
     private const val LOCKED = "locked"
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }

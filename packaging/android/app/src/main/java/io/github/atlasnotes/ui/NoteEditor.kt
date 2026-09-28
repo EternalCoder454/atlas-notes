@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -62,6 +63,9 @@ fun NoteEditor(model: VaultModel) {
                             strokeWidth = 2.dp,
                         )
                         Spacer(Modifier.width(8.dp))
+                    }
+                    IconButton(onClick = { model.chooseExport() }) {
+                        Icon(Icons.Outlined.Share, contentDescription = "Export")
                     }
                     IconButton(onClick = { renaming = true }) {
                         Icon(IconRename, contentDescription = "Rename")

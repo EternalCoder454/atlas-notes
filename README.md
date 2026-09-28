@@ -46,6 +46,21 @@ packages are installed.
   drag-resizable and collapsible from the header bar, with a home screen that
   puts new notes, search and your recent work one click away.
 
+## Your notes on your phone
+
+Atlas Notes does not run a sync service. A sync app does that job: keep one
+folder the same on your computer and your phone with something like
+[Syncthing](https://syncthing.net), then point both at it. On the computer, that
+folder is your vault (`vault_path` in `config.json`); on the phone, tap the folder
+button above the list and choose it. Locked notes open with the same password on
+both, because the password file travels inside the vault.
+
+## Exporting
+
+Any note exports as a Word document, OpenDocument text, Markdown, a web page or
+plain text: **Export…** in the main menu (Ctrl+Shift+E), a note's right-click menu,
+or the share button in a note on the phone.
+
 ## Platforms
 
 | | Interface | How it is built |

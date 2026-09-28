@@ -95,6 +95,7 @@ func (a *App) buildWindow() {
 		a.tree.OnOpenNote = a.openNote
 		a.tree.OnDeleted = a.onDeleted
 		a.tree.OnMessage = a.toast
+		a.tree.OnExport = a.exportNote
 		a.tree.OnMoved = a.onMoved
 		a.tree.OnChanged = a.refreshWelcome
 		a.tree.IsStarred = a.isStarred
@@ -202,6 +203,7 @@ func (a *App) buildMainMenu() *gio.Menu {
 	current := gio.NewMenu()
 	current.Append("Save Now", "app.save")
 	current.Append("Rename…", "app.rename")
+	current.Append("Export…", "app.export")
 	current.Append("Find a Note", "app.search")
 	menu.AppendSection("", current)
 

@@ -32,6 +32,7 @@ func (a *App) registerActions() {
 		{"new-folder", []string{"<Control><Shift>n"}, a.actionNewFolder},
 		{"save", []string{"<Control>s"}, a.saveCurrent},
 		{"rename", []string{"F2"}, a.actionRename},
+		{"export", []string{"<Control><Shift>e"}, a.exportCurrent},
 		{"search", []string{"<Control>k", "<Control>p", "<Control>f"}, a.actionFocusSearch},
 		{"home", []string{"<Control>h"}, a.showWelcome},
 		{"toggle-vault", []string{"F9"}, func() { a.toggle(a.leftToggle) }},

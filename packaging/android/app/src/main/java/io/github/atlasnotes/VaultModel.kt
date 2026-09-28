@@ -36,6 +36,38 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     /** Whether the sheet about where the notes live is showing. */
     var showFolder by mutableStateOf(false)
 
+    /** The export formats, once asked for, which shows the format sheet. */
+    var exportChoices by mutableStateOf<List<Vault.ExportFormat>?>(null)
+
+    fun chooseExport() = viewModelScope.launch {
+        exportChoices = runCatching { Vault.exportFormats() }.getOrElse {
+            error = it.message
+            null
+        }
+    }
+
+    /**
+     * Writes the open note, as [format], to the file the user picked. The note
+     * is saved first so the file is what is on screen.
+     */
+    fun exportTo(uri: android.net.Uri, format: Vault.ExportFormat) = viewModelScope.launch {
+        val path = openPath ?: return@launch
+        try {
+            saveJob?.cancel()
+            save()
+            val bytes = Vault.export(path, format.id)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    ?: throw Exception("That place could not be written to")
+            }
+            error = "Exported as " + format.name
+        } catch (e: Vault.Locked) {
+            error = "Unlock this note to export it"
+        } catch (e: Exception) {
+            error = e.message ?: "The export failed"
+        }
+    }
+
     /** A folder switch is under way; the sheet shows it rather than a second tap. */
     var switching by mutableStateOf(false); private set
 
