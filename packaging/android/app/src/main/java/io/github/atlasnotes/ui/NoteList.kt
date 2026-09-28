@@ -36,6 +36,11 @@ fun NoteList(model: VaultModel) {
         topBar = {
             TopAppBar(
                 title = { Text("Atlas Notes") },
+                actions = {
+                    IconButton(onClick = { model.showFolder = true }) {
+                        Icon(IconFolder, contentDescription = "Where your notes are")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
@@ -56,7 +61,7 @@ fun NoteList(model: VaultModel) {
 
             SearchField(
                 value = model.query,
-                onValueChange = { model.query = it },
+                onValueChange = { model.updateQuery(it) },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
 
@@ -71,7 +76,7 @@ fun NoteList(model: VaultModel) {
                     contentPadding = PaddingValues(bottom = 96.dp),
                 ) {
                     items(shown, key = { it.path }) { note ->
-                        NoteRow(note) { model.open(note) }
+                        NoteRow(note, foundByText = model.foundByText(note)) { model.open(note) }
                     }
                 }
             }
@@ -101,12 +106,16 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit, modifier
 }
 
 @Composable
-private fun NoteRow(note: Vault.Note, onClick: () -> Unit) {
+private fun NoteRow(note: Vault.Note, foundByText: Boolean, onClick: () -> Unit) {
     ListItem(
         headlineContent = {
             Text(note.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
-        supportingContent = { Text(subtitle(note)) },
+        // A note in the results because of something inside it says so, or
+        // it looks as if the search matched something it plainly does not.
+        supportingContent = {
+            Text(if (foundByText) "Found in the text · " + subtitle(note) else subtitle(note))
+        },
         leadingContent = {
             Icon(
                 imageVector = when {

@@ -24,8 +24,20 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
 
     var ready by mutableStateOf(false); private set
     var notes by mutableStateOf<List<Vault.Note>>(emptyList()); private set
-    var query by mutableStateOf("")
+    var query by mutableStateOf(""); private set
     var error by mutableStateOf<String?>(null)
+
+    /** Notes whose text matched the search, as the index last reported. */
+    var contentHits by mutableStateOf<Set<String>>(emptySet()); private set
+
+    /** Where the notes are, once the vault is open. */
+    var location by mutableStateOf<Vault.Location?>(null); private set
+
+    /** Whether the sheet about where the notes live is showing. */
+    var showFolder by mutableStateOf(false)
+
+    /** A folder switch is under way; the sheet shows it rather than a second tap. */
+    var switching by mutableStateOf(false); private set
 
     /** The open note, or null when the list is showing. */
     var openPath by mutableStateOf<String?>(null); private set
@@ -53,20 +65,46 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     )
 
     private var saveJob: Job? = null
+    private var searchJob: Job? = null
+    private var settleJob: Job? = null
 
     init {
         viewModelScope.launch {
             try {
                 // Android's own private directory for this app: not world
                 // readable, included in the app's backup, and removed with it.
+                // The notes are there too unless the user has chosen a shared
+                // folder, which the configuration in it remembers.
                 Vault.open(getApplication<Application>().filesDir.resolve("vault"))
                 notes = Vault.notes()
+                location = Vault.location()
                 ready = true
             } catch (e: Exception) {
                 error = e.message ?: "The vault would not open"
                 ready = true
             }
+            settleInBackground()
             checkForUpdate()
+        }
+    }
+
+    /**
+     * Called when the app comes back to the front. A sync app may have
+     * changed the folder while it was away, so the list is checked against it.
+     */
+    fun resume() {
+        if (ready) settleInBackground()
+    }
+
+    /** Runs a settle unless one is already running, then refreshes the list. */
+    private fun settleInBackground() {
+        if (settleJob?.isActive == true) return
+        settleJob = viewModelScope.launch {
+            runCatching {
+                Vault.settle()
+                notes = Vault.notes()
+                if (query.isNotBlank()) searchText(query)
+            }
         }
     }
 
@@ -74,15 +112,77 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         runCatching { notes = Vault.notes() }.onFailure { error = it.message }
     }
 
-    /** The notes the search box is currently letting through, newest first. */
+    /**
+     * Changes the search. Names are matched as the text changes; the text of
+     * the notes is asked for once typing pauses, because asking the index on
+     * every letter would cost a query per letter for nothing.
+     */
+    fun updateQuery(text: String) {
+        query = text
+        searchJob?.cancel()
+        if (text.trim().length < 3) {
+            contentHits = emptySet()
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(150)
+            searchText(text)
+        }
+    }
+
+    private suspend fun searchText(text: String) {
+        contentHits = runCatching { Vault.searchText(text.trim()) }.getOrDefault(emptySet())
+    }
+
+    /**
+     * The notes the search box is letting through. Those whose name or folder
+     * matches come first, newest first, then those found only by their text.
+     */
     fun visible(): List<Vault.Note> {
         val q = query.trim()
-        val matching =
-            if (q.isEmpty()) notes
-            else notes.filter {
-                it.name.contains(q, ignoreCase = true) || it.folder.contains(q, ignoreCase = true)
-            }
-        return matching.sortedByDescending { it.modified }
+        if (q.isEmpty()) return notes.sortedByDescending { it.modified }
+        val byName = notes.filter {
+            it.name.contains(q, ignoreCase = true) || it.folder.contains(q, ignoreCase = true)
+        }
+        val named = byName.map { it.path }.toSet()
+        val byText = notes.filter { it.path in contentHits && it.path !in named }
+        return byName.sortedByDescending { it.modified } + byText.sortedByDescending { it.modified }
+    }
+
+    /** Whether a note is in the results only because of what it says. */
+    fun foundByText(note: Vault.Note): Boolean {
+        val q = query.trim()
+        return q.isNotEmpty() && note.path in contentHits &&
+            !note.name.contains(q, ignoreCase = true) && !note.folder.contains(q, ignoreCase = true)
+    }
+
+    /**
+     * Moves onto another folder of notes, or back to this app's own with "".
+     * The open note is saved and closed first, so nothing is written to one
+     * folder while the app is already looking at the other.
+     */
+    fun useFolder(path: String) = viewModelScope.launch {
+        switching = true
+        try {
+            saveJob?.cancel()
+            save()
+            openPath = null
+            body = ""
+            tasks = emptyList()
+            Vault.useFolder(path)
+            location = Vault.location()
+            notes = Vault.notes()
+            contentHits = emptySet()
+            showFolder = false
+            // The switch stopped any settle on the old folder; this one needs
+            // its own, once the old one has finished returning.
+            settleJob?.join()
+            settleInBackground()
+        } catch (e: Exception) {
+            error = e.message ?: "That folder could not be used"
+        } finally {
+            switching = false
+        }
     }
 
     // Opening, editing and closing a note.

@@ -25,6 +25,7 @@ import io.github.atlasnotes.ui.AtlasTheme
 import io.github.atlasnotes.ui.NoteEditor
 import io.github.atlasnotes.ui.NoteList
 import io.github.atlasnotes.ui.PasswordDialog
+import io.github.atlasnotes.ui.VaultFolderDialog
 
 /**
  * The whole app: a list of notes, and one of them open.
@@ -64,6 +65,15 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         model.flush()
     }
+
+    /**
+     * Coming back to the app checks the folder for changes, because a sync app
+     * may have brought in new notes while it was away.
+     */
+    override fun onResume() {
+        super.onResume()
+        model.resume()
+    }
 }
 
 @Composable
@@ -78,6 +88,10 @@ private fun Root(model: VaultModel) {
 
     model.ask?.let { ask ->
         PasswordDialog(ask, error = model.error, onCancel = { model.cancelAsk() })
+    }
+
+    if (model.showFolder) {
+        VaultFolderDialog(model)
     }
 
     // Failures that are not about the password go to a snackbar; the password

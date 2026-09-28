@@ -31,8 +31,15 @@ import (
 )
 
 var (
+	// mu guards store and settleCancel.
 	mu    sync.Mutex
 	store *storage.Store
+
+	// settleMu is held for the whole of a content pass, so there is only ever
+	// one, and so switching vaults can wait for the one running to stop. It is
+	// always taken before mu, never while holding it.
+	settleMu     sync.Mutex
+	settleCancel context.CancelFunc
 )
 
 // ErrLockedMessage is what ReadNote returns when a note is encrypted and the
@@ -40,8 +47,10 @@ var (
 // the password rather than show a failure.
 const ErrLockedMessage = "locked"
 
-// Open prepares the vault in the directory Android gives the application. It
-// is safe to call more than once; the second call is a no-op.
+// Open prepares the vault. dataDir is the directory Android gives the
+// application; the vault is the one the configuration names, which is the
+// app's own private folder unless the user has chosen a shared one. It is
+// safe to call more than once; the second call is a no-op.
 func Open(dataDir string) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -54,25 +63,50 @@ func Open(dataDir string) error {
 	if err := setEnv(dataDir); err != nil {
 		return err
 	}
-	s, err := storage.Open("", "")
+	cfg, err := storage.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("open vault: %w", err)
+		// A damaged config is not a reason to show no notes: LoadConfig has
+		// fallen back to the defaults, which is the private vault.
+		cfg = storage.DefaultConfig()
 	}
-	if s.IsIndexEmpty() {
-		if err := s.Reindex(); err != nil {
-			return fmt.Errorf("index the vault: %w", err)
-		}
-		if err := s.EnsureWelcome(); err != nil {
-			return fmt.Errorf("write the first note: %w", err)
-		}
+	s, err := openVault(cfg.VaultPath)
+	if err != nil {
+		return err
 	}
 	store = s
 	return nil
 }
 
-// Close releases the vault. Android may stop the process without calling it,
-// which is safe: every write is already on disk before it returns.
+// openVault opens a vault and, the first time, indexes it. Only the app's own
+// private vault is given the guide note: a shared folder can be empty only
+// because it has not synced yet, and a note written into it then would sync
+// straight to every other device.
+func openVault(path string) (*storage.Store, error) {
+	s, err := storage.Open(path, indexPath(path))
+	if err != nil {
+		return nil, fmt.Errorf("open vault: %w", err)
+	}
+	if s.IsIndexEmpty() {
+		if err := s.Reindex(); err != nil {
+			s.Close()
+			return nil, fmt.Errorf("index the vault: %w", err)
+		}
+		if isPrivate(path) {
+			if err := s.EnsureWelcome(); err != nil {
+				s.Close()
+				return nil, fmt.Errorf("write the first note: %w", err)
+			}
+		}
+	}
+	return s, nil
+}
+
+// Close releases the vault, stopping a content pass first. Android may stop
+// the process without calling it, which is safe: every write is already on
+// disk before it returns.
 func Close() {
+	stopSettle()
+	defer settleMu.Unlock()
 	mu.Lock()
 	defer mu.Unlock()
 	if store != nil {

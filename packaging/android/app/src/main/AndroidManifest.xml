@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       Atlas Notes keeps your notes on your device and needs no network to work.
@@ -20,6 +21,30 @@
     -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!--
+      Only for a vault kept in a shared folder, which is how the same notes
+      reach both a phone and a computer: a sync app such as Syncthing keeps the
+      folder in step, and Atlas Notes reads and writes it. The notes are opened
+      as ordinary files by the Go core the desktop also runs, and Android lets
+      an app do that in shared storage only with these. Nothing is asked for
+      until someone chooses a shared folder, and the app's own storage needs
+      none of them.
+
+      Android 11 and later: "All files access", granted on its own settings
+      page. The Play Store restricts it; Atlas Notes is not on the Play Store.
+      Android 10 and earlier: the older pair, capped so they are never asked
+      for where they would do nothing.
+    -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
     <application
         android:allowBackup="true"
         android:fullBackupContent="true"
@@ -28,6 +53,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.AtlasNotes">
 
         <activity

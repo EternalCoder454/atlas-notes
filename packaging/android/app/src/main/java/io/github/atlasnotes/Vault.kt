@@ -117,6 +117,35 @@ object Vault {
         )
     }
 
+    /** Where the notes are: a folder, and whether it is this app's own. */
+    data class Location(val path: String, val private: Boolean)
+
+    suspend fun location(): Location = io {
+        val o = org.json.JSONObject(Bridge.vaultPath())
+        Location(o.getString("path"), o.optBoolean("private"))
+    }
+
+    /**
+     * Moves onto another folder of notes: [path], or this app's own storage
+     * when it is empty. The folder left behind is not touched.
+     */
+    suspend fun useFolder(path: String) = io { Bridge.setVaultPath(path) }
+
+    /**
+     * Brings the list up to date with the folder after something else has
+     * changed it, a sync app most of all, and reads what it has to for
+     * checklists and search. Returns how many notes it read. It can take a
+     * few seconds the first time on a large vault, so it is run in the
+     * background after the list is already showing.
+     */
+    suspend fun settle(): Int = io { Bridge.settle().toInt() }
+
+    /** Paths of the notes whose text contains every word of [query]. */
+    suspend fun searchText(query: String): Set<String> = io {
+        val a = JSONArray(Bridge.searchNotes(query))
+        (0 until a.length()).map { a.getString(it) }.toSet()
+    }
+
     private const val LOCKED = "locked"
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
