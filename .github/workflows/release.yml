@@ -49,12 +49,24 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
+      # Defender scans every file written, and most of this job is writing
+      # thousands of small ones: unpacking MSYS2's packages, restoring the Go
+      # build cache. The runner is a throwaway VM that only ever sees this
+      # repository and packages from MSYS2 and Go's own servers.
+      - name: Stop real-time scanning for this job
+        shell: pwsh
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
       - uses: actions/checkout@v4
 
       - name: Set up MSYS2 with GTK4 and libadwaita
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
+          # The runner image already has MSYS2 installed. A fresh release is a
+          # download and an unpack of the whole base system on every run, to
+          # arrive at the same thing.
+          release: false
           # `update` is left at its default of false. Setting it to true runs a
           # full pacman system update on every run, which cost minutes and
           # updated nothing this build depends on.
@@ -163,7 +175,7 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process -FilePath "dist\atlas-notes\atlas-notes.exe" -PassThru
-          Start-Sleep -Seconds 8
+          Start-Sleep -Seconds 4
           if ($p.HasExited -and $p.ExitCode -ne 0) {
             Write-Error "atlas-notes.exe exited immediately with $($p.ExitCode)"
             exit 1
