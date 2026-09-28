@@ -74,7 +74,9 @@ type App struct {
 	reindexPending  bool   // the vault scan runs after the first frame
 	backgroundDone  bool   // the scan and content pass after the first frame have finished
 	backgroundCount int    // notes that pass had to read, for the settle benchmark
-	welcomeBuilt    bool   // the home screen is constructed on first use
+	bg              *background
+	closing         bool // shutdown has begun; late main-loop callbacks do nothing
+	welcomeBuilt    bool // the home screen is constructed on first use
 	recents         []*recentRow
 	recentsHeading  *gtk.Label
 	snippets        map[string]snippet // home-screen previews, keyed by note path
@@ -181,11 +183,14 @@ func (a *App) activate() {
 }
 
 func (a *App) shutdown() {
+	a.closing = true
 	a.flushDirty()
 	a.rememberLayout()
 	if err := storage.SaveConfig(a.cfg); err != nil {
 		log.Printf("atlas-notes: save config: %v", err)
 	}
+	// The worker is stopped before the store closes, never the other way round.
+	a.stopBackground()
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {
 			log.Printf("atlas-notes: close storage: %v", err)
@@ -193,45 +198,24 @@ func (a *App) shutdown() {
 	}
 }
 
-// scheduleReindex runs the deferred vault scan just after the window is up. It
-// happens on an idle callback at low priority, so the first frame paints first;
-// the tree is refreshed only if the scan actually changed something.
+// scheduleReindex starts the work that follows the first frame: the vault
+// scan, then reading the notes it found changed. It runs off the main thread;
+// see background.go.
 func (a *App) scheduleReindex() {
 	if a.store == nil {
 		a.backgroundDone = true
 		return
 	}
-	pending := a.reindexPending
+	scan := a.reindexPending
 	a.reindexPending = false
+	// Started from a low-priority idle callback, so it begins once the first
+	// frame has been drawn. Started straight away, it competed with that frame
+	// for the processor and the database connection, and a first launch took
+	// 50 ms longer to show anything.
 	coreglib.IdleAddPriority(coreglib.PriorityLow, func() bool {
-		changed := false
-		if pending {
-			before, _ := a.store.CountNotes()
-			if err := a.store.Reindex(); err != nil {
-				log.Printf("atlas-notes: reindex: %v", err)
-				return false
-			}
-			if err := a.store.EnsureWelcome(); err != nil {
-				log.Printf("atlas-notes: welcome note: %v", err)
-			}
-			after, _ := a.store.CountNotes()
-			changed = after != before
+		if !a.closing {
+			a.startBackground(scan)
 		}
-		// Which notes are checklists is worked out here rather than during the
-		// scan, so a first launch is not held up reading the whole vault to
-		// find out. Nothing to do in a normal session: the write path records
-		// the flag, and only notes changed by something else are left over.
-		if n, err := a.store.ResolveTaskFlags(); err != nil {
-			log.Printf("atlas-notes: checklist flags: %v", err)
-		} else if n > 0 {
-			changed = true
-			a.backgroundCount = n
-		}
-		if changed && a.tree != nil {
-			a.tree.ForceRefresh()
-			a.refreshWelcome()
-		}
-		a.backgroundDone = true
 		return false
 	})
 }

@@ -491,8 +491,16 @@ func TestHasTasksBackfillsOnUpgrade(t *testing.T) {
 	if err := s.WriteNote("Listy", "# Listy\n\n- [ ] a task\n"); err != nil {
 		t.Fatal(err)
 	}
-	// Put the index back the way an older version left it.
-	if _, err := s.db.Exec(`ALTER TABLE notes DROP COLUMN has_tasks`); err != nil {
+	// Put the index back the way an older version left it. That version
+	// predates search as well, so its index, triggers and column go first:
+	// the triggers refer to has_tasks, and SQLite will not drop a column that
+	// something still refers to. Reopening then runs both migrations at once.
+	if _, err := s.db.Exec(`
+		DROP TRIGGER notes_fts_delete; DROP TRIGGER notes_fts_lock;
+		DROP TRIGGER notes_fts_unlock; DROP TRIGGER notes_fts_stale;
+		DROP TABLE notes_fts;
+		ALTER TABLE notes DROP COLUMN indexed;
+		ALTER TABLE notes DROP COLUMN has_tasks;`); err != nil {
 		t.Fatalf("simulating the older schema: %v", err)
 	}
 	s.Close()

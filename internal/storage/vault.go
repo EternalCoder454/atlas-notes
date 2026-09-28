@@ -175,7 +175,7 @@ func (s *Store) Reindex() error {
 			return nil // unchanged since the last run
 		}
 		// The scan does not open files. A note that changed is marked for
-		// ResolveTaskFlags to read later; a locked one cannot be read at all.
+		// ResolveContent to read later; a locked one cannot be read at all.
 		tasks := tasksStale
 		if locked {
 			tasks = tasksUnknown
@@ -197,6 +197,26 @@ func (s *Store) Reindex() error {
 		return nil
 	}
 
+	// A first scan inserts rather than upserts (see below), and a plain insert
+	// fails on a note seen twice, which happens: a lock interrupted halfway
+	// leaves both forms of a note on disk. The upsert kept the last one seen,
+	// so that is what is kept here.
+	if len(known) == 0 {
+		last := make(map[string]int, len(changed))
+		for i, e := range changed {
+			last[e.rel] = i
+		}
+		if len(last) < len(changed) {
+			kept := make([]entry, 0, len(last))
+			for i, e := range changed {
+				if last[e.rel] == i {
+					kept = append(kept, e)
+				}
+			}
+			changed = kept
+		}
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -204,7 +224,16 @@ func (s *Store) Reindex() error {
 	defer tx.Rollback() // no-op once committed
 
 	if len(changed) > 0 {
-		stmt, err := tx.Prepare(upsertNoteSQL)
+		// An empty index cannot conflict with anything, so a first scan
+		// inserts rather than upserts. The difference matters because of the
+		// search index's triggers: they add about 1.4 µs to every upsert, even
+		// one that never updates, which on a first launch with 10,000 notes
+		// was 14 ms before the window could open.
+		sqlText := upsertNoteSQL
+		if len(known) == 0 {
+			sqlText = insertNoteSQL
+		}
+		stmt, err := tx.Prepare(sqlText)
 		if err != nil {
 			return err
 		}

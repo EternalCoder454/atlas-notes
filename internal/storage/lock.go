@@ -151,6 +151,15 @@ func (s *Store) IsNoteLocked(rel string) bool {
 // LockNote encrypts a note in place. The plaintext file is removed only once
 // the encrypted one is safely on disk.
 func (s *Store) LockNote(rel string) error {
+	if err := s.lockNote(rel); err != nil {
+		return err
+	}
+	return s.purgeRemovedWords()
+}
+
+// lockNote is LockNote without the purge, so that locking a folder can lock
+// every note in it and purge once at the end.
+func (s *Store) lockNote(rel string) error {
 	key, err := s.key()
 	if err != nil {
 		return err
@@ -264,11 +273,14 @@ func (s *Store) LockFolder(folder string) error {
 		return err
 	}
 	for _, rel := range notes {
-		if err := s.LockNote(rel); err != nil {
+		if err := s.lockNote(rel); err != nil {
 			return err
 		}
 	}
-	return atomicWrite(marker, nil)
+	if err := atomicWrite(marker, nil); err != nil {
+		return err
+	}
+	return s.purgeRemovedWords()
 }
 
 // UnlockFolder decrypts every note in a folder and clears the marker.

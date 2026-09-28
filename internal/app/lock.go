@@ -168,6 +168,10 @@ func (a *App) applyLock(rel string, isFolder, lock bool) {
 	}
 	a.refreshHeader()
 	a.refreshWelcome()
+	if !lock {
+		// An unlocked note's text can be searched again, once it is read.
+		a.wakeBackground()
+	}
 	if lock {
 		a.toast("Protected. Your password is needed to read this.")
 	} else {

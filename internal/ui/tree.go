@@ -40,6 +40,7 @@ type node struct {
 	folder   string // parent folder, shown as a caption in search results
 	isFolder bool
 	rank     int // search-match position; unused outside search results
+	group    int // in search results: 0 name, 1 folder, 2 only the text
 	created  time.Time
 	modified time.Time
 	locked   bool // stored encrypted, or a folder whose notes are
@@ -91,6 +92,15 @@ type Tree struct {
 	scroll      *gtk.ScrolledWindow
 	query       string // current search text, lowercased
 	sortRecent  bool   // sort notes by last modified instead of by name
+
+	// contentHits is which notes' text matched the search, as the index last
+	// reported, and contentFor is the query they were found for. The index is
+	// asked off the main thread once typing pauses, so these trail the name
+	// matches by a moment, and a result for a query that has since changed is
+	// thrown away. contentGen tells a stale timer or result from a live one.
+	contentHits map[string]bool
+	contentFor  string
+	contentGen  uint64
 
 	summariesEnabled bool
 	summaries        map[string]string
@@ -220,11 +230,12 @@ func (t *Tree) buildHeader() *gtk.Box {
 	header.Append(top)
 
 	t.searchEntry = gtk.NewSearchEntry()
-	t.searchEntry.SetPlaceholderText("Search notes…")
+	t.searchEntry.SetPlaceholderText("Search names and text…")
 	t.searchEntry.AddCSSClass("vault-search")
 	t.searchEntry.ConnectSearchChanged(func() {
 		t.query = strings.ToLower(strings.TrimSpace(t.searchText()))
-		t.Refresh()
+		t.Refresh() // names match at once
+		t.searchContent()
 	})
 	header.Append(t.searchEntry)
 	return header
@@ -320,6 +331,55 @@ func (t *Tree) Refresh() {
 func (t *Tree) ForceRefresh() {
 	t.cacheValid = false
 	t.refresh(true)
+	if t.query != "" {
+		t.searchContent()
+	}
+}
+
+// contentSearchDelay is how long typing has to pause before the index is
+// asked. Names are matched on every keystroke; the text waits, so a word
+// typed quickly costs one query rather than one per letter.
+const contentSearchDelay = 120 // ms
+
+// contentSearchLimit caps how many notes a text search returns. Past a few
+// hundred, a search is not narrowing anything down and needs another word.
+const contentSearchLimit = 500
+
+// searchContent asks the index for notes whose text matches the query, once
+// typing has paused, and off the main thread. The answer is applied only if
+// the query is still the one it was asked for.
+func (t *Tree) searchContent() {
+	t.contentGen++
+	gen, q := t.contentGen, t.query
+	if q == "" || t.store == nil {
+		t.contentHits, t.contentFor = nil, ""
+		return
+	}
+	coreglib.TimeoutAdd(contentSearchDelay, func() bool {
+		if gen != t.contentGen {
+			return false // typing went on; a later timer has this
+		}
+		go func() {
+			paths, err := t.store.SearchContent(q, contentSearchLimit)
+			coreglib.IdleAdd(func() bool {
+				if gen != t.contentGen {
+					return false
+				}
+				if err != nil {
+					log.Printf("atlas-notes: search: %v", err)
+					return false
+				}
+				hits := make(map[string]bool, len(paths))
+				for _, p := range paths {
+					hits[p] = true
+				}
+				t.contentHits, t.contentFor = hits, q
+				t.refresh(true)
+				return false
+			})
+		}()
+		return false
+	})
 }
 
 func (t *Tree) refresh(force bool) {
@@ -358,7 +418,7 @@ func (t *Tree) refresh(force bool) {
 // widgets, and every widget the bindings wrap stays resident afterwards.
 func (t *Tree) vaultSignature() string {
 	h := fnv.New64a()
-	fmt.Fprintf(h, "q=%s r=%v\n", t.query, t.sortRecent)
+	fmt.Fprintf(h, "q=%s r=%v c=%s/%d\n", t.query, t.sortRecent, t.contentFor, len(t.contentHits))
 	// Lock, checklist and favourite state are part of what a row shows, so a
 	// change to any of them has to reach the signature — otherwise Refresh sees
 	// no difference and the badge the user just asked for never appears.
@@ -396,29 +456,47 @@ func (t *Tree) vaultSignature() string {
 	return strconv.FormatUint(h.Sum64(), 36)
 }
 
-// matchingNotes returns the notes whose name contains the search query, best
-// matches first (name prefix, then position in the name).
+// matchingNotes returns the notes that match the search: those whose name
+// contains it first, best match first (name prefix, then position in the
+// name); then those in a folder whose name contains it; then those found only
+// by their text, most recently changed first, since the index does not rank.
 func (t *Tree) matchingNotes() []*node {
+	text := t.contentFor == t.query
 	var out []*node
 	for i := range t.entries {
 		e := &t.entries[i]
 		idx := strings.Index(e.lowerName, t.query)
-		if idx < 0 && !strings.Contains(e.lowerFolder, t.query) {
+		group := 0
+		switch {
+		case idx >= 0:
+		case strings.Contains(e.lowerFolder, t.query):
+			group = 1
+		case text && t.contentHits[e.meta.Path]:
+			group = 2
+		default:
 			continue
 		}
 		out = append(out, &node{
 			name: e.name, rel: e.meta.Path, folder: e.meta.Folder,
-			created: e.meta.CreatedAt, modified: e.meta.ModifiedAt, rank: idx,
+			created: e.meta.CreatedAt, modified: e.meta.ModifiedAt, rank: idx, group: group,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if (out[i].rank < 0) != (out[j].rank < 0) {
-			return out[j].rank < 0
+		a, b := out[i], out[j]
+		if a.group != b.group {
+			return a.group < b.group
 		}
-		if out[i].rank != out[j].rank {
-			return out[i].rank < out[j].rank
+		switch a.group {
+		case 0:
+			if a.rank != b.rank {
+				return a.rank < b.rank
+			}
+		case 2:
+			if !a.modified.Equal(b.modified) {
+				return a.modified.After(b.modified)
+			}
 		}
-		return strings.ToLower(out[i].name) < strings.ToLower(out[j].name)
+		return strings.ToLower(a.name) < strings.ToLower(b.name)
 	})
 	return out
 }
@@ -471,7 +549,14 @@ func (t *Tree) updateHeader(n int) {
 	}
 	switch {
 	case t.query != "":
-		t.countLabel.SetText(fmt.Sprintf("· %d found", n))
+		label := fmt.Sprintf("· %d found", n)
+		// A first launch, or one after a sync, spends a few seconds reading
+		// notes into the index. Until it is done a text search can miss
+		// things, and it is better to say so than to look authoritative.
+		if t.store != nil && t.store.PendingContent() > 0 {
+			label += ", still reading notes"
+		}
+		t.countLabel.SetText(label)
 	case n == 1:
 		t.countLabel.SetText("· 1 note")
 	default:

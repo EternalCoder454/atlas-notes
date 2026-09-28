@@ -104,9 +104,13 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	// cache_size is negative to mean KiB rather than pages; 8 MiB comfortably
 	// holds the index of a large vault, so browsing never goes back to disk.
 	// temp_store=memory keeps sorts (ORDER BY folder, title) out of the file.
+	// secure_delete zeroes what SQLite frees rather than leaving it in the file,
+	// which is what lets locking a note take its words out of the search index
+	// for real; see purgeRemovedWords.
 	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)" +
 		"&_pragma=synchronous(normal)&_pragma=foreign_keys(on)" +
-		"&_pragma=cache_size(-8000)&_pragma=temp_store(memory)"
+		"&_pragma=cache_size(-8000)&_pragma=temp_store(memory)" +
+		"&_pragma=secure_delete(on)"
 	db, err := openIndex(dsn)
 	if err != nil {
 		enc.Close()
@@ -235,5 +239,6 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return nil
+	// Last, because its triggers refer to the locked and has_tasks columns.
+	return s.migrateSearch()
 }
