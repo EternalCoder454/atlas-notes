@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
@@ -12,6 +13,14 @@ const (
 	leftPanelWidth  = 260
 	rightPanelWidth = 320
 	leftMinWidth    = 180 // hard minimum so note names stay readable when dragged narrow
+	// rightMinWidth is the assistant's floor. Without one, the pane was free to
+	// squeeze it to nothing on the first layout, which happens before its
+	// contents exist (see buildSidebar), and the app then saved that.
+	rightMinWidth = 260
+	// assistantMinWidth is the window width below which the assistant folds
+	// away by itself: under it, three panels leave the note too little room,
+	// and the note is what the window is for.
+	assistantMinWidth = 1200
 )
 
 // buildWindow constructs the main window: a header bar plus three drag-resizable
@@ -108,6 +117,7 @@ func (a *App) buildWindow() {
 	// window to lay out and paint — including a Cairo-drawn orb — and none of
 	// it is needed to show the note the user came back to.
 	a.right = newPanel("right-panel")
+	a.right.SetSizeRequest(rightMinWidth, -1)
 
 	// Nested resizable panes: [ left | [ center | right ] ].
 	inner := gtk.NewPaned(gtk.OrientationHorizontal)
@@ -138,7 +148,15 @@ func (a *App) buildWindow() {
 	a.outerPaned, a.innerPaned = outer, inner
 
 	a.leftToggle.ConnectToggled(func() { a.left.SetVisible(a.leftToggle.Active()) })
-	a.rightToggle.ConnectToggled(func() { a.right.SetVisible(a.rightToggle.Active()) })
+	a.rightToggle.ConnectToggled(func() {
+		a.right.SetVisible(a.rightToggle.Active())
+		// A toggle the user pressed is what they want. One this code made to
+		// fit the window is not, and must not overwrite it.
+		if !a.fitting {
+			a.wantAssistant = a.rightToggle.Active()
+		}
+	})
+	a.watchWindowWidth()
 
 	a.toastOverlay = adw.NewToastOverlay()
 	a.toastOverlay.SetChild(outer)
@@ -248,4 +266,52 @@ func placeholder(text string) *gtk.Label {
 	l.SetVExpand(true)
 	l.AddCSSClass("dim-label")
 	return l
+}
+
+// watchWindowWidth folds the assistant away when the window gets too narrow
+// for three panels, and brings it back when there is room, if it was open.
+//
+// It restores what 0.5.8 did and 0.5.9 took out. 0.5.9 took it out as a fix
+// for the app closing itself, which it was not; the real cause was found and
+// fixed in 0.5.10, and this was never put back, although the release notes
+// went on describing it.
+//
+// Two things differ from before. It acts only when the width crosses the
+// line, not on every change: open the assistant in a narrow window and it
+// stays open until the window goes wide and comes back. And it reads the
+// window's real size from its surface. The window's default-width, which is
+// what it read before, does not change when a window is maximised, so a
+// narrow window maximised onto a wide screen kept the assistant hidden.
+func (a *App) watchWindowWidth() {
+	if a.win == nil || a.rightToggle == nil {
+		return
+	}
+	a.wantAssistant = a.rightToggle.Active()
+	// Decided from the size the window is about to open at, before it is
+	// shown, so a narrow window never draws the assistant only to fold it.
+	a.fitAssistant(a.cfg.WindowWidth)
+	a.win.ConnectRealize(func() {
+		if surface := a.win.Surface(); surface != nil {
+			gdk.BaseSurface(surface).ConnectLayout(func(width, _ int) { a.fitAssistant(width) })
+		}
+	})
+}
+
+// fitAssistant applies the rule for a window of the given width.
+func (a *App) fitAssistant(width int) {
+	if width <= 0 {
+		return
+	}
+	narrow := width < assistantMinWidth
+	if a.widthKnown && narrow == a.narrow {
+		return // no line crossed; whatever the user chose stands
+	}
+	a.widthKnown, a.narrow = true, narrow
+	show := a.wantAssistant && !narrow
+	if show == a.rightToggle.Active() {
+		return
+	}
+	a.fitting = true
+	a.rightToggle.SetActive(show)
+	a.fitting = false
 }

@@ -76,6 +76,16 @@ type App struct {
 	backgroundCount int    // notes that pass had to read, for the settle benchmark
 	bg              *background
 	closing         bool // shutdown has begun; late main-loop callbacks do nothing
+
+	// wantAssistant is whether the user wants the assistant panel, as opposed
+	// to whether it is showing: a narrow window folds it away without
+	// changing what they asked for. fitting marks the moment the window-width
+	// rule is the one moving the toggle. narrow and widthKnown are which side
+	// of the line the window was last on; see fitAssistant.
+	wantAssistant   bool
+	fitting         bool
+	narrow          bool
+	widthKnown      bool
 	welcomeBuilt    bool // the home screen is constructed on first use
 	recents         []*recentRow
 	recentsHeading  *gtk.Label
@@ -228,12 +238,18 @@ func (a *App) rememberLayout() {
 			a.cfg.WindowWidth, a.cfg.WindowHeight = w, h
 		}
 	}
-	if a.outerPaned != nil {
+	// A panel's width is only worth keeping while it is on screen. The
+	// assistant's is worked out from what the other panes leave over, and
+	// with it hidden, or not built yet, that is the width of the drag handle:
+	// this is how 11 px came to be saved as the width of the assistant.
+	if a.outerPaned != nil && a.left != nil && a.left.Visible() {
 		a.cfg.LeftPanelWidth = a.outerPaned.Position()
 	}
-	if a.innerPaned != nil && a.win != nil {
+	if a.innerPaned != nil && a.win != nil && a.right != nil && a.right.Visible() {
 		if w := a.win.Width(); w > 0 {
-			a.cfg.RightPanelWidth = w - a.outerPaned.Position() - a.innerPaned.Position()
+			if right := w - a.outerPaned.Position() - a.innerPaned.Position(); right >= rightMinWidth {
+				a.cfg.RightPanelWidth = right
+			}
 		}
 	}
 }
