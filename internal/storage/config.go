@@ -59,13 +59,23 @@ const (
 // Previous built-in default prompts. LoadConfig upgrades these to the current
 // defaults so prompt improvements reach existing installs, while leaving any
 // prompt the user has customized untouched.
+//
+// These are historical records, not text anyone sees: each must stay
+// byte-for-byte what that version shipped, or configs still holding it stop
+// matching and never upgrade again. The em dashes in them are spelled \u2014
+// on purpose, so a search-and-replace over the interface's punctuation cannot
+// reach them. One already did, in 0.6.0.
 const (
 	oldSystemPrompt    = "You are a concise assistant. You only have access to the note provided. Do not reference external information. Be brief and precise."
 	oldSummarizePrompt = "Summarize the following note in 3-5 sentences:\n\n{content}"
 	oldSortPrompt      = "You are given a checklist. Re-evaluate and reorder items by urgency. Assign priority (high/medium/low) to each. Return a JSON array: [{\"text\":\"...\",\"priority\":\"high\",\"order\":1}, ...]. Return only valid JSON, no explanation:\n\n{items}"
 	cleanPromptV2      = "Fix grammar, improve clarity, and clean the markdown formatting of this note. Return only the corrected note content, no explanation:\n\n{content}"
 	cleanPromptV031    = "Rewrite this note with correct grammar and spelling and tidy Markdown formatting. Fix only mistakes: preserve the meaning and the facts, keep the author's distinct points separate, and do not add information. Keep prose as prose and lists as lists, and keep existing headings. Output only the corrected note.\n\n{content}"
-	cleanPromptV032    = "Clean up and format this note using Markdown, keeping its meaning and facts intact. Fix grammar and spelling. Add a '# ' heading if the note has a clear title, use **bold** for key terms, and use '- ' bullet or '1. ' numbered lists only where the note is genuinely listing items or steps, and keep ordinary sentences as paragraphs. Do NOT add task checkboxes; copy any existing '- [ ]' or '- [x]' lines through unchanged, and do not add new content. Output only the formatted note.\n\n{content}"
+	cleanPromptV032    = "Clean up and format this note using Markdown, keeping its meaning and facts intact. Fix grammar and spelling. Add a '# ' heading if the note has a clear title, use **bold** for key terms, and use '- ' bullet or '1. ' numbered lists only where the note is genuinely listing items or steps \u2014 keep ordinary sentences as paragraphs. Do NOT add task checkboxes; copy any existing '- [ ]' or '- [x]' lines through unchanged, and do not add new content. Output only the formatted note.\n\n{content}"
+
+	// The defaults through 0.5.10. 0.6.0 took the dashes out of them.
+	systemPromptV0510    = "You are the assistant inside Atlas Notes, a note-taking app. You work only with the user's current note; never invent facts, names, numbers, or sources that aren't in it. Be clear, concise, and faithful to the note's meaning. Output only the result itself \u2014 no preamble, no sign-off, no commentary about what you did."
+	summarizePromptV0510 = "Summarize the key points of this note, shorter than the note itself \u2014 a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
 )
 
 // AIAction is a user-configurable AI button shown in the sidebar.
@@ -231,12 +241,14 @@ func LoadConfig() (Config, error) {
 // replacement.
 func supersededPrompts() map[string]string {
 	return map[string]string{
-		oldSystemPrompt:    DefaultSystemPrompt,
-		oldSummarizePrompt: defaultSummarizePrompt,
-		oldSortPrompt:      DefaultSortPrompt,
-		cleanPromptV2:      defaultCleanPrompt,
-		cleanPromptV031:    defaultCleanPrompt,
-		cleanPromptV032:    defaultCleanPrompt,
+		oldSystemPrompt:      DefaultSystemPrompt,
+		oldSummarizePrompt:   defaultSummarizePrompt,
+		oldSortPrompt:        DefaultSortPrompt,
+		cleanPromptV2:        defaultCleanPrompt,
+		cleanPromptV031:      defaultCleanPrompt,
+		cleanPromptV032:      defaultCleanPrompt,
+		systemPromptV0510:    DefaultSystemPrompt,
+		summarizePromptV0510: defaultSummarizePrompt,
 	}
 }
 
