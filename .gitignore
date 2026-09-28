@@ -20,3 +20,4 @@
 /packaging/android/app/build/
 /packaging/android/.gradle/
 /packaging/android/local.properties
+/packaging/android/app/libs/*.jar

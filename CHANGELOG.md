@@ -5,6 +5,31 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **gotk4 0.4.1**, whose release reworks how Go wrappers own and release GTK
+  objects. It drops go4.org/unsafe/assume-no-moving-gc, which reached into the Go
+  runtime through a linkname and would stop the app at launch if a Go release
+  ever let heap objects move, for the standard library's weak pointers. In a
+  4,000 cycle soak nothing leaks with either version: heaptrack finds no growth
+  in live C memory between 200 and 2,000 cycles once released objects are let
+  go. Resident memory creeps by 11 KB a cycle, against 8 KB before, which is the
+  allocator keeping freed pages rather than memory in use.
+- **Built with Go 1.27.1**, named by a toolchain line in go.mod. Releases had
+  been built with Go 1.26.0 exactly: setup-go v5 read only the go line, which is
+  the oldest Go the code accepts. v6 reads the toolchain line.
+- **The Android app builds on Java 25** (Temurin), with Android Gradle Plugin
+  9.4 and Gradle 9.8. The app itself still targets Java 17 bytecode.
+- **Beta pushes skip the Windows build**, which a release or a manual run still
+  does, and the Windows job pins Go through setup-go rather than taking MSYS2's.
+
+### Fixed
+- **The soak benchmark no longer reports a leak that is not there.** It exited
+  straight after its last garbage collection, before gotk4 had released what
+  that collection found, so a longer soak held more at exit and looked like it
+  leaked. It now lets releases finish before the final sample.
+
 ## [0.7.0] - 2026-09-28
 
 ### Added

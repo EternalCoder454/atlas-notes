@@ -419,17 +419,39 @@ func (a *App) benchSoak(total int) {
 		}
 		if done >= total {
 			a.flushDirty()
-			sampleNow()
-			benchReport["rows_built"] = editor.RowsBuilt()
-			benchReport["soak_cycles"] = total
-			benchReport["soak_checkpoints"] = checkpoint
-			a.emitReport()
+			drainReleases(func() {
+				sampleNow()
+				benchReport["rows_built"] = editor.RowsBuilt()
+				benchReport["soak_cycles"] = total
+				benchReport["soak_checkpoints"] = checkpoint
+				a.emitReport()
+			})
 			return false
 		}
 		return true // keep going on the next idle turn
 	}
 	sampleNow()
 	coreglib.IdleAdd(step)
+}
+
+// drainReleases lets GTK objects the soak dropped actually go before then
+// runs. gotk4 releases an object in two steps: a Go finalizer, which runs
+// after a collection, queues an idle callback, and that callback drops the
+// reference on the main loop. Exiting straight after runtime.GC skips the
+// second step, so everything from the last stretch of the run (widgets, and
+// the text layouts and render nodes they hold) is still alive at exit, and a
+// longer soak looks like a leak in heaptrack when it is only a longer queue.
+// A few rounds, because dropping one object can make others collectable.
+func drainReleases(then func()) {
+	rounds := 0
+	coreglib.TimeoutAdd(50, func() bool {
+		if rounds++; rounds <= 3 {
+			runtime.GC()
+			return true
+		}
+		then()
+		return false
+	})
 }
 
 // benchSearch measures what typing in the vault's search field costs: each

@@ -72,7 +72,11 @@ jobs:
       # cache stays good until go.mod says otherwise, and this is the same Go
       # the Android build uses. setup-go keeps that cache itself, keyed on the
       # Go version and go.sum.
-      - uses: actions/setup-go@v5
+      #
+      # The version is go.mod's toolchain line. setup-go v6 reads it; v5 read
+      # only the go line, which is the oldest Go the code accepts, so releases
+      # were built with Go 1.26.0 and none of its point releases' fixes.
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -223,7 +227,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           # On by default; named here because this is the cache that matters.
