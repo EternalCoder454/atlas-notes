@@ -63,10 +63,6 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          # The runner image already has MSYS2 installed. A fresh release is a
-          # download and an unpack of the whole base system on every run, to
-          # arrive at the same thing.
-          release: false
           # `update` is left at its default of false. Setting it to true runs a
           # full pacman system update on every run, which cost minutes and
           # updated nothing this build depends on.

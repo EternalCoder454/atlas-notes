@@ -4,6 +4,14 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.7.0
+- Search finds notes by what they say, not just by their names
+- Export any note as a Word document, OpenDocument, Markdown, a web page or plain text
+- Deleted notes and folders go to the Trash, so you can get them back
+- On your phone, keep your notes in a folder a sync app like Syncthing shares with your computer
+- The assistant tucks itself away again when the window is narrow
+- Opening a large vault for the first time no longer freezes the window
+
 ## 0.6.0
 - Atlas Notes runs on Windows now. Unpack the .zip from the releases page and run atlas-notes.exe
 - There is an Android app. Install the .apk and your notes come with you, locked ones included
