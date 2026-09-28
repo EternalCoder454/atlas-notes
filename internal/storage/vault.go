@@ -53,8 +53,14 @@ func (s *Store) CreateFolder(rel string) error {
 	return os.MkdirAll(abs, 0o755)
 }
 
-// DeleteFolder removes a folder and everything under it, pruning the index.
-func (s *Store) DeleteFolder(rel string) error {
+// DeleteFolder removes a folder and everything under it, pruning the index,
+// into the Trash when the store has one.
+func (s *Store) DeleteFolder(rel string) error { return s.deleteFolder(rel, s.Trash) }
+
+// DeleteFolderPermanently removes a folder for good, whatever the store's Trash.
+func (s *Store) DeleteFolderPermanently(rel string) error { return s.deleteFolder(rel, nil) }
+
+func (s *Store) deleteFolder(rel string, trash func(string) error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
@@ -65,7 +71,7 @@ func (s *Store) DeleteFolder(rel string) error {
 	if abs == s.VaultPath {
 		return errors.New("refusing to delete the vault itself")
 	}
-	if err := os.RemoveAll(abs); err != nil {
+	if err := discard(abs, trash, os.RemoveAll); err != nil {
 		return err
 	}
 	_, err = s.db.Exec(`DELETE FROM notes WHERE folder = ? OR folder LIKE ?`, rel, rel+"/%")

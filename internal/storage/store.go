@@ -31,6 +31,16 @@ const maxNoteBytes = 128 << 20 // 128 MiB
 type Store struct {
 	VaultPath string
 
+	// Trash, when set, is how a note or folder the user deletes leaves the
+	// vault: moved somewhere it can be restored from rather than deleted.
+	// The desktop app points it at the system Trash; left nil, as on Android,
+	// which has no such thing, deleting is permanent.
+	//
+	// It is used for the deletes a person asks for and nothing else. Locking
+	// a note deletes its unencrypted copy, and that copy must be gone, not
+	// sitting in the Trash in plain text; those removals never come here.
+	Trash func(path string) error
+
 	db  *sql.DB
 	enc *zstd.Encoder
 	dec *zstd.Decoder

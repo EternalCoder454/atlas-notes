@@ -112,6 +112,8 @@ type Tree struct {
 	OnOpenNote func(rel string)
 	// OnDeleted is invoked after a note or folder is deleted.
 	OnDeleted func(rel string, isFolder bool)
+	// OnMessage shows a short message, such as where a deleted note went.
+	OnMessage func(text string)
 	// OnMoved is invoked after a note is dragged into another folder.
 	OnMoved func(oldRel, newRel string)
 	// OnChanged is invoked after the vault's contents change, so the rest of the

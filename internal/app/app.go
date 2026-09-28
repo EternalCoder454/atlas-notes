@@ -145,6 +145,12 @@ func (a *App) activate() {
 		log.Printf("atlas-notes: open storage: %v", err)
 	} else {
 		a.store = store
+		// Deleting moves things to the system Trash. Not in a benchmark or a
+		// screenshot run: the chaos benchmark deletes hundreds of notes, and
+		// they have no business turning up in the Trash of whoever ran it.
+		if !devRun() {
+			store.Trash = trashFile
+		}
 		mark("store-open")
 		// The index is a cache of what is on disk. When it already has content
 		// the window can be built from it immediately and the vault scan runs

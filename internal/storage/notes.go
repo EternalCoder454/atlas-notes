@@ -235,8 +235,19 @@ func (s *Store) readLockedNote(rel string) (string, error) {
 	return string(out), nil
 }
 
-// DeleteNote removes the file and its index row (cascading its checklist items).
-func (s *Store) DeleteNote(rel string) error {
+// ErrTrashFailed is returned when a delete could not move something to the
+// Trash. Nothing has been deleted: the caller can offer to delete it
+// permanently instead, which is a different thing to agree to.
+var ErrTrashFailed = errors.New("it could not be moved to the Trash")
+
+// DeleteNote removes a note and its index row, into the Trash when the store
+// has one.
+func (s *Store) DeleteNote(rel string) error { return s.deleteNote(rel, s.Trash) }
+
+// DeleteNotePermanently removes a note for good, whatever the store's Trash.
+func (s *Store) DeleteNotePermanently(rel string) error { return s.deleteNote(rel, nil) }
+
+func (s *Store) deleteNote(rel string, trash func(string) error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
@@ -244,18 +255,36 @@ func (s *Store) DeleteNote(rel string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+	if err := discard(abs, trash, os.Remove); err != nil {
 		return err
 	}
 	// A locked note lives under the other extension; delete has to find it
 	// either way, or "deleting" one would leave the encrypted file behind.
 	if lockedAbs, lerr := s.lockedPathSafe(rel); lerr == nil {
-		if err := os.Remove(lockedAbs); err != nil && !os.IsNotExist(err) {
+		if err := discard(lockedAbs, trash, os.Remove); err != nil {
 			return err
 		}
 	}
 	_, err = s.db.Exec(`DELETE FROM notes WHERE path = ?`, rel)
 	return err
+}
+
+// discard takes one file or folder out of the vault the way a delete asked
+// for: into the Trash when there is one, and through remove when there is
+// not. A path that is already gone is already out of the vault. remove is
+// os.Remove for a note and os.RemoveAll only for a folder, so a note's path
+// that turned out to be a directory is refused rather than emptied.
+func discard(path string, trash, remove func(string) error) error {
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return nil
+	}
+	if trash != nil {
+		if err := trash(path); err != nil {
+			return fmt.Errorf("%w: %v", ErrTrashFailed, err)
+		}
+		return nil
+	}
+	return remove(path)
 }
 
 // RenameNote renames/moves a note; newRel may include a different folder.

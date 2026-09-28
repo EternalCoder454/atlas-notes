@@ -94,6 +94,7 @@ func (a *App) buildWindow() {
 		a.tree = ui.NewTree(a.store, a.win, a.ai)
 		a.tree.OnOpenNote = a.openNote
 		a.tree.OnDeleted = a.onDeleted
+		a.tree.OnMessage = a.toast
 		a.tree.OnMoved = a.onMoved
 		a.tree.OnChanged = a.refreshWelcome
 		a.tree.IsStarred = a.isStarred

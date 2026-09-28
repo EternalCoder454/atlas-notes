@@ -1,12 +1,15 @@
 package ui
 
 import (
+	"errors"
 	"log"
 	"strings"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
+	"atlas-notes/internal/storage"
 )
 
 // The vault panel's editing side: the context menu and the dialogs behind it.
@@ -156,25 +159,70 @@ func (t *Tree) promptDelete(n *node) {
 	if n == nil {
 		return
 	}
+	// With a Trash, a delete can be undone from the file manager, and the
+	// dialog says so instead of warning about something that is no longer
+	// true. Without one it is permanent, and says that.
+	if t.store.Trash != nil {
+		body := "“" + n.name + "” will be moved to the Trash. You can restore it from there."
+		if n.isFolder {
+			body = "The folder “" + n.name + "” and everything in it will be moved to the Trash. You can restore it from there."
+		}
+		t.confirm("Move to the Trash?", body, "Move to Trash", func() { t.deleteNode(n, false) })
+		return
+	}
 	what := "note"
 	if n.isFolder {
-		what = "folder and all its contents"
+		what = "folder and everything in it"
 	}
-	t.confirm("Delete?", "Delete the "+what+" \""+n.name+"\"? This cannot be undone.", "Delete", func() {
-		var err error
-		if n.isFolder {
-			err = t.store.DeleteFolder(n.rel)
-		} else {
-			err = t.store.DeleteNote(n.rel)
-		}
-		if err != nil {
-			log.Printf("atlas-notes: delete: %v", err)
-		} else if t.OnDeleted != nil {
-			t.OnDeleted(n.rel, n.isFolder)
-		}
-		t.ForceRefresh()
-		t.notifyChanged()
-	})
+	t.confirm("Delete?", "Delete the "+what+" “"+n.name+"”? This cannot be undone.", "Delete",
+		func() { t.deleteNode(n, true) })
+}
+
+// deleteNode deletes a note or folder, to the Trash unless permanently is set.
+func (t *Tree) deleteNode(n *node, permanently bool) {
+	var err error
+	switch {
+	case n.isFolder && permanently:
+		err = t.store.DeleteFolderPermanently(n.rel)
+	case n.isFolder:
+		err = t.store.DeleteFolder(n.rel)
+	case permanently:
+		err = t.store.DeleteNotePermanently(n.rel)
+	default:
+		err = t.store.DeleteNote(n.rel)
+	}
+	if errors.Is(err, storage.ErrTrashFailed) {
+		// Some places have no Trash: a network share, a USB drive, a
+		// filesystem that does not support one. Nothing was deleted, and
+		// deleting it for good is a different thing to agree to, so ask.
+		log.Printf("atlas-notes: trash: %v", err)
+		t.confirm("Delete permanently?",
+			"“"+n.name+"” couldn't be moved to the Trash, so it would be deleted for good. This cannot be undone.",
+			"Delete Permanently", func() { t.deleteNode(n, true) })
+		return
+	}
+	if err != nil {
+		// This used to go only to the log, which left a delete that failed
+		// looking like a click that did nothing.
+		log.Printf("atlas-notes: delete: %v", err)
+		t.message("Couldn't delete “" + n.name + "”: " + err.Error())
+		return
+	}
+	if t.OnDeleted != nil {
+		t.OnDeleted(n.rel, n.isFolder)
+	}
+	t.ForceRefresh()
+	t.notifyChanged()
+	if !permanently && t.store.Trash != nil {
+		t.message("Moved “" + n.name + "” to the Trash")
+	}
+}
+
+// message shows a short message through the app, when it has asked for them.
+func (t *Tree) message(text string) {
+	if t.OnMessage != nil {
+		t.OnMessage(text)
+	}
 }
 
 // promptText shows a single-entry dialog and calls onOK with the trimmed value.
