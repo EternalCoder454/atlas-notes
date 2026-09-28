@@ -2,7 +2,6 @@ import java.util.regex.Pattern
 
 plugins {
 	id("com.android.application")
-	id("org.jetbrains.kotlin.android")
 	id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -128,11 +127,14 @@ android {
 		resources.excludes += setOf("META-INF/*.kotlin_module", "META-INF/LICENSE*")
 	}
 
+	// Bytecode for Java 17, which every supported Android runs. That is a
+	// separate thing from the JDK the build itself runs on, which is 25. Under
+	// AGP 9 the Kotlin JVM target follows this setting, so there is no
+	// kotlinOptions block to keep in step with it.
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
 	}
-	kotlinOptions { jvmTarget = "17" }
 }
 
 dependencies {

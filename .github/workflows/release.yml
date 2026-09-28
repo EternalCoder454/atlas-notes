@@ -231,10 +231,13 @@ jobs:
           # and modernc.org/sqlite alone is a great deal of Go.
           cache: true
 
+      # The newest Java the Android build can run on, since AGP 9 and Gradle
+      # 9. The app it builds still targets Java 17 bytecode; see
+      # app/build.gradle.kts.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "25"
 
       # The runner image already carries the Android SDK, the platform and the
       # build tools this compiles against, and an NDK. Installing our own cost a
@@ -295,10 +298,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          # The runner ships Gradle 9, which is newer than AGP 8.7 was built
-          # against. This version is pinned instead, and the action caches the
-          # distribution after the first run.
-          gradle-version: "8.11.1"
+          # Pinned, so the build does not change when the runner image does.
+          # AGP 9.4 needs 9.6 or newer, and 9.1 or newer runs on Java 25.
+          gradle-version: "9.8.0"
 
       # The signing key, from the repository's secrets rather than the
       # repository. Android will not replace an app with one signed by a
