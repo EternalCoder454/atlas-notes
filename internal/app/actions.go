@@ -30,9 +30,13 @@ func (a *App) registerActions() {
 		{"new-note", []string{"<Control>n"}, a.actionNewNote},
 		{"new-checklist", []string{"<Control>t"}, a.actionNewChecklist},
 		{"new-folder", []string{"<Control><Shift>n"}, a.actionNewFolder},
+		{"new-from-template", []string{"<Control><Alt>n"}, a.actionNewFromTemplate},
+		{"today", []string{"<Control>d"}, a.actionToday},
 		{"save", []string{"<Control>s"}, a.saveCurrent},
 		{"rename", []string{"F2"}, a.actionRename},
 		{"export", []string{"<Control><Shift>e"}, a.exportCurrent},
+		{"history", []string{"<Control><Shift>h"}, a.showHistory},
+		{"insert-image", []string{"<Control><Shift>i"}, a.insertImage},
 		{"search", []string{"<Control>k", "<Control>p", "<Control><Shift>f"}, a.actionFocusSearch},
 		{"find", []string{"<Control>f"}, a.actionFind},
 		{"find-replace", []string{"<Control>r"}, a.actionFindReplace},
@@ -58,11 +62,50 @@ func (a *App) registerActions() {
 		fn := b.fn
 		act := gio.NewSimpleAction(b.name, nil)
 		act.ConnectActivate(func(*glib.Variant) { fn() })
+		if noteActionNames[b.name] {
+			act.SetEnabled(false) // until a note is open; see syncNoteActions
+			noteActions[a] = append(noteActions[a], act)
+		}
 		a.adw.AddAction(act)
 		if len(b.accels) > 0 {
 			a.adw.SetAccelsForAction("app."+b.name, b.accels)
 		}
 	}
+}
+
+// noteActionNames are the commands that act on the note on screen. They are
+// disabled, not just ignored, while there is none, so their menu entries grey
+// out and their shortcuts do nothing on the home screen.
+var noteActionNames = map[string]bool{"history": true, "insert-image": true}
+
+// noteActions holds each App's note commands, so that syncNoteActions can reach
+// them: the action map hands back a generic action, which cannot be enabled or
+// disabled.
+var noteActions = map[*App][]*gio.SimpleAction{}
+
+// syncNoteActions enables the note commands while a note is open. It runs
+// whenever the center panel changes what it shows (see watchNoteOpen).
+func (a *App) syncNoteActions() {
+	open := a.noteOpen()
+	for _, act := range noteActions[a] {
+		act.SetEnabled(open)
+	}
+}
+
+// watchNoteOpen keeps the note commands in step with the center panel. There is
+// no one place where a note is opened or closed, so it follows the two things
+// that change together with it: the page the panel shows, and the header
+// subtitle, which is empty on the home screen and names the app once a note is
+// open. The subtitle covers opening a note when the editor page is already
+// showing, which is how the app starts.
+func (a *App) watchNoteOpen() {
+	if a.centerStack != nil {
+		a.centerStack.NotifyProperty("visible-child-name", a.syncNoteActions)
+	}
+	if a.windowTitle != nil {
+		a.windowTitle.NotifyProperty("subtitle", a.syncNoteActions)
+	}
+	a.syncNoteActions()
 }
 
 // toggle flips a header-bar toggle, which in turn shows or hides its panel.
@@ -195,9 +238,12 @@ func (a *App) showShortcuts() {
 		{"Notes", []shortcutRow{
 			{"Ctrl+N", "New note"},
 			{"Ctrl+T", "New checklist"},
+			{"Ctrl+Alt+N", "New note from a template"},
 			{"Ctrl+Shift+N", "New folder"},
+			{"Ctrl+D", "Open today's note"},
 			{"Ctrl+S", "Save now"},
 			{"F2", "Rename the open note"},
+			{"Ctrl+Shift+H", "Version history of the open note"},
 		}},
 		{"Moving around", []shortcutRow{
 			{"Ctrl+K / Ctrl+P / Ctrl+Shift+F", "Find a note"},
@@ -222,6 +268,8 @@ func (a *App) showShortcuts() {
 			{"Ctrl+1 / Ctrl+2", "Heading / subheading"},
 			{"Ctrl+0", "Plain text"},
 			{"Ctrl+Shift+T", "Turn the line into a task"},
+			{"Ctrl+Shift+I", "Insert an image from a file"},
+			{"Ctrl+Shift+I", "Insert an image from a file"},
 		}},
 		{"App", []shortcutRow{
 			{"Ctrl+Shift+L", "Lock protected notes now"},

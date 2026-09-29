@@ -113,6 +113,7 @@ func (a *App) buildWindow() {
 	// Center: welcome screen / editor.
 	a.center = a.buildCenter()
 	mark("center")
+	a.watchNoteOpen() // needs the center stack and the header's title, both built by now
 
 	// Right panel: the assistant. Its contents are filled in just after the
 	// window is on screen (see buildSidebar): the panel is a third of the
@@ -197,12 +198,16 @@ func (a *App) buildMainMenu() *gio.Menu {
 	notes := gio.NewMenu()
 	notes.Append("New Note", "app.new-note")
 	notes.Append("New Checklist", "app.new-checklist")
+	notes.Append("New from Template…", "app.new-from-template")
 	notes.Append("New Folder", "app.new-folder")
+	notes.Append("Today's Note", "app.today")
 	menu.AppendSection("", notes)
 
 	current := gio.NewMenu()
 	current.Append("Save Now", "app.save")
 	current.Append("Rename…", "app.rename")
+	current.Append("Version History…", "app.history")
+	current.Append("Insert Image…", "app.insert-image")
 	current.Append("Export…", "app.export")
 	current.Append("Find a Note", "app.search")
 	current.Append("Find in Note", "app.find")
