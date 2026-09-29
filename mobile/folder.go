@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,6 +122,14 @@ func Settle() (int, error) {
 
 	if err := s.Reindex(); err != nil {
 		return 0, err
+	}
+	// Notes still in another format than the vault's are rewritten before they
+	// are read, so the pass below reads each one once. A note that will not
+	// convert is not a reason to leave search unbuilt, so it is only logged.
+	if s.NeedsConversion() {
+		if _, err := s.ConvertVault(ctx, nil); err != nil {
+			log.Printf("atlas-notes: converting notes to the vault's format: %v", err)
+		}
 	}
 	return s.ResolveContent(ctx)
 }

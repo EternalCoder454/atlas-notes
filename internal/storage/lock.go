@@ -168,10 +168,6 @@ func (s *Store) lockNote(rel string) error {
 	defer s.writeMu.Unlock()
 
 	rel = normalizeRel(rel)
-	plainAbs, err := s.notePathSafe(rel)
-	if err != nil {
-		return err
-	}
 	lockedAbs, err := s.lockedPathSafe(rel)
 	if err != nil {
 		return err
@@ -179,18 +175,21 @@ func (s *Store) lockNote(rel string) error {
 	if _, err := os.Stat(lockedAbs); err == nil {
 		return nil // already locked
 	}
-	raw, err := os.ReadFile(plainAbs)
+	// The note is found in whatever format it is in, and sealed as zstd: a
+	// locked note's payload does not follow the vault's format, so that older
+	// versions of the app and the phone can still open it.
+	text, err := s.readPlain(rel)
 	if err != nil {
 		return err
 	}
-	sealed, err := vaultlock.Seal(key, raw)
+	sealed, err := vaultlock.Seal(key, s.enc.EncodeAll(text, nil))
 	if err != nil {
 		return err
 	}
 	if err := atomicWrite(lockedAbs, sealed); err != nil {
 		return err
 	}
-	if err := os.Remove(plainAbs); err != nil && !os.IsNotExist(err) {
+	if err := s.removePlain(rel, ""); err != nil {
 		// The note is readable either way; leaving both would be worse than
 		// reporting it, because the plaintext would still be on disk.
 		return fmt.Errorf("locked, but the unencrypted copy is still there: %w", err)
@@ -223,11 +222,21 @@ func (s *Store) UnlockNote(rel string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := vaultlock.Open(key, sealed)
+	payload, err := vaultlock.Open(key, sealed)
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(plainAbs, raw); err != nil {
+	// The payload is decoded whatever it holds, and the note comes out in the
+	// vault's format, not the seal's.
+	text, err := s.decodePayload(payload)
+	if err != nil {
+		return err
+	}
+	data, err := s.encode(s.Compression(), text)
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(plainAbs, data); err != nil {
 		return err
 	}
 	if err := os.Remove(lockedAbs); err != nil && !os.IsNotExist(err) {

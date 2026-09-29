@@ -33,7 +33,7 @@ func TestDeletedNoteGoesToTheTrash(t *testing.T) {
 	tr := newFakeTrash(t)
 	s.Trash = tr.trash
 	s.WriteNote("Keep me", "# Keep me\n\nrecoverable\n")
-	abs := filepath.Join(s.VaultPath, "Keep me"+noteExt)
+	abs := filepath.Join(s.VaultPath, "Keep me"+CompressionNone.ext())
 
 	if err := s.DeleteNote("Keep me"); err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestDeletedNoteGoesToTheTrash(t *testing.T) {
 	if !slices.Equal(tr.calls, []string{abs}) {
 		t.Fatalf("trash was given %v, want the note", tr.calls)
 	}
-	if !exists(filepath.Join(tr.dir, "Keep me"+noteExt)) {
+	if !exists(filepath.Join(tr.dir, "Keep me"+CompressionNone.ext())) {
 		t.Error("the note is not in the Trash")
 	}
 	if notes, _ := s.ListNotes(); len(notes) != 0 {
@@ -66,7 +66,7 @@ func TestDeletedFolderGoesToTheTrashWhole(t *testing.T) {
 	if !slices.Equal(tr.calls, []string{filepath.Join(s.VaultPath, "Projects")}) {
 		t.Fatalf("trash was given %v, want the folder once", tr.calls)
 	}
-	if !exists(filepath.Join(tr.dir, "Projects", "Two"+noteExt)) {
+	if !exists(filepath.Join(tr.dir, "Projects", "Two"+CompressionNone.ext())) {
 		t.Error("the folder's notes did not go to the Trash with it")
 	}
 }
@@ -79,7 +79,7 @@ func TestAFailedTrashDeletesNothing(t *testing.T) {
 	tr.fail = errors.New("no Trash on this drive")
 	s.Trash = tr.trash
 	s.WriteNote("Stays", "# Stays\n")
-	abs := filepath.Join(s.VaultPath, "Stays"+noteExt)
+	abs := filepath.Join(s.VaultPath, "Stays"+CompressionNone.ext())
 
 	err := s.DeleteNote("Stays")
 	if !errors.Is(err, ErrTrashFailed) {
@@ -138,7 +138,7 @@ func TestLockingNeverUsesTheTrash(t *testing.T) {
 func TestWithoutATrashDeletingIsPermanent(t *testing.T) {
 	s := testStore(t)
 	s.WriteNote("Gone", "# Gone\n")
-	abs := filepath.Join(s.VaultPath, "Gone"+noteExt)
+	abs := filepath.Join(s.VaultPath, "Gone"+CompressionNone.ext())
 	if err := s.DeleteNote("Gone"); err != nil {
 		t.Fatal(err)
 	}

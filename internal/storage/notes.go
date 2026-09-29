@@ -13,8 +13,6 @@ import (
 	"atlas-notes/internal/vaultlock"
 )
 
-const noteExt = ".md.zst"
-
 // NoteMeta is a row of indexed note metadata. A note's title is its file name,
 // which is the tail of Path, so it is not stored separately.
 type NoteMeta struct {
@@ -59,10 +57,10 @@ func atomicWrite(path string, data []byte) error {
 // function straight from the title field, the tree's rename prompt and a
 // synced vault's own filenames, so this is the one place that has to hold.
 func normalizeRel(rel string) string {
-	// Either extension a note can carry is stripped, so a locked note and the
-	// same note unlocked are one identifier. Without this a locked note would
-	// be indexed, shown and opened as "Note.md.enc".
-	rel = strings.TrimSuffix(rel, noteExt)
+	// Every extension a note can carry is stripped, so a locked note and the
+	// same note unlocked, in whichever format, are one identifier. Without this
+	// a locked note would be indexed, shown and opened as "Note.md.enc".
+	rel = stripNoteExt(rel)
 	rel = strings.TrimSuffix(rel, lockedExt)
 	rel = filepath.ToSlash(rel)
 	var segments []string
@@ -115,11 +113,11 @@ func withinVault(vault, abs string) bool {
 	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
 }
 
-// notePath maps a vault-relative identifier to its absolute .md.zst file path.
-// It does not validate containment; callers that touch the filesystem go
-// through notePathSafe.
+// notePath maps a vault-relative identifier to the absolute path a note is
+// written to: its name with the vault's extension. It does not validate
+// containment; callers that touch the filesystem go through notePathSafe.
 func (s *Store) notePath(rel string) string {
-	return filepath.Join(s.VaultPath, filepath.FromSlash(normalizeRel(rel))+noteExt)
+	return filepath.Join(s.VaultPath, filepath.FromSlash(normalizeRel(rel))+s.Compression().ext())
 }
 
 // notePathSafe is notePath with the vault-containment check applied.
@@ -128,11 +126,14 @@ func (s *Store) notePathSafe(rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return abs + noteExt, nil
+	return abs + s.Compression().ext(), nil
 }
 
-// WriteNote compresses and atomically writes content, then refreshes the index.
+// WriteNote encodes and atomically writes content, then refreshes the index.
 // Safe to call from any goroutine (see Store.writeMu).
+//
+// The note is written in the vault's format, and any copy of it in another
+// format is removed once that has succeeded, so saving a note converts it.
 //
 // A note that is already locked stays locked, and a new note created inside a
 // locked folder is written locked from the start — it must never touch the
@@ -149,12 +150,20 @@ func (s *Store) WriteNote(rel, content string) error {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return err
 	}
-	compressed := s.enc.EncodeAll([]byte(content), nil)
 
 	locked := s.IsNoteLocked(rel) || s.lockedByFolder(rel)
 	if !locked {
-		if err := atomicWrite(abs, compressed); err != nil {
+		data, err := s.encode(s.Compression(), []byte(content))
+		if err != nil {
 			return err
+		}
+		if err := atomicWrite(abs, data); err != nil {
+			return err
+		}
+		// Only now, with the new file safely on disk, does the old form go: a
+		// failure before this point leaves the note as it was.
+		if err := s.removePlain(rel, abs); err != nil {
+			return fmt.Errorf("saved, but the old copy is still there: %w", err)
 		}
 		if err := s.indexNote(rel, time.Now(), false, HasTasks(content)); err != nil {
 			return err
@@ -169,7 +178,9 @@ func (s *Store) WriteNote(rel, content string) error {
 	if err != nil {
 		return err
 	}
-	sealed, err := vaultlock.Seal(key, compressed)
+	// A locked note's payload is zstd whatever the vault's format is, so that
+	// older versions and the phone can still open it.
+	sealed, err := vaultlock.Seal(key, s.enc.EncodeAll([]byte(content), nil))
 	if err != nil {
 		return err
 	}
@@ -181,8 +192,8 @@ func (s *Store) WriteNote(rel, content string) error {
 		return err
 	}
 	// A note that was unlocked and has landed in a locked folder leaves its
-	// plaintext behind otherwise.
-	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+	// plaintext behind otherwise, in whichever format it was.
+	if err := s.removePlain(rel, ""); err != nil {
 		return fmt.Errorf("saved, but the unencrypted copy is still there: %w", err)
 	}
 	return s.indexNote(rel, time.Now(), true, HasTasks(content))
@@ -192,18 +203,10 @@ func (s *Store) WriteNote(rel, content string) error {
 // A locked note read without the password fails with ErrLocked, which is the
 // interface's cue to ask for it rather than an error to report.
 func (s *Store) ReadNote(rel string) (string, error) {
-	abs, err := s.notePathSafe(rel)
-	if err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(abs)
+	out, err := s.readPlain(rel)
 	if os.IsNotExist(err) {
 		return s.readLockedNote(rel)
 	}
-	if err != nil {
-		return "", err
-	}
-	out, err := s.dec.DecodeAll(data, nil)
 	if err != nil {
 		return "", err
 	}
@@ -224,11 +227,11 @@ func (s *Store) readLockedNote(rel string) (string, error) {
 	if kerr != nil {
 		return "", kerr
 	}
-	compressed, err := vaultlock.Open(key, sealed)
+	payload, err := vaultlock.Open(key, sealed)
 	if err != nil {
 		return "", err
 	}
-	out, err := s.dec.DecodeAll(compressed, nil)
+	out, err := s.decodePayload(payload)
 	if err != nil {
 		return "", err
 	}
@@ -251,12 +254,14 @@ func (s *Store) deleteNote(rel string, trash func(string) error) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
-	abs, err := s.notePathSafe(rel)
+	files, err := s.plainFiles(rel)
 	if err != nil {
 		return err
 	}
-	if err := discard(abs, trash, os.Remove); err != nil {
-		return err
+	for _, f := range files {
+		if err := discard(f.path, trash, os.Remove); err != nil {
+			return err
+		}
 	}
 	// A locked note lives under the other extension; delete has to find it
 	// either way, or "deleting" one would leave the encrypted file behind.
@@ -293,21 +298,31 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 	defer s.writeMu.Unlock()
 	oldRel = normalizeRel(oldRel)
 	newRel = normalizeRel(newRel)
-	oldAbs, err := s.notePathSafe(oldRel)
+	oldFiles, err := s.plainFiles(oldRel)
 	if err != nil {
 		return err
 	}
-	newAbs, err := s.notePathSafe(newRel)
+	newBase, err := s.resolve(newRel)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(newBase), 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(oldAbs, newAbs); err != nil {
+	// Each form of the note that exists keeps its own extension: renaming is
+	// not converting. Normally that is one file.
+	moved := false
+	for _, f := range oldFiles {
+		err := os.Rename(f.path, newBase+f.c.ext())
+		if err == nil {
+			moved = true
+			continue
+		}
 		if !os.IsNotExist(err) {
 			return err
 		}
+	}
+	if !moved {
 		// Not there in the clear: it is a locked note.
 		oldLocked, lerr := s.lockedPathSafe(oldRel)
 		if lerr != nil {
@@ -453,7 +468,7 @@ func (s *Store) UniqueName(folder, base string) string {
 		if folder != "" {
 			rel = folder + "/" + candidate
 		}
-		if _, err := os.Stat(s.notePath(rel)); os.IsNotExist(err) {
+		if !s.noteTaken(rel) {
 			return rel
 		}
 		candidate = fmt.Sprintf("%s %d", base, i)

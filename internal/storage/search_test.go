@@ -201,9 +201,8 @@ func TestSearchSeesChangesMadeOutsideTheApp(t *testing.T) {
 	s := testStore(t)
 	s.WriteNote("Synced", "# Synced\n\nbefore\n")
 
-	enc, _ := zstd.NewWriter(nil)
-	abs := filepath.Join(s.VaultPath, "Synced"+noteExt)
-	if err := os.WriteFile(abs, enc.EncodeAll([]byte("# Synced\n\nafterwards\n"), nil), 0o644); err != nil {
+	abs := filepath.Join(s.VaultPath, "Synced"+s.Compression().ext())
+	if err := os.WriteFile(abs, []byte("# Synced\n\nafterwards\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	later := time.Now().Add(time.Hour)
@@ -330,7 +329,7 @@ func TestFirstScanSurvivesANoteOnDiskTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 	enc, _ := zstd.NewWriter(nil)
-	os.WriteFile(filepath.Join(vault, "Twice"+noteExt), enc.EncodeAll([]byte("# Twice\n"), nil), 0o644)
+	os.WriteFile(filepath.Join(vault, "Twice"+CompressionZstd.ext()), enc.EncodeAll([]byte("# Twice\n"), nil), 0o644)
 	os.WriteFile(filepath.Join(vault, "Twice"+lockedExt), []byte("sealed bytes"), 0o644)
 
 	s, err := Open(vault, db)
