@@ -79,6 +79,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The patterns are escaped.
 - **Renaming a folder around the open note** left the editor pointing at the
   old path.
+- **Renaming a note onto another note's name replaced that note.** The file
+  rename overwrote the target without a word. It is refused now, and a rename
+  moves every form of a note, rolling back if one cannot move.
+- **A failed password change could leave locked notes under a key nobody could
+  derive**, when it stopped part-way: every note was resealed before the new
+  key's salt was saved. It now opens and reseals everything in memory first,
+  writes it all, rolls back on a write error, and saves the new salt last.
+- **Renaming a folder with a non-ASCII name corrupted its notes' paths in the
+  index**: the rewrite counted bytes where SQLite counts characters.
+- **Hovering a link while the caret moved could close the app**: looking up the
+  character under the pointer while GTK's layout was behind a re-tag aborted in
+  GTK ("byte index off the end of the line"). Nothing is hit-tested until the
+  text has stayed unchanged for 100 ms, and hovering looks up once the pointer
+  rests.
+
+### Security
+- **A note in two formats keeps both.** When a sync leaves `Plan.md` and
+  `Plan.md.zst` saying different things, saving keeps the other as a conflict
+  copy instead of deleting it, and the newest form is the one read.
+- **Earlier versions of a note locked elsewhere are sealed here** when the vault
+  is unlocked, and are hidden until then.
+- **Pictures cannot reach outside the vault**: symbolic links are refused, and
+  the folder a picture is really in must be inside the vault. A picture another
+  locked note shows stays sealed when one note is unlocked.
+- **Links cannot overwrite notes.** Following `[[Idea.md]]`, or a link the index
+  has not caught up with, opens the note rather than writing a stub over it.
 
 ## [0.7.1] - 2026-09-28
 
