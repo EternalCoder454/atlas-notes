@@ -97,3 +97,53 @@ func TestHumanSize(t *testing.T) {
 		}
 	}
 }
+
+// The helpers below belong to the daily note, templates and image insertion
+// rather than to history; they are tested here because they are small pure
+// functions and share the dialogs' pattern of keeping the GTK part thin.
+
+// TestImageMarkdown: the link is on a line of its own. In the middle of a line
+// it starts a new one, and it always ends one so typing goes on below it.
+func TestImageMarkdown(t *testing.T) {
+	const p = "../attachments/note-20260929-140500.png"
+	if got, want := imageMarkdown(p, true), "![]("+p+")\n"; got != want {
+		t.Errorf("at the start of a line: %q, want %q", got, want)
+	}
+	if got, want := imageMarkdown(p, false), "\n![]("+p+")\n"; got != want {
+		t.Errorf("in the middle of a line: %q, want %q", got, want)
+	}
+}
+
+// TestTemplateNameParts: the folder shown dimmed is what lies between
+// "Templates/" and the name.
+func TestTemplateNameParts(t *testing.T) {
+	cases := []struct{ rel, name, folder string }{
+		{"Templates/Meeting", "Meeting", ""},
+		{"Templates/Work/Standup", "Standup", "Work"},
+		{"Templates/Work/Weekly/Review", "Review", "Work/Weekly"},
+	}
+	for _, c := range cases {
+		name, folder := templateNameParts(c.rel)
+		if name != c.name || folder != c.folder {
+			t.Errorf("templateNameParts(%q) = %q, %q; want %q, %q", c.rel, name, folder, c.name, c.folder)
+		}
+	}
+}
+
+// TestInTemplates: a new note is never started inside the templates folder,
+// but a folder that merely starts with the same letters is not inside it.
+func TestInTemplates(t *testing.T) {
+	for folder, want := range map[string]bool{
+		"":                 false,
+		"Projects":         false,
+		"Templates":        true,
+		"Templates/Work":   true,
+		"Templates2":       false,
+		"Work/Templates":   false,
+		"TemplatesArchive": false,
+	} {
+		if got := inTemplates(folder); got != want {
+			t.Errorf("inTemplates(%q) = %v, want %v", folder, got, want)
+		}
+	}
+}
