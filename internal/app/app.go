@@ -8,6 +8,7 @@ import (
 	"log"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -64,11 +65,15 @@ type App struct {
 	// drops an answer that arrives after another note was opened.
 	backlinksBar *gtk.Box
 	backlinksGen int
-	rightToggle  *gtk.ToggleButton
-	outerPaned   *gtk.Paned
-	innerPaned   *gtk.Paned
-	centerStack  *gtk.Stack
-	formatBar    *gtk.Box
+	// noteNamesCache is the note list behind the [[ suggestions, from
+	// noteNamesAt; see noteNamesTTL.
+	noteNamesCache []string
+	noteNamesAt    time.Time
+	rightToggle    *gtk.ToggleButton
+	outerPaned     *gtk.Paned
+	innerPaned     *gtk.Paned
+	centerStack    *gtk.Stack
+	formatBar      *gtk.Box
 
 	titleEntry    *gtk.Entry
 	breadcrumb    *gtk.Label

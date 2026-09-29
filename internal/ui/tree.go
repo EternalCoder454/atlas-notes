@@ -429,7 +429,9 @@ func tagSearch(q string) (tag string, ok bool) {
 		return "", false
 	}
 	tag = strings.TrimSpace(q[1:])
-	return tag, tag != ""
+	// A tag has no spaces in it, so "#foo bar" or "# Meeting notes" is a
+	// search for text, as it was before tags.
+	return tag, tag != "" && !strings.ContainsAny(tag, " \t")
 }
 
 // searchTag asks the index for the notes carrying a tag, off the main thread,
@@ -869,7 +871,8 @@ func (t *Tree) moveInto(srcRel, folderRel string) bool {
 	}
 	if _, err := t.store.RenameNoteAndLinks(srcRel, newRel); err != nil {
 		log.Printf("atlas-notes: move note: %v", err)
-		if !t.store.NoteExists(newRel) {
+		if !renamed(t.store, false, srcRel, newRel) {
+			t.message("Couldn't move it: " + err.Error())
 			return false
 		}
 	}

@@ -334,7 +334,11 @@ func (a *App) onTitleActivate() {
 	a.flushDirty()
 	if _, err := a.store.RenameNoteAndLinks(a.currentNote, newRel); err != nil {
 		log.Printf("atlas-notes: rename via title: %v", err)
-		if !a.store.NoteExists(newRel) {
+		// Renamed anyway only if the old name is gone: the new one existing
+		// can mean it was taken, and adopting it would save this note's text
+		// over that one.
+		if strings.EqualFold(a.currentNote, newRel) || a.store.NoteExists(a.currentNote) {
+			a.toast("Couldn't rename: " + err.Error())
 			return
 		}
 	}
@@ -345,6 +349,8 @@ func (a *App) onTitleActivate() {
 		a.tree.SetCurrent(newRel)
 		a.tree.ForceRefresh()
 	}
+	a.bindImages(newRel) // its pictures are relative to it, wherever it is now
+	a.onLinksChanged()
 }
 
 // setSaveState updates the red/amber/green save dot and its label.

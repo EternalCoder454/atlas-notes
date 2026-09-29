@@ -517,6 +517,10 @@ func (a *App) showWelcome() {
 		return
 	}
 	a.closeFind(false) // the note it searched is going away
+	// Typing from the last moment before the autosave would otherwise go
+	// with the note: the editor is emptied below.
+	a.flushDirty()
+	a.backlinksGen++ // an answer for the note being left is no longer wanted
 	a.welcomeBuilt = true
 	a.currentNote = ""
 	a.dirty = false

@@ -233,6 +233,12 @@ func (a *App) confirmRestore(dialog *adw.Dialog, rel string, v storage.Version) 
 		// What is on screen but not yet on disk goes to disk first, so the
 		// store keeps it as the version this restore can be undone to.
 		a.flushDirty()
+		if a.dirty && a.currentNote == rel {
+			// The save before the restore failed. Restoring now would replace
+			// text that is only in the editor, with nothing kept of it.
+			a.toast("Couldn't save the note first, so nothing was restored")
+			return
+		}
 		if err := a.store.RestoreVersion(rel, v.ID); err != nil {
 			log.Printf("atlas-notes: restore %q of %q: %v", v.ID, rel, err)
 			if errors.Is(err, storage.ErrLocked) {

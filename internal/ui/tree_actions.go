@@ -147,21 +147,26 @@ func (t *Tree) promptRename(n *node) {
 		if err != nil {
 			log.Printf("atlas-notes: rename: %v", err)
 			// A rename that went through but could not rewrite every link
-			// is still a rename; only a failed rename stops here.
-			if (n.isFolder && !t.store.FolderExists(newRel)) || (!n.isFolder && !t.store.NoteExists(newRel)) {
+			// is still a rename. Whether it went through is read from the old
+			// name being gone, not the new one being there: the new name can
+			// be there because it was taken, which is a rename that failed.
+			if !renamed(t.store, n.isFolder, n.rel, newRel) {
+				t.message("Couldn't rename: " + err.Error())
 				return
 			}
 		}
-		if n.isFolder && t.OnMoved != nil && strings.HasPrefix(t.currentRel, n.rel+"/") {
-			t.OnMoved(t.currentRel, newRel+strings.TrimPrefix(t.currentRel, n.rel))
+		// The open note follows first, so that reloading it after the links
+		// were rewritten reads it under its new name.
+		if t.OnMoved != nil {
+			switch {
+			case n.isFolder && strings.HasPrefix(t.currentRel, n.rel+"/"):
+				t.OnMoved(t.currentRel, newRel+strings.TrimPrefix(t.currentRel, n.rel))
+			case !n.isFolder && t.currentRel == n.rel:
+				t.OnMoved(n.rel, newRel)
+			}
 		}
 		if t.OnLinksChanged != nil {
 			t.OnLinksChanged()
-		}
-		if !n.isFolder && t.currentRel == n.rel {
-			if t.OnMoved != nil {
-				t.OnMoved(n.rel, newRel) // keep the open note in sync
-			}
 		}
 		t.ForceRefresh()
 	})
@@ -283,4 +288,19 @@ func (t *Tree) confirm(title, body, okLabel string, onOK func()) {
 		}
 	})
 	dialog.Present(t.parent)
+}
+
+// renamed reports whether a rename that returned an error happened anyway:
+// the rename itself succeeded and only rewriting links failed. The old name
+// being gone is what says so. A name that differs only in case is the same
+// file on some systems, so it cannot tell; there the error is taken at its
+// word.
+func renamed(store *storage.Store, isFolder bool, oldRel, newRel string) bool {
+	if strings.EqualFold(oldRel, newRel) {
+		return false
+	}
+	if isFolder {
+		return !store.FolderExists(oldRel)
+	}
+	return !store.NoteExists(oldRel)
 }

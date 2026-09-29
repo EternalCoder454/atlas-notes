@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
@@ -61,10 +62,20 @@ func (a *App) bindImages(rel string) {
 	}
 }
 
-// noteNames is every note's path, for the [[ suggestions.
+// noteNamesTTL is how long the note list behind the [[ suggestions is reused.
+// The suggestions ask on every keystroke of a query, and listing a large vault
+// is milliseconds each time; a note made in the last two seconds is rare, and
+// following a link to it still works, because following checks the store.
+const noteNamesTTL = 2 * time.Second
+
+// noteNames is every note's path, for the [[ suggestions and for resolving a
+// link.
 func (a *App) noteNames() []string {
 	if a.store == nil {
 		return nil
+	}
+	if a.noteNamesCache != nil && time.Since(a.noteNamesAt) < noteNamesTTL {
+		return a.noteNamesCache
 	}
 	notes, err := a.store.ListNotes()
 	if err != nil {
@@ -74,6 +85,7 @@ func (a *App) noteNames() []string {
 	for i, n := range notes {
 		out[i] = n.Path
 	}
+	a.noteNamesCache, a.noteNamesAt = out, time.Now()
 	return out
 }
 
@@ -100,12 +112,24 @@ func (a *App) openLinkedNote(target, _ string) {
 	if a.store == nil {
 		return
 	}
-	if rel := markup.Resolve(target, a.noteNames()); rel != "" {
-		a.openNote(rel)
+	notes := a.noteNames()
+	// A link may name the file rather than the note, as other Markdown apps
+	// write them: [[Idea.md]] means Idea.
+	for _, t := range []string{target, strings.TrimSuffix(target, ".md")} {
+		if rel := markup.Resolve(t, notes); rel != "" {
+			a.openNote(rel)
+			return
+		}
+	}
+	// The name is cleaned as the store cleans it before anything is decided,
+	// and a note of that name is opened, never written over: the list the
+	// link was resolved against can lag behind a sync.
+	rel := storage.CleanNoteName(strings.TrimSuffix(target, ".md"))
+	if rel == "" {
 		return
 	}
-	rel := strings.Trim(strings.TrimSpace(target), "/")
-	if rel == "" {
+	if a.store.NoteExists(rel) {
+		a.openNote(rel)
 		return
 	}
 	a.flushDirty()

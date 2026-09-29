@@ -449,15 +449,7 @@ func (a *App) newHomeLists() *homeLists {
 }
 
 // showTag searches the vault for a tag, showing the vault panel if it is away.
-func (a *App) showTag(tag string) {
-	if a.tree == nil {
-		return
-	}
-	if a.leftToggle != nil && !a.leftToggle.Active() {
-		a.leftToggle.SetActive(true)
-	}
-	a.tree.SetSearch("#" + tag)
-}
+func (a *App) showTag(tag string) { a.showTagged(tag) }
 
 // refreshHomeLists brings the Due and Tags sections up to date.
 //

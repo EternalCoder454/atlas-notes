@@ -264,7 +264,6 @@ func (a *App) showShortcuts() {
 			{"Ctrl+0", "Plain text"},
 			{"Ctrl+Shift+T", "Turn the line into a task"},
 			{"Ctrl+Shift+I", "Insert an image from a file"},
-			{"Ctrl+Shift+I", "Insert an image from a file"},
 		}},
 		{"App", []shortcutRow{
 			{"Ctrl+Shift+L", "Lock protected notes now"},

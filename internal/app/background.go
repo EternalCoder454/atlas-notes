@@ -45,6 +45,7 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 	defer close(a.bg.done)
 	for first := true; ; first = false {
 		changed, read, converted := false, 0, 0
+		var convertErr error
 		if first && scan {
 			before, _ := a.store.CountNotes()
 			if err := a.store.Reindex(); err != nil {
@@ -66,6 +67,7 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 			n, err := a.store.ConvertVault(ctx, nil)
 			if err != nil {
 				log.Printf("atlas-notes: converting notes: %v", err)
+				convertErr = err
 			}
 			converted = n
 		}
@@ -93,8 +95,14 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 			if wasFirst {
 				a.backgroundCount = read
 				a.backgroundDone = true
-				if converted > 0 {
+				switch {
+				case convertErr != nil:
+					a.toast("Some notes could not be converted: " + convertErr.Error())
+				case converted > 0:
 					a.toast(fmt.Sprintf("%s now stored as %s", plural(converted, "note"), formatName(a.store.Compression())))
+				}
+				if converted > 0 {
+					a.refreshHeader() // the title's tooltip names the file
 				}
 			}
 			return false

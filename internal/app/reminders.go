@@ -140,7 +140,9 @@ func (a *App) checkReminders(an *announcer) {
 			title, body := reminderMessage(today, fresh)
 			n := gio.NewNotification(title)
 			n.SetBody(body)
-			n.SetDefaultAction("app.home")
+			// No default action: clicking it brings the window forward, as
+			// activating the app does. Sending it home would leave the note
+			// being typed in.
 			a.adw.SendNotification("due-tasks", n)
 			return false
 		})
