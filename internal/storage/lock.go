@@ -438,7 +438,7 @@ func (s *Store) planNoteReseal(oldKey, newKey vaultlock.Key) ([]sealedFile, erro
 }
 
 // planAttachmentReseal reseals every sealed image in the vault's attachments
-// folder in memory. It is resealAttachments without the writing.
+// folder in memory. Nothing is written here; ChangePassword writes the plan once all of it has been made.
 func (s *Store) planAttachmentReseal(oldKey, newKey vaultlock.Key) ([]sealedFile, error) {
 	dir := s.attachmentsPath()
 	var plan []sealedFile

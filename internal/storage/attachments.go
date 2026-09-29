@@ -422,38 +422,6 @@ func unsealAttachmentFile(key vaultlock.Key, abs string) error {
 	return os.Remove(abs + sealedExt)
 }
 
-// resealAttachments moves every sealed image from one key to another. It is
-// part of changing the password: an image left under the old key could never
-// be opened again.
-func (s *Store) resealAttachments(oldKey, newKey vaultlock.Key) error {
-	dir := s.attachmentsPath()
-	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if p == dir && os.IsNotExist(err) {
-				return nil // no image has ever been saved
-			}
-			return err
-		}
-		plainName := strings.TrimSuffix(d.Name(), sealedExt)
-		if d.IsDir() || plainName == d.Name() || !markup.IsImagePath(plainName) {
-			return nil
-		}
-		sealed, err := readCapped(p, maxAttachmentBytes+sealOverhead)
-		if err != nil {
-			return err
-		}
-		raw, err := vaultlock.Open(oldKey, sealed)
-		if err != nil {
-			return fmt.Errorf("re-sealing image %q: %w", d.Name(), err)
-		}
-		resealed, err := vaultlock.Seal(newKey, raw)
-		if err != nil {
-			return err
-		}
-		return atomicWrite(p, resealed)
-	})
-}
-
 // lockedNoteShows reports whether a locked note other than except shows the
 // picture stored at abs. Locked notes are not in the link index, so each is
 // read; unlocking is rare and asked for, and the vault is unlocked by then.

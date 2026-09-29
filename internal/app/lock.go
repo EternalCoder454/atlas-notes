@@ -103,6 +103,15 @@ func (a *App) ensureUnlocked(next func()) {
 				a.toast("That password didn't work.")
 				return
 			}
+			// History is kept per machine, so a note locked on another device
+			// can have earlier versions here in the clear. With the key in
+			// hand they are sealed now, off the main thread.
+			store := a.store
+			go func() {
+				if err := store.SealLockedHistory(); err != nil {
+					log.Printf("atlas-notes: sealing history: %v", err)
+				}
+			}()
 			next()
 		})
 }
