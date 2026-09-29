@@ -15,6 +15,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The morning reminder of tasks that are due.
@@ -27,9 +29,13 @@ import java.util.Locale
  *
  * The alarm is inexact on purpose. An exact one needs a permission that Android
  * treats as special and asks people to grant in settings, for a nudge that
- * loses nothing by arriving a few minutes late, and inexact repeating alarms
- * are also the ones the system is willing to batch with others to spare the
- * battery.
+ * loses nothing by arriving a few minutes late, and an alarm with a window is
+ * one the system is willing to batch with others to spare the battery.
+ *
+ * It is a one-shot alarm that sets the next one when it fires, and not a
+ * repeating one: a repeating alarm keeps the interval it was given and not
+ * nine o'clock, so after the clocks change it would go on arriving an hour
+ * off. Whatever fires it, and the app starting, sets it again.
  */
 object DueReminders {
 
@@ -38,6 +44,13 @@ object DueReminders {
 
     /** The hour, in the phone's own time zone, the reminder comes at. */
     private const val HOUR = 9
+
+    /**
+     * How long after nine the system may hold the alarm to fire it with
+     * others. Half an hour is far more than the nudge needs to be on time and
+     * long enough to be worth batching.
+     */
+    private const val WINDOW_MILLIS = 30 * 60 * 1000L
 
     /** How many task texts the notification lists before leaving the rest out. */
     private const val LINES = 3
@@ -49,22 +62,29 @@ object DueReminders {
     private const val ASKED = "asked_for_notifications"
 
     /**
-     * Sets the alarm for nine every morning, starting with the next one.
+     * Sets the alarm for the next nine o'clock.
      *
      * It is safe to call as often as is convenient. An alarm for a
      * [PendingIntent] equal to one already set replaces it, so this cannot pile
      * up alarms, and setting it again is what puts it back after anything that
      * cleared it: a restart of the phone, an update of the app, or the phone
-     * changing time zone, which moves nine o'clock without telling the alarm.
+     * changing time zone or clock, which moves nine o'clock without telling
+     * the alarm. It is also how the alarm carries on, since each one is used
+     * up when it fires and [DueReceiver] sets the next.
+     *
+     * Nothing is set while a notification could not be shown, because waking
+     * the phone for a reminder that cannot be delivered is all cost. The alarm
+     * is cancelled instead, and is set again when the permission is granted or
+     * the app is next started.
      */
     fun schedule(context: Context) {
         val alarms = context.getSystemService(AlarmManager::class.java) ?: return
-        alarms.setInexactRepeating(
-            AlarmManager.RTC,
-            nextNine(),
-            AlarmManager.INTERVAL_DAY,
-            alarmIntent(context),
-        )
+        val intent = alarmIntent(context)
+        if (!canNotify(context)) {
+            alarms.cancel(intent)
+            return
+        }
+        alarms.setWindow(AlarmManager.RTC_WAKEUP, nextNine(), WINDOW_MILLIS, intent)
     }
 
     /**
@@ -128,14 +148,18 @@ object DueReminders {
      * prompt that comes back after being refused is how an app gets reported,
      * so once is all this does.
      */
-    fun shouldAsk(context: Context): Boolean =
+    suspend fun shouldAsk(context: Context): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED &&
-            !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ASKED, false)
+            // The first read of a preferences file loads it from disk, which the
+            // main thread, where this is called from, must not wait for.
+            !withContext(Dispatchers.IO) {
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ASKED, false)
+            }
 
     /** Remembers that the person has been asked, for good. */
-    fun markAsked(context: Context) {
+    suspend fun markAsked(context: Context) = withContext(Dispatchers.IO) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(ASKED, true).apply()
     }
 
@@ -152,12 +176,13 @@ object DueReminders {
         // open the vault to build one.
         if (!canNotify(context)) return
         Vault.open(Vault.dataDir(context))
-        val due = Vault.dueTasks(today())
+        val today = today()
+        val due = Vault.dueTasks(today)
         if (due.isEmpty()) return
-        post(context, due)
+        post(context, due, today)
     }
 
-    private fun post(context: Context, due: List<Vault.DueTask>) {
+    private fun post(context: Context, due: List<Vault.DueTask>, today: String) {
         val manager = NotificationManagerCompat.from(context)
         manager.createNotificationChannel(
             NotificationChannelCompat.Builder(CHANNEL, NotificationManagerCompat.IMPORTANCE_DEFAULT)
@@ -165,7 +190,13 @@ object DueReminders {
                 .build(),
         )
 
-        val title = if (due.size == 1) "1 task due today" else "${due.size} tasks due"
+        // The desktop words it the same way: one task is either due today or
+        // overdue, and saying "due today" of yesterday's would be wrong.
+        val title = when {
+            due.size == 1 && due[0].due == today -> "1 task due today"
+            due.size == 1 -> "1 task overdue"
+            else -> "${due.size} tasks due"
+        }
         val open = PendingIntent.getActivity(
             context,
             0,
@@ -182,7 +213,6 @@ object DueReminders {
             .setStyle(lines)
             .setContentIntent(open)
             .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             // What the tasks say is private, and a locked phone shows a
             // notification to whoever is holding it. The lock screen gets the

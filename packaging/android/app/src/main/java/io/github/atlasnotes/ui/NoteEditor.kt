@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.atlasnotes.VaultModel
@@ -109,16 +111,35 @@ fun NoteEditor(model: VaultModel) {
             // note from the list does not: that is usually to read it.
             val focus = remember { FocusRequester() }
             val keyboard = LocalSoftwareKeyboardController.current
+
+            // The field holds the cursor and selection as well as the text, and
+            // the model only the text, so the value is kept here. It starts
+            // again for each note that is opened, which is what puts the cursor
+            // back at the top of one that is opened from the list.
+            var field by remember(model.openPath) { mutableStateOf(TextFieldValue(model.body)) }
+            // The model changes the text without typing when a task is ticked
+            // or the note is read again after a rename. Only then is the value
+            // rebuilt: doing it on every change would replace the value under
+            // the keyboard's composing text at each keystroke.
+            if (field.text != model.body) field = field.copy(text = model.body)
+
             LaunchedEffect(model.focusEditor) {
                 if (model.focusEditor) {
+                    // Someone who asked for a note to type into, or for today's,
+                    // is adding to it, and the end is where that goes.
+                    field = field.copy(selection = TextRange(field.text.length))
                     focus.requestFocus()
                     keyboard?.show()
                     model.editorFocused()
                 }
             }
             TextField(
-                value = model.body,
-                onValueChange = { model.edit(it) },
+                value = field,
+                onValueChange = {
+                    val changed = it.text != field.text
+                    field = it
+                    if (changed) model.edit(it.text)
+                },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).focusRequester(focus),
                 placeholder = { Text("Start writing") },
                 colors = TextFieldDefaults.colors(

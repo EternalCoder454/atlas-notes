@@ -12,8 +12,9 @@ import android.content.Intent
  * mean "a new note, and let me type", and the first means "a note with this in
  * it", so between them there are only two shapes of one request. The Today
  * button and its own shortcut add a third, which makes no note of its own but
- * opens the day's. MainActivity reads it out of an intent, and VaultModel
- * carries it out once the vault is open.
+ * opens the day's. A share with nothing in it to save is a fourth, which only
+ * says so. MainActivity reads it out of an intent, and VaultModel carries it
+ * out once the vault is open.
  *
  * @property title what the note is called. That is its file name, so it has
  *   already been made safe to use as one.
@@ -39,6 +40,13 @@ data class Capture(
          * contents come from the daily template, both settled by the Go core.
          */
         TODAY,
+
+        /**
+         * A share that has no text to make a note of, such as a file sent by
+         * stream, or one that could not be read. Carrying it out makes no note
+         * and only says [ONLY_TEXT], so it is not lost without a word.
+         */
+        UNSUPPORTED,
     }
 
     companion object {
@@ -48,6 +56,9 @@ data class Capture(
 
         /** The action the Today shortcut sends. */
         const val ACTION_TODAY = "io.github.atlasnotes.action.TODAY"
+
+        /** What is said when a share holds nothing that can be made a note. */
+        const val ONLY_TEXT = "Only shared text can be saved as a note"
 
         private const val BLANK_TITLE = "Untitled"
         private const val SHARED_TITLE = "Shared note"
@@ -94,15 +105,24 @@ data class Capture(
          *
          * The subject is added to the top of the text only if the text does not
          * already say it, since many apps put the title in both places.
+         *
+         * A share with neither, which is what a file sent by stream looks like
+         * when the app labels it as text, is not made into a note: an empty
+         * one called "Shared note" would be no use to anyone, and would hide
+         * that what was sent was not saved.
          */
         fun shared(subject: CharSequence?, text: CharSequence?): Capture {
             val heading = subject?.toString()?.trim().orEmpty()
             val content = text?.toString().orEmpty()
+            if (heading.isEmpty() && content.isBlank()) return unsupported()
             val title = sequenceOf(heading, firstLine(content))
                 .map { fileName(it) }
                 .firstOrNull { it.isNotEmpty() } ?: SHARED_TITLE
             return Capture(title, withHeading(heading, content), typing = false)
         }
+
+        /** A share that cannot be saved; see [Kind.UNSUPPORTED]. */
+        private fun unsupported() = Capture("", "", typing = false, kind = Kind.UNSUPPORTED)
 
         private fun withHeading(heading: String, content: String): String = when {
             heading.isEmpty() || content.contains(heading) -> content
@@ -133,40 +153,33 @@ data class Capture(
             else text.substring(0, text.offsetByCodePoints(0, count))
 
         /**
-         * [title], or [title] with a number after it if a note by that name is
-         * already in [taken].
-         *
-         * The Go core does this itself, but it only looks for an ordinary
-         * note. A password protected one is stored under another extension and
-         * is invisible to it, so a new note given the same name would be
-         * written over the protected one. The list of notes knows about both,
-         * and names are compared without regard to case because shared storage
-         * on Android does.
-         */
-        fun distinct(title: String, taken: Collection<String>): String {
-            val used = taken.mapTo(HashSet()) { it.lowercase() }
-            var candidate = title
-            var number = 2
-            while (candidate.lowercase() in used) {
-                candidate = "$title $number"
-                number++
-            }
-            return candidate
-        }
-
-        /**
          * Reads the request out of [intent], or null if it is not one.
          *
          * The intent is emptied as it is read. Android hands the same intent
          * back to an activity that is recreated, and to one restored after its
          * process died, and without this each of those would make the note
          * again.
+         *
+         * Reading the extras of an intent from another app can throw: they are
+         * unpacked from a parcel that the sender wrote, and one written to be
+         * malformed fails there. A share that cannot be read is answered like
+         * one with nothing to save, and does not take the app down.
          */
         fun take(intent: Intent): Capture? {
-            val capture = read(intent) ?: return null
+            val capture = try {
+                read(intent)
+            } catch (e: Exception) {
+                if (intent.action == Intent.ACTION_SEND) unsupported() else null
+            } ?: return null
+            // The action goes first, since it is what stops the intent being read
+            // again if taking the extras out throws too.
             intent.action = null
-            intent.removeExtra(Intent.EXTRA_TEXT)
-            intent.removeExtra(Intent.EXTRA_SUBJECT)
+            try {
+                intent.removeExtra(Intent.EXTRA_TEXT)
+                intent.removeExtra(Intent.EXTRA_SUBJECT)
+            } catch (e: Exception) {
+                // Nothing more can be done about a parcel that will not open.
+            }
             return capture
         }
 
