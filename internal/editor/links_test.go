@@ -287,6 +287,18 @@ func TestCompleteNote(t *testing.T) {
 		{"ambiguous names get the path", "[[To|", "Work/Todo", "[[Work/Todo]]", 13, true},
 		{"non-ASCII text around", "é 😀 [[Ca|", "Ünï/Café", "é 😀 [[Café]]", 12, true},
 		{"not in a link", "see Pl|", "Work/Plan", "", 0, false},
+
+		// The caret inside a link that is already written.
+		{"replaces the rest of the name", "see [[Wo|rk plan]] end", "Work/Plan", "see [[Plan]] end", 12, true},
+		{"rest of the name, closing brackets stay", "[[Pl|an]]", "Work/Plan", "[[Plan]]", 8, true},
+		{"stops at an alias", "[[Pl|an|shown]]", "Work/Plan", "[[Plan|shown]]", 6, true},
+		{"stops at a heading", "[[Pl|an#Intro]]", "Work/Plan", "[[Plan#Intro]]", 6, true},
+		{"alias right after the caret", "[[Pl||shown]]", "Work/Plan", "[[Plan|shown]]", 6, true},
+		{"heading right after the caret", "[[Pl|#Intro]]", "Work/Plan", "[[Plan#Intro]]", 6, true},
+		{"non-ASCII rest of the name", "[[Ca|fé x]] y", "Ünï/Café", "[[Café]] y", 8, true},
+		{"a link that follows is left alone", "[[Pl| and [[Other]]", "Work/Plan", "[[Plan]] and [[Other]]", 8, true},
+		{"open link, text after is kept", "see [[Pl| for details", "Work/Plan", "see [[Plan]] for details", 12, true},
+		{"open link at the end", "[[Pl|an", "Work/Plan", "[[Plan]]an", 8, true},
 	}
 	for _, c := range cases {
 		before, after, _ := strings.Cut(c.line, "|")

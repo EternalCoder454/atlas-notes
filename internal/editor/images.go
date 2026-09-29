@@ -3,7 +3,6 @@ package editor
 import (
 	"container/list"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -53,8 +52,10 @@ const (
 	imageCacheSize = 32
 	// maxImageBytes is the largest file taken from a drop or a pasted file.
 	maxImageBytes = 50 << 20
-	// maxPooledBoxes caps the widgets kept for reuse, like the checklist rows.
-	maxPooledBoxes = 8
+	// maxPooledBoxes caps the widgets kept for reuse, as large as the checklist
+	// row pool. A box the pool has no room for is one the bindings never free, so
+	// a small cap turns every picture beyond it into a leak.
+	maxPooledBoxes = 512
 	// maxLoadsAtOnce is how many pictures are being read or waiting to be decoded
 	// at the same time.
 	maxLoadsAtOnce = 4
@@ -111,6 +112,9 @@ type imageState struct {
 	queued bool               // a placement pass is waiting for an idle moment
 	retry  int                // placement passes repeated while the layout settles
 	paste  bool               // the default paste is being let through
+	// A placement pass skipped its spacing changes because text was selected;
+	// they are made once the selection collapses (see New).
+	padDeferred bool
 }
 
 // imagesOn is whether the app supplied a way to load pictures. Without one the
@@ -415,12 +419,14 @@ func (e *Editor) takeBox(tex *gdk.Texture) *imageBox {
 	b.box.Append(b.note)
 
 	// A press on a picture is claimed, so the text view underneath never sees it:
-	// no caret move, no selection. A double-click opens the picture.
+	// no caret move, no selection. A double-click opens the picture. The handler
+	// is handed the gesture rather than closing over it, for the reason given at
+	// imageBox: a handler that holds the widget it sits on keeps it alive for good.
 	click := gtk.NewGestureClick()
 	click.SetButton(1)
 	serial := b.serial
-	click.ConnectPressed(func(nPress int, _, _ float64) {
-		click.SetState(gtk.EventSequenceClaimed)
+	click.Connect("pressed", func(g *gtk.GestureClick, nPress int) {
+		g.SetState(gtk.EventSequenceClaimed)
 		if nPress == 2 {
 			e.openImage(serial)
 		}
@@ -491,6 +497,17 @@ func imagePad(h int) (name string, px int) {
 	return "image-pad-" + strconv.Itoa(step), step + imageGap
 }
 
+// padPixels is the space the spacing tag called name puts under its line, and 0
+// for no tag.
+func padPixels(name string) int {
+	if name == "" {
+		return 0
+	}
+	h, _ := strconv.Atoi(strings.TrimPrefix(name, "image-pad-"))
+	_, px := imagePad(h)
+	return px
+}
+
 // fit is the size this picture is drawn at, given the width the view has to give.
 func (it *imageItem) fit(availW int) (w, h int) {
 	if it.failed {
@@ -530,9 +547,18 @@ func (e *Editor) placeImages() {
 	}
 	avail := e.view.Width() - e.view.LeftMargin() - e.view.RightMargin()
 
+	// The spacing is a tag, and tags must not change while text is selected: the
+	// person may be dragging, and GTK hit-tests the text with every move (see
+	// reparse). The pictures keep the spacing they have until the selection
+	// collapses, which queues this pass again.
+	holdTags := e.buffer.HasSelection()
+	if holdTags {
+		s.padDeferred = true
+	}
+
 	changed := false
 	for _, it := range s.items {
-		if it.box == nil {
+		if holdTags || it.box == nil {
 			continue
 		}
 		line := e.itemLine(it)
@@ -549,6 +575,7 @@ func (e *Editor) placeImages() {
 		}
 	}
 	if changed {
+		e.markLayoutStale()
 		e.queuePlace()
 		return
 	}
@@ -575,10 +602,9 @@ func (e *Editor) placeImages() {
 			continue
 		}
 		top, lineH := e.view.LineYrange(iter)
-		pad := 0
-		if it.pad != "" {
-			_, pad = imagePad(h)
-		}
+		// What is on the line now, which is not what fit() would ask for while the
+		// spacing changes are held back.
+		pad := padPixels(it.pad)
 		// The line's height includes the space added under it, so what is left is
 		// the text. A height that does not even cover the space means the layout
 		// has not reached this line yet.
@@ -631,6 +657,7 @@ func (e *Editor) applyPad(it *imageItem, line int, name string) {
 	if !ok1 || !ok2 {
 		return
 	}
+	e.markLayoutStale()
 	if old := e.tags[it.pad]; old != nil && it.pad != name {
 		e.buffer.RemoveTag(old, start, end)
 	}
@@ -640,9 +667,7 @@ func (e *Editor) applyPad(it *imageItem, line int, name string) {
 	}
 	tag := e.tags[name]
 	if tag == nil {
-		h, _ := strconv.Atoi(strings.TrimPrefix(name, "image-pad-"))
-		_, px := imagePad(h)
-		e.newTag(name, map[string]any{"pixels-below-lines": px})
+		e.newTag(name, map[string]any{"pixels-below-lines": padPixels(name)})
 		tag = e.tags[name]
 	}
 	e.buffer.ApplyTag(tag, start, end)
@@ -733,6 +758,23 @@ func hasImageMIME(mimes []string) bool {
 	return false
 }
 
+// hasTextMIME reports whether any of the clipboard's formats is plain text.
+func hasTextMIME(mimes []string) bool {
+	for _, m := range mimes {
+		if m == "text/plain" || m == "text/plain;charset=utf-8" {
+			return true
+		}
+	}
+	return false
+}
+
+// isPicture is whether a clipboard holds a picture and nothing the text view
+// could paste. Apps that copy a picture together with its caption or its source
+// offer text as well, and then the text is what was meant.
+func isPicture(hasTexture bool, mimes []string) bool {
+	return (hasTexture || hasImageMIME(mimes)) && !hasTextMIME(mimes)
+}
+
 // keepImagePaths keeps the entries that name an image file.
 func keepImagePaths(paths []string) []string {
 	var out []string
@@ -755,16 +797,41 @@ func imagePathsIn(fl *gdk.FileList) []string {
 }
 
 // InsertImage puts "![](mdPath)" on a line of its own at the caret, as typing it
-// would. The app calls it for its Insert Image menu item.
+// would, or after the caret's line when that line is a task. The app calls it
+// for its Insert Image menu item.
 func (e *Editor) InsertImage(mdPath string) {
 	e.insertImages([]string{mdPath}, nil)
+}
+
+// clearOfTask moves iter to the end of its line when the line is a task, so a
+// picture never lands between a checkbox and its text: a line that starts with
+// the checkbox's anchor is read back as a task, and a picture split off it would
+// take half the text with it.
+func (e *Editor) clearOfTask(iter *gtk.TextIter) {
+	line, ok := e.lineText(iter.Line())
+	if !ok || !strings.HasPrefix(line, anchorChar) {
+		return
+	}
+	if !iter.EndsLine() {
+		iter.ForwardToLineEnd()
+	}
 }
 
 // insertImages puts each picture on its own line, at a mark or at the caret when
 // there is none. It is one user action, so a single undo takes the lot back, and
 // its edits are ordinary buffer inserts, so autosave and the dirty-line tracking
-// see typing.
+// see typing. Where that point is on a task line the pictures go after the line
+// instead (see clearOfTask).
 func (e *Editor) insertImages(paths []string, at *gtk.TextMark) {
+	if at != nil {
+		// The mark is spent however this ends, including when every save failed
+		// and there is nothing to insert.
+		defer func() {
+			if !at.Deleted() {
+				e.buffer.DeleteMark(at)
+			}
+		}()
+	}
 	if len(paths) == 0 {
 		return
 	}
@@ -774,7 +841,6 @@ func (e *Editor) insertImages(paths []string, at *gtk.TextMark) {
 	var iter *gtk.TextIter
 	if at != nil {
 		iter = e.buffer.IterAtMark(at)
-		e.buffer.DeleteMark(at)
 	} else {
 		e.buffer.DeleteSelection(true, true)
 		iter = e.buffer.IterAtMark(e.buffer.GetInsert())
@@ -782,6 +848,7 @@ func (e *Editor) insertImages(paths []string, at *gtk.TextMark) {
 	if iter == nil {
 		return
 	}
+	e.clearOfTask(iter)
 	for _, p := range paths {
 		nextIsNewline := iter.EndsLine() && !iter.IsEnd()
 		before, after := newlinePadding(iter.StartsLine(), nextIsNewline)
@@ -853,8 +920,20 @@ func (e *Editor) imageError(err error) {
 }
 
 // readImageFile reads a picture, refusing one over maxImageBytes without reading
-// all of it.
+// all of it. The file is looked at before it is opened: opening a FIFO with no
+// writer blocks until one turns up, and this runs on a goroutine that a drop or
+// a paste is waiting on.
 func readImageFile(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", filepath.Base(path))
+	}
+	if info.Size() > maxImageBytes {
+		return nil, fmt.Errorf("%s is larger than 50 MiB", filepath.Base(path))
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -871,8 +950,8 @@ func readImageFile(path string) ([]byte, error) {
 }
 
 // onPaste runs before the text view's own paste. A clipboard that holds a
-// picture, or picture files, is taken over here; anything else falls through to
-// the normal paste.
+// picture and no text, or picture files, is taken over here; anything else falls
+// through to the normal paste.
 func (e *Editor) onPaste() {
 	if e.img.paste || e.SaveImage == nil {
 		return
@@ -883,7 +962,7 @@ func (e *Editor) onPaste() {
 		return
 	}
 	switch {
-	case fm.ContainGType(gdk.GTypeTexture) || hasImageMIME(fm.MIMETypes()):
+	case isPicture(fm.ContainGType(gdk.GTypeTexture), fm.MIMETypes()):
 		e.view.StopEmission("paste-clipboard")
 		e.pasteTexture(clip)
 	case fm.ContainGType(gdk.GTypeFileList) || fm.ContainMIMEType("text/uri-list"):
@@ -892,15 +971,21 @@ func (e *Editor) onPaste() {
 	}
 }
 
-// pasteTexture reads the clipboard's picture and saves it as PNG.
+// passPaste hands a paste back to the text view, past onPaste.
+func (e *Editor) passPaste() {
+	e.img.paste = true
+	e.view.Emit("paste-clipboard")
+	e.img.paste = false
+}
+
+// pasteTexture reads the clipboard's picture and saves it as PNG. When it cannot
+// be read the paste goes to the text view, as a copied file that is no picture
+// does (see pasteFiles).
 func (e *Editor) pasteTexture(clip *gdk.Clipboard) {
 	clip.ReadTextureAsync(context.Background(), func(res gio.AsyncResulter) {
 		tex, err := clip.ReadTextureFinish(res)
-		if err == nil && tex == nil {
-			err = errors.New("the clipboard picture could not be read")
-		}
-		if err != nil {
-			e.imageError(err)
+		if err != nil || tex == nil {
+			e.passPaste()
 			return
 		}
 		png := gdk.BaseTexture(tex).SaveToPNGBytes().Data()
@@ -919,9 +1004,7 @@ func (e *Editor) pasteFiles(clip *gdk.Clipboard) {
 			}
 		}
 		if len(paths) == 0 {
-			e.img.paste = true
-			e.view.Emit("paste-clipboard")
-			e.img.paste = false
+			e.passPaste()
 			return
 		}
 		e.saveImages(sourcesFor(paths), nil)
@@ -950,9 +1033,18 @@ func (e *Editor) onDrop(value *coreglib.Value, x, y float64) bool {
 	if len(paths) == 0 {
 		return false
 	}
-	bx, by := e.view.WindowToBufferCoords(gtk.TextWindowWidget, int(x), int(y))
-	iter, found := e.view.IterAtLocation(bx, by)
-	if !found || iter == nil {
+	// The pictures go after the line that was dropped on, and only the line is
+	// looked up: finding the character under the pointer is a byte-level hit-test,
+	// which aborts the process when the line's hidden runs have changed since it
+	// was laid out (see linkUnder). insertImages puts them on a line of their own.
+	_, by := e.view.WindowToBufferCoords(gtk.TextWindowWidget, int(x), int(y))
+	var iter *gtk.TextIter
+	if line, _ := e.view.LineAtY(by); line != nil {
+		iter = line
+		if !iter.EndsLine() {
+			iter.ForwardToLineEnd()
+		}
+	} else {
 		_, iter = e.buffer.Bounds()
 	}
 	// The drop point is remembered as a mark: the files take a moment to save,
