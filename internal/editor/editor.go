@@ -418,6 +418,11 @@ func (e *Editor) tagRange(from, to, cursorLine int) {
 		for _, sp := range linkSpans(line, lineNum == cursorLine) {
 			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
 		}
+		// A line that is a picture hides its Markdown, away from the caret, and
+		// makes room below itself for the picture. Only lines with "![" pay.
+		if e.imagesOn() && strings.Contains(line, "![") {
+			e.tagImageLine(lineNum, line, lineNum == cursorLine)
+		}
 		if breadcrumbsOn {
 			breadcrumb("tagged line %d: %d chars, %d bytes", lineNum,
 				utf8.RuneCountInString(line), len(line))
