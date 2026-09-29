@@ -33,10 +33,10 @@ func settle(t *testing.T, s *Store) {
 	}
 }
 
-// stored reads one column of one of a note's rows straight from the tables,
+// storedColumn reads one column of one of a note's rows straight from the tables,
 // sorted, going around the queries the app uses: those leave out locked notes
 // with a join, and these tests check the tables themselves.
-func stored(t *testing.T, s *Store, table, column, rel string) []string {
+func storedColumn(t *testing.T, s *Store, table, column, rel string) []string {
 	t.Helper()
 	rows, err := s.db.Query(`SELECT `+column+` FROM `+table+
 		` WHERE note_id = (SELECT id FROM notes WHERE path = ?) ORDER BY `+column, rel)
@@ -102,10 +102,10 @@ func TestDerivedRowsFollowTheNote(t *testing.T) {
 		"- [ ] loose date <!-- due:soon -->\n"+
 		"```\n[[Hidden]] #hidden\n```\n")
 
-	if got, want := stored(t, s, "note_links", "target", "Plan"), []string{"alpha", "work/beta"}; !slices.Equal(got, want) {
+	if got, want := storedColumn(t, s, "note_links", "target", "Plan"), []string{"alpha", "work/beta"}; !slices.Equal(got, want) {
 		t.Errorf("links = %v, want %v", got, want)
 	}
-	if got, want := stored(t, s, "note_tags", "tag", "Plan"), []string{"bar/baz", "foo"}; !slices.Equal(got, want) {
+	if got, want := storedColumn(t, s, "note_tags", "tag", "Plan"), []string{"bar/baz", "foo"}; !slices.Equal(got, want) {
 		t.Errorf("tags = %v, want %v", got, want)
 	}
 	due, err := s.DueTasks("2099-01-01")
@@ -119,10 +119,10 @@ func TestDerivedRowsFollowTheNote(t *testing.T) {
 
 	// Editing replaces what was there, and does not add to it.
 	saveNote(t, s, "Plan", "# Plan\n\n[[Gamma]] #new\n- [ ] later <!-- due:2026-04-01 -->\n")
-	if got, want := stored(t, s, "note_links", "target", "Plan"), []string{"gamma"}; !slices.Equal(got, want) {
+	if got, want := storedColumn(t, s, "note_links", "target", "Plan"), []string{"gamma"}; !slices.Equal(got, want) {
 		t.Errorf("links after an edit = %v, want %v", got, want)
 	}
-	if got, want := stored(t, s, "note_tags", "tag", "Plan"), []string{"new"}; !slices.Equal(got, want) {
+	if got, want := storedColumn(t, s, "note_tags", "tag", "Plan"), []string{"new"}; !slices.Equal(got, want) {
 		t.Errorf("tags after an edit = %v, want %v", got, want)
 	}
 	due, _ = s.DueTasks("2099-01-01")
@@ -153,7 +153,7 @@ func TestDerivedRowsSurviveRenamesAndGoWithFolders(t *testing.T) {
 	if err := s.RenameNote("Old", "Moved/New"); err != nil {
 		t.Fatal(err)
 	}
-	if got := stored(t, s, "note_tags", "tag", "Moved/New"); !slices.Equal(got, []string{"kept"}) {
+	if got := storedColumn(t, s, "note_tags", "tag", "Moved/New"); !slices.Equal(got, []string{"kept"}) {
 		t.Errorf("a renamed note lost its tags: %v", got)
 	}
 	if err := s.DeleteFolderPermanently("Moved"); err != nil {
@@ -219,11 +219,11 @@ func TestLockingTakesDerivedRowsOut(t *testing.T) {
 	if err := s.UnlockNote("Secret"); err != nil {
 		t.Fatal(err)
 	}
-	if got := stored(t, s, "note_tags", "tag", "Secret"); len(got) != 0 {
+	if got := storedColumn(t, s, "note_tags", "tag", "Secret"); len(got) != 0 {
 		t.Errorf("unlocking alone filled the tables: %v", got)
 	}
 	settle(t, s)
-	if got := stored(t, s, "note_tags", "tag", "Secret"); !slices.Equal(got, []string{tag}) {
+	if got := storedColumn(t, s, "note_tags", "tag", "Secret"); !slices.Equal(got, []string{tag}) {
 		t.Errorf("tags after unlocking = %v", got)
 	}
 	if got := backlinks(t, s, "Public"); !slices.Equal(got, []string{"Secret"}) {
