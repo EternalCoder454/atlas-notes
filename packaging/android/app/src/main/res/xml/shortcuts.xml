@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher shortcut, shown when the app's icon is held down. It opens the
+  same request the tile and the widget do.
+
+  The target package has to be written out, because resources are not run
+  through the manifest's ${applicationId} placeholder. It is the release build's
+  id, so a debug build, whose id ends in .debug, needs its own copy of this file
+  under src/debug/res/xml to have a working shortcut.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new_note"
+        android:shortcutId="new_note"
+        android:shortcutLongLabel="@string/new_note"
+        android:shortcutShortLabel="@string/new_note">
+        <intent
+            android:action="io.github.atlasnotes.action.NEW_NOTE"
+            android:targetClass="io.github.atlasnotes.MainActivity"
+            android:targetPackage="io.github.atlasnotes" />
+    </shortcut>
+</shortcuts>

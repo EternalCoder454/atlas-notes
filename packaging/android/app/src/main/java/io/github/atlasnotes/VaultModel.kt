@@ -99,6 +99,20 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     private var saveJob: Job? = null
     private var searchJob: Job? = null
     private var settleJob: Job? = null
+    private var captureJob: Job? = null
+
+    /**
+     * Requests from outside the app that have not been carried out yet, oldest
+     * first. Only the main thread touches this, so it needs no lock.
+     */
+    private val waiting = ArrayDeque<Capture>()
+
+    /**
+     * Whether the note that just opened should take the keyboard. It is set
+     * for a note made to be typed into and cleared as soon as the editor has
+     * asked for focus, so that opening a note later does not also raise it.
+     */
+    var focusEditor by mutableStateOf(false); private set
 
     init {
         viewModelScope.launch {
@@ -115,6 +129,10 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
                 error = e.message ?: "The vault would not open"
                 ready = true
             }
+            // A share or a shortcut can arrive while the vault is still
+            // opening, which on a cold start it always does. It waited; now
+            // it can be carried out.
+            runCaptures()
             settleInBackground()
             checkForUpdate()
         }
@@ -214,6 +232,9 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             error = e.message ?: "That folder could not be used"
         } finally {
             switching = false
+            // Anything that arrived during the switch was held back, so that
+            // it would land in the folder the person moved to.
+            runCaptures()
         }
     }
 
@@ -222,6 +243,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     fun open(note: Vault.Note) = viewModelScope.launch { load(note.path) }
 
     private suspend fun load(path: String) {
+        focusEditor = false
         try {
             body = Vault.read(path)
             openPath = path
@@ -269,6 +291,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     fun close() = viewModelScope.launch {
         saveJob?.cancel()
         save()
+        focusEditor = false
         openPath = null
         body = ""
         tasks = emptyList()
@@ -290,6 +313,71 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             load(path)
         }.onFailure { error = it.message }
     }
+
+    // Notes asked for from outside the app: a share, the shortcut, the tile
+    // and the widget.
+
+    /**
+     * Takes a request from outside the app and carries it out as soon as the
+     * vault can take it: now if it is open, and otherwise once it is. Nothing
+     * is dropped, because a shared text that vanishes because the app was
+     * still starting is worse than one that takes a moment.
+     */
+    fun capture(request: Capture) {
+        waiting.addLast(request)
+        runCaptures()
+    }
+
+    /**
+     * Carries out the waiting requests, one at a time and in the order they
+     * came. A second call while one is running does nothing, because the
+     * running loop will get to what was added.
+     */
+    private fun runCaptures() {
+        if (!ready || switching || captureJob?.isActive == true) return
+        captureJob = viewModelScope.launch {
+            while (ready && !switching) {
+                val next = waiting.removeFirstOrNull() ?: break
+                runCatching { carryOut(next) }
+                    .onFailure { error = it.message ?: "That note could not be made" }
+            }
+        }
+    }
+
+    /**
+     * Makes the note and opens it.
+     *
+     * The note that was open is written first, because opening another
+     * replaces it on screen, and typing that had not yet reached the autosave
+     * would go with it. A password prompt left up is dropped for the same
+     * reason: answering it would open the note it was for over this one.
+     *
+     * Nothing here depends on the vault having a password. A new note goes in
+     * the root, which is never locked, so it is written and read back in the
+     * clear whether or not the vault has been given one.
+     */
+    private suspend fun carryOut(request: Capture) {
+        saveJob?.cancel()
+        save()
+        ask = null
+        val path = createNote(request.title)
+        Vault.write(path, request.body)
+        notes = Vault.notes()
+        load(path)
+        if (openPath == path) focusEditor = request.typing
+    }
+
+    /**
+     * Makes a note whose name is not already taken. The Go core only checks
+     * for an ordinary note of that name and not a protected one, and would
+     * write the new note over it, so the list is checked first. See
+     * [Capture.distinct].
+     */
+    private suspend fun createNote(title: String): String =
+        Vault.create(Capture.distinct(title, Vault.notes().map { it.path }))
+
+    /** The editor has taken the keyboard, so it is not to be asked for again. */
+    fun editorFocused() { focusEditor = false }
 
     fun rename(to: String) = viewModelScope.launch {
         val from = openPath ?: return@launch

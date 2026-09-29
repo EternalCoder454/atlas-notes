@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- One name for the shortcut, the quick-settings tile and the widget, so
+         the three of them read the same. -->
+    <string name="new_note">New note</string>
+    <string name="widget_description">Start a new note in one tap.</string>
+
+    <!-- The logo's blue, as the shortcut icon and the widget button use it. -->
+    <color name="capture_accent">#2F6BD8</color>
+</resources>

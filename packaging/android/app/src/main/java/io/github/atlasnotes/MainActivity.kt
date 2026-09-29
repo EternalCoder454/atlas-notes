@@ -1,5 +1,6 @@
 package io.github.atlasnotes
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -42,6 +43,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Only a fresh start has a request to act on. After the process has
+        // been killed and the activity restored, Android hands back the intent
+        // it was first started with, and the note it asked for already exists.
+        if (savedInstanceState == null) takeCapture(intent)
         setContent {
             AtlasTheme {
                 Surface(
@@ -52,6 +57,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * A share, the shortcut, the tile or the widget reaching the app while it is
+     * already running. The activity is single-task, so Android brings it forward
+     * and delivers the intent here instead of starting a second copy.
+     *
+     * It is also made the activity's own intent, so the next thing that reads
+     * [getIntent] sees this one, already emptied, and not the one from launch.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeCapture(intent)
+    }
+
+    /**
+     * Passes on what [intent] asks for, if it asks for anything, and empties it.
+     * The action is cleared so that recreating the activity, which hands back
+     * the same intent, does not make the note a second time.
+     */
+    private fun takeCapture(intent: Intent) {
+        Capture.take(intent)?.let { model.capture(it) }
     }
 
     /**

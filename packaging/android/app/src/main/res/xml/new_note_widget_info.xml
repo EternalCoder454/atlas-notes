@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Two cells wide and one high. The minimum sizes are what two by one comes to
+  on a launcher that counts in dp (70 per cell, less 30); targetCellWidth and
+  targetCellHeight say it outright to launchers from Android 12, which is why
+  they are there as well.
+
+  The widget never changes, so it asks never to be updated. A preview layout is
+  the widget's own layout, drawn by the launcher from Android 12; the preview
+  image is what older launchers show instead.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_new_note"
+    android:minHeight="40dp"
+    android:minResizeHeight="40dp"
+    android:minResizeWidth="110dp"
+    android:minWidth="110dp"
+    android:previewImage="@drawable/widget_new_note_preview"
+    android:previewLayout="@layout/widget_new_note"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="1"
+    android:targetCellWidth="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

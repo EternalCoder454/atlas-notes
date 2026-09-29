@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the widget picker shows before Android 12, which can draw the real
+  layout as its preview and does. It is the button in outline: the bar, and the
+  pen in the middle of it. The pen is 48 of the 220 wide, centred, and drawn
+  from its bottom left corner, so it is scaled to 0.05 and put 86 from the left
+  and 64 down, which is 16 from the top of an 80 high bar.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="110dp"
+    android:height="40dp"
+    android:viewportWidth="220"
+    android:viewportHeight="80">
+    <path
+        android:fillColor="@color/capture_accent"
+        android:pathData="M40,0 H180 A40,40 0 0 1 180,80 H40 A40,40 0 0 1 40,0 Z" />
+    <group
+        android:translateX="86"
+        android:translateY="64"
+        android:scaleX="0.05"
+        android:scaleY="0.05">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M216-216h51l375-375-51-51-375 375v51Zm-72 72v-153l498-498q11-11 23.84-16 12.83-5 27-5 14.16 0 27.16 5t24 16l51 51q11 11 16 24t5 26.54q0 14.45-5.02 27.54T795-642L297-144H144Zm600-549-51-51 51 51Zm-127.95 76.95L591-642l51 51-25.95-25.05Z" />
+    </group>
+</vector>
