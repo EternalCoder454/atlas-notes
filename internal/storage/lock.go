@@ -173,7 +173,14 @@ func (s *Store) lockNote(rel string) error {
 		return err
 	}
 	if _, err := os.Stat(lockedAbs); err == nil {
-		return nil // already locked
+		// Already locked. Its images are still looked at, because a lock that
+		// stopped at an image leaves the note locked and the image in the clear,
+		// and asking again has to finish the job rather than report success.
+		text, err := s.readLockedNote(rel)
+		if err != nil {
+			return err
+		}
+		return s.sealNoteImages(rel, text, key)
 	}
 	// The note is found in whatever format it is in, and sealed as zstd: a
 	// locked note's payload does not follow the vault's format, so that older
@@ -194,7 +201,12 @@ func (s *Store) lockNote(rel string) error {
 		// reporting it, because the plaintext would still be on disk.
 		return fmt.Errorf("locked, but the unencrypted copy is still there: %w", err)
 	}
-	return s.setIndexLocked(rel, true)
+	if err := s.setIndexLocked(rel, true); err != nil {
+		return err
+	}
+	// The note's pictures are as private as its words. The note is locked by
+	// now, so a failure here leaves it locked and says which image is not.
+	return s.sealNoteImages(rel, string(text), key)
 }
 
 // UnlockNote decrypts a note back to an ordinary one.
@@ -242,7 +254,12 @@ func (s *Store) UnlockNote(rel string) error {
 	if err := os.Remove(lockedAbs); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return s.setIndexLocked(rel, false)
+	if err := s.setIndexLocked(rel, false); err != nil {
+		return err
+	}
+	// A sealed image left behind still opens while the vault is unlocked, so
+	// unlike locking there is nothing to retry: the note is simply as it was.
+	return s.unsealNoteImages(rel, string(text), key)
 }
 
 // folderMarkerPath is the marker file inside a locked folder.
@@ -389,6 +406,10 @@ func (s *Store) ChangePassword(current, next string) error {
 		if err := atomicWrite(abs, resealed); err != nil {
 			return err
 		}
+	}
+	// Sealed images are under the same key as the notes that refer to them.
+	if err := s.resealAttachments(oldKey, newKey); err != nil {
+		return err
 	}
 
 	data, err := newCfg.Marshal()
