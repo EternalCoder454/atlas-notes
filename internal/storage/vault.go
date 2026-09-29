@@ -80,10 +80,21 @@ func (s *Store) deleteFolder(rel string, trash func(string) error) error {
 	if abs == s.VaultPath {
 		return errors.New("refusing to delete the vault itself")
 	}
+	// Listed before the folder goes, for their history: a folder deleted for
+	// good takes its notes' earlier versions with it, as a note deleted for
+	// good does. One sent to the Trash keeps them, for when it comes back.
+	notes, _ := s.notesUnder(rel)
 	if err := discard(abs, trash, os.RemoveAll); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`DELETE FROM notes WHERE folder = ? OR folder LIKE ?`, rel, rel+"/%")
+	if trash == nil {
+		for _, n := range notes {
+			s.removeHistory(n)
+		}
+	}
+	// The folder's name is escaped: an underscore in it would otherwise match
+	// any character, and deleting "a_b" would drop "axb"'s notes from the index.
+	_, err = s.db.Exec(`DELETE FROM notes WHERE folder = ? OR folder LIKE ? ESCAPE '\'`, rel, escapeLike(rel)+"/%")
 	return err
 }
 
@@ -108,27 +119,38 @@ func (s *Store) RenameFolder(oldRel, newRel string) error {
 	if err := os.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
 		return err
 	}
+	// The notes that are moving, listed while they still have their old names,
+	// so their history can follow them.
+	moving, _ := s.notesUnder(oldRel)
 	if err := os.Rename(oldAbs, newAbs); err != nil {
 		return err
 	}
 
-	// Rewrite the oldRel prefix to newRel for every note under the folder.
-	oldSlash := oldRel + "/%"
+	// Rewrite the oldRel prefix to newRel for every note under the folder. The
+	// pattern is escaped, so an underscore or a percent sign in the folder's
+	// name is matched as itself.
+	oldSlash := escapeLike(oldRel) + "/%"
 	skip := len(oldRel) + 1 // SQLite substr is 1-based; skip "oldRel"
 	_, err = s.db.Exec(`
 		UPDATE notes
 		SET path = ? || substr(path, ?),
 		    folder = CASE
 		        WHEN folder = ? THEN ?
-		        WHEN folder LIKE ? THEN ? || substr(folder, ?)
+		        WHEN folder LIKE ? ESCAPE '\' THEN ? || substr(folder, ?)
 		        ELSE folder
 		    END
-		WHERE path LIKE ?`,
+		WHERE path LIKE ? ESCAPE '\'`,
 		newRel, skip,
 		oldRel, newRel,
 		oldSlash, newRel, skip,
 		oldSlash)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, n := range moving {
+		s.moveHistory(n, newRel+strings.TrimPrefix(n, oldRel))
+	}
+	return nil
 }
 
 // Reindex brings the index in line with what is on disk: it adds notes that

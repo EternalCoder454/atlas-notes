@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -180,6 +181,9 @@ func (s *Store) lockNote(rel string) error {
 		if err != nil {
 			return err
 		}
+		if err := s.sealHistory(rel, key); err != nil {
+			return fmt.Errorf("locked, but its earlier versions are not: %w", err)
+		}
 		return s.sealNoteImages(rel, text, key)
 	}
 	// The note is found in whatever format it is in, and sealed as zstd: a
@@ -203,6 +207,11 @@ func (s *Store) lockNote(rel string) error {
 	}
 	if err := s.setIndexLocked(rel, true); err != nil {
 		return err
+	}
+	// Its earlier versions said what it said. They are kept, but sealed, so
+	// that locking leaves no plaintext of the note in history either.
+	if err := s.sealHistory(rel, key); err != nil {
+		return fmt.Errorf("locked, but its earlier versions are not: %w", err)
 	}
 	// The note's pictures are as private as its words. The note is locked by
 	// now, so a failure here leaves it locked and says which image is not.
@@ -410,6 +419,12 @@ func (s *Store) ChangePassword(current, next string) error {
 	// Sealed images are under the same key as the notes that refer to them.
 	if err := s.resealAttachments(oldKey, newKey); err != nil {
 		return err
+	}
+	// So are the sealed versions of locked notes. History is a record, not
+	// the vault: a version that cannot be resealed is logged by resealHistory
+	// and reported here, but it does not stop the password from changing.
+	if err := s.resealHistory(oldKey, newKey); err != nil {
+		log.Printf("atlas-notes: resealing history: %v", err)
 	}
 
 	data, err := newCfg.Marshal()

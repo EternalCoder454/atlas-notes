@@ -404,6 +404,26 @@ func (s *Store) DueTasks(through string) ([]DueTask, error) {
 // move is one note's path before and after a rename.
 type move struct{ from, to string }
 
+// RenameNoteAndLinks renames a note and then rewrites the links in other notes
+// that named it, returning how many notes that changed. It is what renaming
+// from the interface calls, so that renaming a note never breaks a link to it.
+// The rename is what matters: if it succeeds and a link could not be
+// rewritten, the error says so but the note has still been renamed.
+func (s *Store) RenameNoteAndLinks(oldRel, newRel string) (int, error) {
+	if err := s.RenameNote(oldRel, newRel); err != nil {
+		return 0, err
+	}
+	return s.UpdateLinksAfterRename(oldRel, newRel)
+}
+
+// RenameFolderAndLinks is RenameNoteAndLinks for a folder.
+func (s *Store) RenameFolderAndLinks(oldRel, newRel string) (int, error) {
+	if err := s.RenameFolder(oldRel, newRel); err != nil {
+		return 0, err
+	}
+	return s.UpdateLinksAfterFolderRename(oldRel, newRel)
+}
+
 // UpdateLinksAfterRename rewrites the links in other notes that named oldRel so
 // they name newRel, and returns how many notes it changed. It is called after
 // RenameNote has succeeded, and reads the vault as it is now.
