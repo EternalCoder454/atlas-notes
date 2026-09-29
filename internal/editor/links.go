@@ -209,19 +209,74 @@ type linkPress struct {
 
 // linkUnder finds the link at a point in the view, and the line it is on.
 func (e *Editor) linkUnder(x, y float64) (sp markup.Span, line int, ok bool) {
-	bx, by := e.view.WindowToBufferCoords(gtk.TextWindowWidget, int(x), int(y))
-	it, found := e.view.IterAtLocation(bx, by)
-	if !found || it == nil {
+	// Finding the character under the pointer turns a layout byte offset into
+	// a buffer position, and GTK aborts the process when that line's hidden
+	// runs have changed since it was laid out: "byte index off the end of the
+	// line". A render pass changes them, and the pointer moves between the
+	// pass and the next layout all the time. So nothing is looked up until
+	// GTK has laid out again (see markLayoutStale).
+	if e.layoutStale {
 		return markup.Span{}, 0, false
 	}
-	line = it.Line()
+	bx, by := e.view.WindowToBufferCoords(gtk.TextWindowWidget, int(x), int(y))
+	// The line first, which needs no byte offsets, and the character only on
+	// a line that can hold a link and is not a picture's hidden line.
+	lineIt, _ := e.view.LineAtY(by)
+	if lineIt == nil {
+		return markup.Span{}, 0, false
+	}
+	line = lineIt.Line()
 	text, found := e.lineText(line)
-	if !found {
+	if !found || !mayHaveLinks(text) {
+		return markup.Span{}, 0, false
+	}
+	if _, picture := imageLineSpan(text); picture {
+		return markup.Span{}, 0, false
+	}
+	it, found := e.view.IterAtLocation(bx, by)
+	if !found || it == nil || it.Line() != line {
 		return markup.Span{}, 0, false
 	}
 	sp, ok = spanAt(text, it.LineOffset())
 	return sp, line, ok
 }
+
+// layoutSettleMs is how long the text must go unchanged, in its characters and
+// its tags, before the pointer is hit-tested against it again.
+const layoutSettleMs = 100
+
+// markLayoutStale records that the text or its tags have just changed, which
+// is anything from a keystroke to a render pass to the find bar's highlights
+// or a picture's spacing, and clears the mark once they have stayed as they
+// are for layoutSettleMs. The clearing runs at low priority, after GTK's own
+// layout and redraw work, which runs at higher ones.
+func (e *Editor) markLayoutStale() {
+	e.layoutStale = true
+	e.staleGen++
+	if e.staleClearing {
+		return
+	}
+	e.staleClearing = true
+	e.scheduleStaleClear(e.staleGen)
+}
+
+func (e *Editor) scheduleStaleClear(gen uint64) {
+	coreglib.TimeoutAddPriority(layoutSettleMs, coreglib.PriorityLow, func() bool {
+		if gen != e.staleGen {
+			// Something changed meanwhile: wait for that to settle too.
+			e.scheduleStaleClear(e.staleGen)
+			return false
+		}
+		e.staleClearing = false
+		e.layoutStale = false
+		return false
+	})
+}
+
+// hoverRestMs is how long the pointer rests before the link under it is
+// looked up. Looking up on every motion event hit-tests the text hundreds of
+// times a second; a pointer that has come to rest needs it once.
+const hoverRestMs = 120
 
 // canOpen reports whether the app is listening for this kind of link.
 func (e *Editor) canOpen(k markup.Kind) bool {
@@ -277,11 +332,31 @@ func (e *Editor) installLinks() {
 	motion := gtk.NewEventControllerMotion()
 	motion.ConnectMotion(func(x, y float64) {
 		ctrl := motion.CurrentEventState()&gdk.ControlMask != 0
-		sp, line, ok := e.linkUnder(x, y)
-		e.setLinkCursor(ok && e.canOpen(sp.Kind) && (ctrl || line != e.shown))
+		e.hoverX, e.hoverY, e.hoverCtrl = x, y, ctrl
+		e.hoverGen++
+		gen := e.hoverGen
+		coreglib.TimeoutAdd(hoverRestMs, func() bool {
+			if gen != e.hoverGen || !e.hoverIn {
+				return false // moved on, or left
+			}
+			sp, line, ok := e.linkUnder(e.hoverX, e.hoverY)
+			e.setLinkCursor(ok && e.canOpen(sp.Kind) && (e.hoverCtrl || line != e.shown))
+			return false
+		})
 	})
-	motion.ConnectLeave(func() { e.setLinkCursor(false) })
+	motion.ConnectEnter(func(float64, float64) { e.hoverIn = true })
+	motion.ConnectLeave(func() {
+		e.hoverIn = false
+		e.hoverGen++
+		e.setLinkCursor(false)
+	})
 	e.view.AddController(motion)
+
+	// Every change to the text or its tags leaves the layout behind until GTK
+	// lays it out again; see markLayoutStale.
+	e.buffer.ConnectChanged(e.markLayoutStale)
+	e.buffer.ConnectApplyTag(func(*gtk.TextTag, *gtk.TextIter, *gtk.TextIter) { e.markLayoutStale() })
+	e.buffer.ConnectRemoveTag(func(*gtk.TextTag, *gtk.TextIter, *gtk.TextIter) { e.markLayoutStale() })
 }
 
 // setLinkCursor switches the pointer between a hand over a link and the text

@@ -43,7 +43,18 @@ type Editor struct {
 	// opened note renders fully clean; the markers appear once the caret is
 	// actually moved or something is typed.
 	revealCaret bool
-	shown       int // the line whose markers the last render pass left showing, or -1
+	// layoutStale is set by a render pass and cleared once GTK has laid the
+	// text out again; hit-testing waits for it (see linkUnder).
+	layoutStale   bool
+	staleClearing bool
+	staleGen      uint64
+	// The pointer's last position over the text, for the link lookup once it
+	// rests there; see hoverRestMs.
+	hoverX, hoverY float64
+	hoverCtrl      bool
+	hoverIn        bool
+	hoverGen       uint64
+	shown          int // the line whose markers the last render pass left showing, or -1
 
 	// press is what a click's button-down was over, kept for its release (see
 	// installLinks); overLink is whether the pointer is currently a hand.
