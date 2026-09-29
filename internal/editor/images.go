@@ -55,10 +55,16 @@ const (
 	maxImageBytes = 50 << 20
 	// maxPooledBoxes caps the widgets kept for reuse, like the checklist rows.
 	maxPooledBoxes = 8
+	// maxLoadsAtOnce is how many pictures are being read or waiting to be decoded
+	// at the same time.
+	maxLoadsAtOnce = 4
 	// placeRetries is how often positions are tried again when the text layout
 	// has not settled yet (a view that is not on screen does not lay itself out).
 	placeRetries = 10
 )
+
+// loadSlots bounds how many pictures are loaded at once, across editors.
+var loadSlots = make(chan struct{}, maxLoadsAtOnce)
 
 // imageHit is an image line the render pass has just seen.
 type imageHit struct {
@@ -317,9 +323,14 @@ func (e *Editor) startLoad(path string) {
 	s.loads[path] = true
 	gen, load := s.gen, e.LoadImage
 	go func() {
+		// A note with a hundred pictures must not hold a hundred files in memory
+		// while the main thread decodes them one at a time, so a slot is kept
+		// until that decode has happened.
+		loadSlots <- struct{}{}
 		data, err := load(path)
 		coreglib.IdleAdd(func() bool {
 			e.imageLoaded(gen, path, data, err)
+			<-loadSlots
 			return false
 		})
 	}()
@@ -553,7 +564,10 @@ func (e *Editor) placeImages() {
 		}
 		w, h := it.fit(avail)
 		if w == 0 {
+			// The view has no width yet. Its size arrives with a notification, and
+			// the retry below covers a notification that came too early to count.
 			it.box.box.SetVisible(false)
+			unsettled = true
 			continue
 		}
 		iter, ok := e.buffer.IterAtLine(line)
@@ -578,7 +592,10 @@ func (e *Editor) placeImages() {
 			it.box.box.SetSizeRequest(w, h)
 		}
 		it.box.box.SetVisible(true)
-		x, y := e.view.LeftMargin(), top+textH
+		// Left edge: where the line's first character sits. That is the text's own
+		// left edge whether the view counts its left margin as padding around the
+		// text or as part of the layout, so the picture lines up with the words.
+		x, y := e.view.IterLocation(iter).X(), top+textH
 		switch {
 		case !it.shown:
 			e.view.AddOverlay(it.box.box, x, y)
