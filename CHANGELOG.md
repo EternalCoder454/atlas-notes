@@ -5,6 +5,81 @@ All notable changes to Atlas Notes are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Find and replace in the open note.** Ctrl+F opens a find bar with a match
+  count, previous and next, Match case, and a replace row (Ctrl+R) with Replace
+  and Replace All; one undo reverts a Replace All. Matching is literal, by
+  character, and never lands on a checkbox. The vault search keeps Ctrl+K and
+  Ctrl+P and gains Ctrl+Shift+F; on the home screen Ctrl+F still means it.
+- **Links between notes.** `[[Name]]`, `[[Folder/Name]]`, `[[Name#Heading]]` and
+  `[[Name|shown text]]` draw as links, open on click (Ctrl+click on the line
+  being edited), and make the note when it does not exist yet. Typing `[[`
+  suggests notes. Renaming or moving a note, or a folder, rewrites the links
+  that named it, and a bare name that meant another note of the same name is
+  left alone. *Linked from* under a note lists the notes that link to it. Web
+  addresses and `[text](url)` links open in the browser; other schemes are
+  refused.
+- **Tags.** `#tag` anywhere outside code tags a note; `#project/atlas` nests
+  under `#project`. Clicking a tag, a tag on the home screen, or searching
+  `#tag` in the vault panel lists the notes that carry it. Typing `#` suggests
+  existing tags. A locked note's tags and links are never indexed, and a
+  trigger enforces it as it does for search.
+- **Pictures in notes.** Paste or drop an image, or use Insert Image
+  (Ctrl+Shift+I). It is stored in the vault's `attachments` folder: the longest
+  side capped at 3840 px, JPEG location and camera data removed losslessly
+  (APP1, APP13 and COM segments), PNG text and eXIf chunks and WebP EXIF and XMP
+  removed, EXIF orientation applied, and a clipboard screenshot kept as PNG
+  unless it is photographic, when a JPEG under 60% of its size wins. Headers
+  claiming more than 100 megapixels are refused before decoding. A protected
+  note's images are encrypted with it, and follow it through lock, unlock and a
+  password change. Exports carry the pictures: embedded in Word and
+  OpenDocument files, inline in HTML.
+- **Due tasks.** The home screen lists unfinished items that are overdue, due
+  today and due this week, from a new index of due items. The desktop sends a
+  notification for what is due (Settings, Reminders), and the phone one each
+  morning at nine.
+- **Daily notes and templates.** Ctrl+D opens `Daily/<today>`, starting from
+  `Templates/Daily` when there is one. Any note in `Templates` can start a new
+  note (Ctrl+Alt+N), with `{{title}}`, `{{date}}`, `{{time}}`, `{{datetime}}`,
+  `{{weekday}}` and `{{longdate}}` filled in. The home screen has a card for
+  today's note, and the phone a Today button and shortcut.
+- **Version history.** An earlier version of a note is kept at most every ten
+  minutes, for 90 days and up to 50 per note, in the data directory, not the
+  vault, so it never syncs. Version History (Ctrl+Shift+H) shows them with a
+  preview and restores one; the text replaced is kept too. A locked note's
+  versions are sealed, locking seals the plain ones, and a password change
+  reseals them.
+- **Capture on the phone.** Share text into Atlas Notes, or start a note from a
+  launcher shortcut, a quick-settings tile or a home-screen widget; a new note
+  opens with the keyboard up.
+- **`[[links]]` in exports** read as their text, and tags survive.
+
+### Changed
+- **Notes are plain Markdown files by default.** The format is a setting of the
+  vault (`.atlas-vault.json`, so every synced device agrees): plain `.md`,
+  Zstandard `.md.zst`, Gzip `.md.gz` or XZ `.md.xz`. Every form is read whatever
+  the setting, saving a note writes it in the vault's format and removes the
+  old file, and changing the setting converts the vault in the background,
+  keeping modification times. A vault from before this (all `.md.zst`) is
+  converted to plain Markdown on first launch. Locked notes keep their payload
+  (zstd inside the seal), so older versions still open them. Gzip and XZ reads
+  are capped like zstd's, so a decompression bomb is an error.
+- **The vault scan skips folders whose names start with a dot.** Syncthing keeps
+  old versions of every note in `.stversions`, and they were being listed as
+  notes.
+
+### Fixed
+- **Creating a note could overwrite a protected one.** `UniqueName` only looked
+  for the unprotected form, so a new "Untitled" could be written over a locked
+  "Untitled". It looks for every form now.
+- **A folder named with `_` or `%` matched other folders in the index**, so
+  deleting or renaming "a_b" also moved or dropped "axb"'s notes from the index.
+  The patterns are escaped.
+- **Renaming a folder around the open note** left the editor pointing at the
+  old path.
+
 ## [0.7.1] - 2026-09-28
 
 ### Changed

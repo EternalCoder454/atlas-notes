@@ -1,7 +1,7 @@
 # Atlas Notes
 
 **A fast, local-first notes & checklist app for Linux — with an optional local AI
-assistant.** Your notes are plain, compressed Markdown files in a folder on *your*
+assistant.** Your notes are plain Markdown files in a folder on *your*
 machine. Nothing is uploaded, nothing is tracked, and the AI runs locally too.
 The one time Atlas Notes reaches the network on its own is to ask whether a
 newer version has been published, which you can turn off.
@@ -17,7 +17,8 @@ packages are installed.
 ## Why Atlas Notes
 
 - **Local-first & private.** Every note lives under your home directory as a
-  zstd-compressed Markdown file. No account, no cloud, no telemetry. It works
+  plain Markdown file that any other app can open (or, if you prefer, a
+  compressed one: see [Note files](#note-files)). No account, no cloud, no telemetry. It works
   fully offline — the only request it ever makes is the update check described
   under [Updating](#updating), which sends nothing about you or your notes and
   can be switched off.
@@ -28,8 +29,25 @@ packages are installed.
 - **Real checklists.** `- [ ]` lines become live checkboxes with priority colors
   and per-item due dates (set from a right-click menu, shown as a badge on the
   item). The header tracks how many are done.
-- **Find anything.** Search the whole vault by name from the side panel
-  (**Ctrl+K**); every command has a keyboard shortcut, listed under **Ctrl+?**.
+- **Find anything.** Search the whole vault by name and by what notes say from
+  the side panel (**Ctrl+K**), and find or replace inside the open note
+  (**Ctrl+F**, **Ctrl+R**). Every command has a keyboard shortcut, listed under
+  **Ctrl+?**.
+- **Links and tags.** Write `[[Another note]]` to link to it (suggestions appear
+  as you type, clicking opens it, and renaming a note updates the links to it),
+  and `#tag` anywhere to tag a note; clicking a tag lists every note that has
+  it. Under each note, *Linked from* lists the notes that link to it.
+- **Pictures.** Paste or drop an image into a note, or use *Insert Image*
+  (**Ctrl+Shift+I**). Images are stored in the vault's `attachments` folder,
+  sized for a screen and stripped of location data, and a protected note's
+  images are encrypted with it.
+- **Due dates that remind you.** The home screen lists what is overdue, due
+  today and due this week, and a desktop notification (or, on the phone, a
+  morning one) says when something is due.
+- **Daily notes, templates and history.** **Ctrl+D** opens today's note
+  (`Daily/2026-09-29`); any note in a `Templates` folder can start a new one;
+  and *Version History* (**Ctrl+Shift+H**) keeps earlier versions of each note
+  on your machine, to look back at or restore.
   Notes and checklists carry different icons, and you can star either to mark
   it a favourite.
 - **Password-protect what matters.** Right-click a note or folder → *Protect
@@ -71,7 +89,7 @@ or the share button in a note on the phone.
 | macOS | GTK4 + libadwaita | Not built yet; the code compiles for it |
 
 Everything below the interface is shared: the same vault format, the same
-compressed Markdown files, the same SQLite index, the same encryption. A vault
+Markdown files, the same SQLite index, the same encryption. A vault
 copied between machines opens on any of them.
 
 **On Android the assistant is absent.** It needs a model running on the same
@@ -206,7 +224,7 @@ password covers everything you protect.
 
 **It is encryption, not a setting.** A protected note is stored as ciphertext
 under a `.md.enc` extension. Its content cannot be read by Atlas Notes without
-the password, and it cannot be read by anything else either — `zstd -d`, a text
+the password, and it cannot be read by anything else either: a text
 editor, a backup tool or a sync client all see random bytes. The key is derived
 from your password with Argon2id and held in memory only while the app is
 unlocked; the vault stores a salt and a verifier, never the password.
@@ -240,20 +258,31 @@ Atlas Notes follows the XDG base directories (override with `XDG_DATA_HOME` /
 
 | Path | Contents |
 | ---- | -------- |
-| `~/.local/share/atlas-notes/vault/` | your notes, one `<name>.md.zst` per note |
-| `~/.local/share/atlas-notes/index.db` | SQLite index (notes + checklist items) |
+| `~/.local/share/atlas-notes/vault/` | your notes, one `<name>.md` per note, and `attachments/` for pictures |
+| `~/.local/share/atlas-notes/index.db` | SQLite index (notes, links, tags, due items, search) |
+| `~/.local/share/atlas-notes/history/` | earlier versions of notes, kept on this machine only |
 | `~/.local/share/atlas-notes/src/` | source checkout used by the in-app updater |
 | `~/.config/atlas-notes/config.json` | settings: vault path, model, prompts, window size |
 
 Each note's **filename is its title** — the title field above the editor renames
-the file, and that name is what shows in the folder tree. Notes are
-zstd-compressed and written atomically (temp file + rename), and every `.md.zst`
-is self-contained: checklist metadata is stored inline as an HTML comment as well
+the file, and that name is what shows in the folder tree. Notes are written
+atomically (temp file + rename), and every note file is self-contained: checklist metadata is stored inline as an HTML comment as well
 as in the index, e.g.
 
 ```markdown
 - [ ] Buy groceries <!-- priority:high due:2026-07-01 order:1 -->
 ```
+
+### Note files
+
+A vault stores its notes as plain Markdown (`.md`) unless you choose otherwise
+in **Settings → General → Note files**: Zstandard (`.md.zst`), Gzip (`.md.gz`)
+or XZ (`.md.xz`) take less space, but only apps that decompress them can read
+the notes. The choice is saved in the vault (`.atlas-vault.json`), so every
+device that syncs it writes the same way, and changing it converts every note.
+Vaults from before 0.8 were all `.md.zst`; the first launch of 0.8 converts
+them to plain Markdown, keeping each note's modification time. Protected notes
+stay encrypted (`.md.enc`) whichever you choose.
 
 Want your notes in Documents, a synced folder, etc.? Set `"vault_path"` in
 `config.json` to any directory. On first launch the vault is seeded with a
@@ -333,7 +362,7 @@ not run on Android and a scaled-down version of three panes would be worse than
 the list a phone is actually good at.
 
 What it is not is a second implementation of Atlas Notes. The vault, the
-compressed Markdown, the SQLite index, the checklist model and the encryption
+Markdown files, the SQLite index, the checklist model and the encryption
 are the same Go code the desktop runs, compiled for Android by `gomobile` into
 an `.aar` the Kotlin app links against. Two implementations of a vault format
 are two chances to disagree about it, and the one that disagrees about
@@ -466,7 +495,10 @@ atlas-notes/
     │   ├── icons/          # every icon the app draws (Material Symbols)
     │   └── bench.go        # the measurement harness (see above)
     ├── editor/   # GtkTextView WYSIWYG, checklist rows and their menu
-    ├── storage/  # vault I/O, zstd, atomic writes, SQLite index, config
+    ├── storage/  # vault I/O, note formats, history, attachments, SQLite index, config
+    ├── markup/   # what counts as a [[link]], a #tag or an ![image] (shared)
+    ├── imagefit/ # pasted images: sized, stripped of metadata, compressed
+    ├── export/   # Word, OpenDocument, Markdown, HTML and text exports
     ├── checklist/# pure checklist model (parse / serialize / sort)
     ├── update/   # is there a newer version? (no GTK, no install logic)
     ├── vaultlock/# Argon2id + XChaCha20-Poly1305 (no GTK, no files)
@@ -486,11 +518,9 @@ packaging/android/            # the phone app: Kotlin, Jetpack Compose
 
 ## Roadmap
 
-- Checklist **drag-reorder** and an inline due-date label (priorities/due dates
-  are set from the right-click menu today; the AI **Sort Priorities** action
-  reorders).
-- A **right-click context menu** in the folder tree (rename/delete/move are on the
-  bottom toolbar for now).
+- Checklist **drag-reorder** (the AI **Sort Priorities** action reorders today).
+- Pictures on the phone: the Android app keeps a note's image lines as text for
+  now.
 - Packaging for **more distributions** (Flatpak / other package managers).
 
 ## License
