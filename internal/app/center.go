@@ -18,9 +18,6 @@ import (
 // measure while the window itself can be any size.
 const editorMaxWidth = 860
 
-// noteFileSuffix is the on-disk extension shown in the status bar.
-const noteFileSuffix = ".md.zst"
-
 // buildCenter assembles the center panel as a stack of two pages: the welcome
 // home screen, and the note editor (title row · formatting toolbar · find bar ·
 // text · status bar).
@@ -664,8 +661,10 @@ func (a *App) refreshHeader() {
 	}
 	if a.titleEntry != nil {
 		tip := "The note's name is its filename. Press Enter to rename"
-		if a.currentNote != "" {
-			tip += "\n\nIn your vault: " + a.currentNote + noteFileSuffix
+		if a.currentNote != "" && a.store != nil {
+			// The file as it is on disk: its extension depends on the vault's
+			// format, and on whether the note is locked.
+			tip += "\n\nIn your vault: " + a.store.NoteFileName(a.currentNote)
 		}
 		a.titleEntry.SetTooltipText(tip)
 	}

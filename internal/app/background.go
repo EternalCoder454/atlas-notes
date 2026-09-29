@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+
+	"atlas-notes/internal/storage"
 )
 
 // The work that follows the first frame: scanning the vault for changes made
@@ -41,7 +44,7 @@ func (a *App) startBackground(scan bool) {
 func (a *App) runBackground(ctx context.Context, scan bool) {
 	defer close(a.bg.done)
 	for first := true; ; first = false {
-		changed, read := false, 0
+		changed, read, converted := false, 0, 0
 		if first && scan {
 			before, _ := a.store.CountNotes()
 			if err := a.store.Reindex(); err != nil {
@@ -53,6 +56,18 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 				after, _ := a.store.CountNotes()
 				changed = after != before
 			}
+		}
+		// Notes in a format other than the vault's are converted here: a vault
+		// from before formats were a setting (every note .md.zst), or notes a
+		// sync brought from a device that saves in another. The walk opens
+		// nothing, so asking costs a directory listing. Conversion keeps each
+		// note's modification time, so the index sees no change.
+		if first && a.store.NeedsConversion() {
+			n, err := a.store.ConvertVault(ctx, nil)
+			if err != nil {
+				log.Printf("atlas-notes: converting notes: %v", err)
+			}
+			converted = n
 		}
 		if n, err := a.store.ResolveContent(ctx); err != nil {
 			log.Printf("atlas-notes: reading notes: %v", err)
@@ -78,6 +93,9 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 			if wasFirst {
 				a.backgroundCount = read
 				a.backgroundDone = true
+				if converted > 0 {
+					a.toast(fmt.Sprintf("%s now stored as %s", plural(converted, "note"), formatName(a.store.Compression())))
+				}
 			}
 			return false
 		})
@@ -88,6 +106,19 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 		case <-a.bg.wake:
 		}
 	}
+}
+
+// formatName is how a note format is named to people.
+func formatName(c storage.Compression) string {
+	switch c {
+	case storage.CompressionZstd:
+		return "Zstandard"
+	case storage.CompressionGzip:
+		return "Gzip"
+	case storage.CompressionXZ:
+		return "XZ"
+	}
+	return "plain Markdown"
 }
 
 // wakeBackground asks the worker for another pass. It never blocks: if a pass
