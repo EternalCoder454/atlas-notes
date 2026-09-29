@@ -568,3 +568,60 @@ func TestListFoldersHidesTheAttachmentsFolder(t *testing.T) {
 		t.Errorf("ListFolders = %v, want %v", got, want)
 	}
 }
+
+func TestUnlockingOneNoteKeepsAPictureAnotherLockedNoteShows(t *testing.T) {
+	s := lockedStore(t)
+	s.WriteNote("A", "# A\n")
+	md, err := s.SaveAttachment("A", testPNG(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.WriteNote("A", "# A\n\n![]("+md+")\n")
+	s.WriteNote("B", "# B\n\n![]("+md+")\n") // the same picture, copied over
+	if err := s.LockNote("A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LockNote("B"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UnlockNote("A"); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(s.VaultPath, filepath.FromSlash(md))
+	if isFile(plain) {
+		t.Fatal("unlocking A put the picture B still locks in the clear")
+	}
+	if _, err := s.ReadAttachment("A", md); err != nil {
+		t.Fatalf("A can no longer show its picture: %v", err)
+	}
+}
+
+func TestASymlinkedPictureIsRefused(t *testing.T) {
+	s := testStore(t)
+	outside := filepath.Join(t.TempDir(), "secret.png")
+	if err := os.WriteFile(outside, testPNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(s.VaultPath, "attachments")
+	os.MkdirAll(dir, 0o755)
+	if err := os.Symlink(outside, filepath.Join(dir, "link.png")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if _, err := s.ReadAttachment("Note", "attachments/link.png"); err == nil {
+		t.Fatal("a symlink out of the vault was read")
+	}
+}
+
+func TestALinkedAttachmentsFolderIsRefused(t *testing.T) {
+	s := testStore(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.png"), testPNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(s.VaultPath, "attachments")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if _, err := s.ReadAttachment("Note", "attachments/secret.png"); err == nil {
+		t.Fatal("a picture behind a linked folder outside the vault was read")
+	}
+}

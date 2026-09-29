@@ -265,6 +265,13 @@ func (s *Store) AttachmentFile(noteRel, mdPath string) (string, error) {
 // readAttachmentFile reads an image, plain or sealed. It returns an error
 // wrapping fs.ErrNotExist only when neither form is there.
 func (s *Store) readAttachmentFile(abs string) ([]byte, error) {
+	// The file itself is never a link (readCapped refuses one), but a folder
+	// on the way to it could be: the attachments folder linked to somewhere
+	// else. The folder it really is in has to be inside the vault as it
+	// really is.
+	if !s.reallyInVault(filepath.Dir(abs)) {
+		return nil, fmt.Errorf("%s: %w", filepath.Base(abs), errOutsideVault)
+	}
 	data, err := readCapped(abs, maxAttachmentBytes)
 	if !errors.Is(err, fs.ErrNotExist) {
 		return data, err
@@ -284,7 +291,9 @@ func (s *Store) readAttachmentFile(abs string) ([]byte, error) {
 // opens, because opening a named pipe that was put in a synced folder would
 // wait for a writer that never comes.
 func readCapped(p string, limit int64) ([]byte, error) {
-	info, err := os.Stat(p)
+	// Lstat, not Stat: a symbolic link is refused rather than followed, so a
+	// link synced into the vault cannot make a note read a file outside it.
+	info, err := os.Lstat(p)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +320,7 @@ func readCapped(p string, limit int64) ([]byte, error) {
 
 // isFile reports whether p is a regular file.
 func isFile(p string) bool {
-	info, err := os.Stat(p)
+	info, err := os.Lstat(p)
 	return err == nil && info.Mode().IsRegular()
 }
 
@@ -364,7 +373,11 @@ func (s *Store) unsealNoteImages(noteRel, text string, key vaultlock.Key) error 
 				break // already plain
 			}
 			if isFile(abs + sealedExt) {
-				if s.inAttachments(abs) {
+				// A picture another locked note also shows stays sealed: its
+				// text can be copied between notes, and unlocking one must not
+				// put the other's picture in the clear. It still shows here,
+				// since a sealed picture is read while the vault is unlocked.
+				if s.inAttachments(abs) && !s.lockedNoteShows(noteRel, abs) {
 					if err := unsealAttachmentFile(key, abs); err != nil {
 						return fmt.Errorf("unlocked, but the image %q is still encrypted: %w", img, err)
 					}
@@ -439,4 +452,55 @@ func (s *Store) resealAttachments(oldKey, newKey vaultlock.Key) error {
 		}
 		return atomicWrite(p, resealed)
 	})
+}
+
+// lockedNoteShows reports whether a locked note other than except shows the
+// picture stored at abs. Locked notes are not in the link index, so each is
+// read; unlocking is rare and asked for, and the vault is unlocked by then.
+// A locked note that cannot be read counts as showing it, which keeps the
+// picture sealed: the safe side to be wrong on.
+func (s *Store) lockedNoteShows(except, abs string) bool {
+	locked, err := s.LockedNotes()
+	if err != nil {
+		return true
+	}
+	for _, rel := range locked {
+		if rel == normalizeRel(except) {
+			continue
+		}
+		text, err := s.readLockedNote(rel)
+		if err != nil {
+			return true
+		}
+		for _, img := range markup.Summarize(text).Images {
+			candidates, err := s.attachmentCandidates(rel, img)
+			if err != nil {
+				continue
+			}
+			for _, c := range candidates {
+				if c == abs {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// reallyInVault reports whether dir, with every symbolic link on the way
+// resolved, is inside the vault, also resolved. A folder that does not exist
+// is not outside anything: there is nothing in it to read.
+func (s *Store) reallyInVault(dir string) bool {
+	real, err := filepath.EvalSymlinks(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	vault, err := filepath.EvalSymlinks(s.VaultPath)
+	if err != nil {
+		return false
+	}
+	return withinVault(vault, real)
 }
