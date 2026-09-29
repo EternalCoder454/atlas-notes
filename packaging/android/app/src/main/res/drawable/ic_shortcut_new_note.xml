@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher shortcut's icon: the pen in white on a disc of the logo's blue.
+  A shortcut icon is drawn as it is, on whatever the launcher puts behind it,
+  so unlike the tile's it needs a background of its own to be seen at all.
+  It is a plain vector because shortcuts start at Android 7.1, before adaptive
+  icons can be used from a drawable.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <path
+        android:fillColor="@color/capture_accent"
+        android:pathData="M480,0 A480,480 0 1,1 480,960 A480,480 0 1,1 480,0 Z" />
+    <!-- The pen at seven tenths of its size and centred. It is drawn with its
+         origin at the bottom left, so it spans -960 to 0 up the page before
+         this group: scaled that is -672 to 0, and 816 down puts it 144 from the
+         top, the same 144 as from the left. -->
+    <group
+        android:translateX="144"
+        android:translateY="816"
+        android:scaleX="0.7"
+        android:scaleY="0.7">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M216-216h51l375-375-51-51-375 375v51Zm-72 72v-153l498-498q11-11 23.84-16 12.83-5 27-5 14.16 0 27.16 5t24 16l51 51q11 11 16 24t5 26.54q0 14.45-5.02 27.54T795-642L297-144H144Zm600-549-51-51 51 51Zm-127.95 76.95L591-642l51 51-25.95-25.05Z" />
+    </group>
+</vector>

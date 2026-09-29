@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The pen, from the project's own Material Symbols (assets/icons-src/edit.svg),
+  in plain white. The quick-settings tile and the widget button both draw it:
+  the system recolours a tile icon itself, and the button sits on the logo's
+  blue. Symbols are drawn with their origin at the bottom left, so the shape is
+  shifted down by its own height, as in ui/Icons.kt.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M216-216h51l375-375-51-51-375 375v51Zm-72 72v-153l498-498q11-11 23.84-16 12.83-5 27-5 14.16 0 27.16 5t24 16l51 51q11 11 16 24t5 26.54q0 14.45-5.02 27.54T795-642L297-144H144Zm600-549-51-51 51 51Zm-127.95 76.95L591-642l51 51-25.95-25.05Z" />
+    </group>
+</vector>

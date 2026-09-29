@@ -66,7 +66,47 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Sharing text from any app makes a note of it. Single-task, above,
+                 is what hands a share to the app when it is already running. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- The shortcut shown when the app's icon is held down. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- The quick-settings tile. The system, and nothing else, may bind to
+             it: that is what the permission says, and why it can be exported. -->
+        <service
+            android:name=".CaptureTile"
+            android:exported="true"
+            android:icon="@drawable/ic_new_note"
+            android:label="@string/new_note"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- The home-screen widget. Only the system sends it updates, so it is
+             not exported. -->
+        <receiver
+            android:name=".NewNoteWidget"
+            android:exported="false"
+            android:label="@string/new_note">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/new_note_widget_info" />
+        </receiver>
 
         <!-- The installer runs in another process, so a downloaded build has to
              be handed over as a content URI rather than a path. -->
