@@ -51,6 +51,8 @@ type Editor struct {
 	overLink bool
 	// sg is the suggestion popover for note names and tags (see complete.go).
 	sg suggester
+	// img is the state of the pictures shown under image lines (see images.go).
+	img imageState
 
 	// OnOpenNote, OnOpenTag and OnOpenURL are called when a link is clicked: a
 	// note link with its target and heading (either may be a bare name or a
@@ -64,6 +66,18 @@ type Editor struct {
 	// their "#". They are asked for when a suggestion popover opens.
 	NoteNames func() []string
 	TagNames  func() []string
+
+	// LoadImage returns the bytes of the picture a note's "![](path)" names, given
+	// the path as written in the note. It runs on a goroutine, never on the main
+	// thread, so it may read files. Without it images stay plain text. SaveImage
+	// stores a pasted or dropped picture and returns the path to write into the
+	// note; it runs on a goroutine too. OnImageError is told when adding one
+	// failed, on the main thread. OnOpenImage is called with the path when a
+	// picture is double-clicked.
+	LoadImage    func(mdPath string) ([]byte, error)
+	SaveImage    func(data []byte) (mdPath string, err error)
+	OnImageError func(err error)
+	OnOpenImage  func(mdPath string)
 
 	// OnChanged fires after a user edit (suppressed during SetContent).
 	OnChanged func()
@@ -118,6 +132,7 @@ func New() *Editor {
 	e.installItemMenu()
 	e.installLinks()
 	e.installComplete()
+	e.installImages()
 
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
 		if mark.Name() != "insert" {
@@ -198,7 +213,8 @@ func (e *Editor) newTag(name string, props map[string]any) {
 // SetContent replaces the text without firing OnChanged, then re-renders. The
 // caret is placed at the top, so opening a note shows its beginning.
 func (e *Editor) SetContent(s string) {
-	e.clearItems() // the old note's checkboxes go with its text
+	e.clearItems()  // the old note's checkboxes go with its text
+	e.clearImages() // and so do its pictures
 	e.closeSuggest()
 
 	// The text is replaced with the view detached from the buffer.
@@ -361,6 +377,7 @@ func (e *Editor) reparse() {
 	e.renderChecklists(from, to, revealLine)
 	e.reapItems()
 	e.tagRange(from, to, revealLine)
+	e.syncImages(from, to)
 
 	if e.OnReparsed != nil {
 		e.OnReparsed()

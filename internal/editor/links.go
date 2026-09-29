@@ -98,7 +98,8 @@ func visibleStart(line string, sp markup.Span) int {
 // address visible when reveal is set (the caret is on the line) and hides them
 // otherwise, so the line reads as a link and can still be edited.
 //
-// Images are not handled here; they stay plain text.
+// Images are not handled here: an image line is picked up by tagImageLine
+// (images.go), and any other image stays plain text.
 func linkSpans(line string, reveal bool) []span {
 	found := markupSpans(line)
 	if len(found) == 0 {
