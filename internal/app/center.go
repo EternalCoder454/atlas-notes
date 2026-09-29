@@ -51,6 +51,7 @@ func (a *App) buildEditorPage() *gtk.Box {
 	a.editor = editor.New()
 	a.editor.OnChanged = a.onEditorChanged
 	a.editor.OnReparsed = a.onEditorReparsed
+	a.wireEditorLinks()
 	page.Append(a.buildFindBar())
 
 	clamp := adw.NewClamp()
@@ -60,6 +61,7 @@ func (a *App) buildEditorPage() *gtk.Box {
 	clamp.SetVExpand(true)
 	page.Append(clamp)
 
+	page.Append(a.buildBacklinks())
 	page.Append(a.buildStatusBar())
 	return page
 }

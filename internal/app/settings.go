@@ -81,7 +81,14 @@ type generalFields struct {
 	summary *gtk.CheckButton
 	toolbar *gtk.CheckButton
 	fonts   *gtk.DropDown
+	format  *gtk.DropDown
+	remind  *gtk.CheckButton
 	page    gtk.Widgetter
+}
+
+// noteFormats are the note-file dropdown's entries, in the order they appear.
+var noteFormats = []storage.Compression{
+	storage.CompressionNone, storage.CompressionZstd, storage.CompressionGzip, storage.CompressionXZ,
 }
 
 // fontRenderingModes are the dropdown entries, in the order they appear.
@@ -142,9 +149,46 @@ func (a *App) buildGeneralPage() generalFields {
 	fontGroup.Append(fontHint)
 	box.Append(fontGroup)
 
+	// The format belongs to the vault, not to this machine: it is saved in the
+	// vault, so every device that syncs it writes notes the same way.
+	storageGroup := groupCard("Note files")
+	format := gtk.NewDropDownFromStrings([]string{
+		"Plain Markdown (.md)",
+		"Zstandard (.md.zst)",
+		"Gzip (.md.gz)",
+		"XZ (.md.xz)",
+	})
+	format.SetSelected(0)
+	if a.store != nil {
+		for i, c := range noteFormats {
+			if c == a.store.Compression() {
+				format.SetSelected(uint(i))
+			}
+		}
+	} else {
+		format.SetSensitive(false)
+	}
+	storageGroup.Append(format)
+	formatHint := gtk.NewLabel("Plain Markdown opens in any app, and is what most sync " +
+		"and backup tools expect. The others take less space. Changing this converts " +
+		"every note in the vault; protected notes stay encrypted either way.")
+	formatHint.SetXAlign(0)
+	formatHint.SetWrap(true)
+	formatHint.AddCSSClass("dim-label")
+	formatHint.AddCSSClass("caption")
+	storageGroup.Append(formatHint)
+	box.Append(storageGroup)
+
+	remindGroup := groupCard("Reminders")
+	remind := wrappingCheck("Notify me about checklist items that are due today or overdue")
+	remind.SetActive(a.cfg.DueReminders)
+	remindGroup.Append(remind)
+	box.Append(remindGroup)
+
 	return generalFields{
 		name: nameEntry, model: modelEntry, system: sysView,
-		summary: summary, toolbar: toolbar, fonts: fonts, page: pageScroll(box),
+		summary: summary, toolbar: toolbar, fonts: fonts,
+		format: format, remind: remind, page: pageScroll(box),
 	}
 }
 
@@ -224,6 +268,10 @@ func (a *App) applySettings(f generalFields, rows []*actionRow) {
 	a.cfg.ShowFormatBar = f.toolbar.Active()
 	if i := int(f.fonts.Selected()); i >= 0 && i < len(fontRenderingModes) {
 		a.cfg.FontRendering = fontRenderingModes[i]
+	}
+	a.cfg.DueReminders = f.remind.Active()
+	if i := int(f.format.Selected()); a.store != nil && i >= 0 && i < len(noteFormats) {
+		a.changeNoteFormat(noteFormats[i])
 	}
 
 	var actions []storage.AIAction

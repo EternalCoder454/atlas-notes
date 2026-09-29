@@ -59,11 +59,16 @@ type App struct {
 
 	windowTitle *adw.WindowTitle
 	leftToggle  *gtk.ToggleButton
-	rightToggle *gtk.ToggleButton
-	outerPaned  *gtk.Paned
-	innerPaned  *gtk.Paned
-	centerStack *gtk.Stack
-	formatBar   *gtk.Box
+
+	// backlinksBar lists the notes that link to the open one; backlinksGen
+	// drops an answer that arrives after another note was opened.
+	backlinksBar *gtk.Box
+	backlinksGen int
+	rightToggle  *gtk.ToggleButton
+	outerPaned   *gtk.Paned
+	innerPaned   *gtk.Paned
+	centerStack  *gtk.Stack
+	formatBar    *gtk.Box
 
 	titleEntry    *gtk.Entry
 	breadcrumb    *gtk.Label
