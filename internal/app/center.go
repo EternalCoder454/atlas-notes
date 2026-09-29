@@ -529,6 +529,10 @@ func (a *App) showWelcome() {
 	a.refreshWelcome()
 	a.centerStack.SetVisibleChildName("welcome")
 	a.setWindowSubtitle("")
+	a.syncNoteActions()
+	if a.backlinksBar != nil {
+		a.backlinksBar.SetVisible(false)
+	}
 }
 
 // refreshWelcome brings the home screen up to date. The page itself is built

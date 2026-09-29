@@ -47,6 +47,7 @@ func (a *App) openNote(rel string) {
 		a.tree.SetCurrent(rel)
 	}
 	a.refreshBacklinks()
+	a.syncNoteActions()
 }
 
 // onDeleted clears the editor when the note currently open (or a folder

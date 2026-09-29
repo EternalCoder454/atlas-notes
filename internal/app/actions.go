@@ -92,18 +92,13 @@ func (a *App) syncNoteActions() {
 	}
 }
 
-// watchNoteOpen keeps the note commands in step with the center panel. There is
-// no one place where a note is opened or closed, so it follows the two things
-// that change together with it: the page the panel shows, and the header
-// subtitle, which is empty on the home screen and names the app once a note is
-// open. The subtitle covers opening a note when the editor page is already
-// showing, which is how the app starts.
+// watchNoteOpen keeps the note commands in step with the center panel: they
+// follow the page it shows. openNote and showWelcome also sync them directly,
+// which covers opening a note while the editor page is already showing, as it
+// is when the app starts.
 func (a *App) watchNoteOpen() {
 	if a.centerStack != nil {
 		a.centerStack.NotifyProperty("visible-child-name", a.syncNoteActions)
-	}
-	if a.windowTitle != nil {
-		a.windowTitle.NotifyProperty("subtitle", a.syncNoteActions)
 	}
 	a.syncNoteActions()
 }
