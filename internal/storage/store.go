@@ -41,6 +41,12 @@ type Store struct {
 	// sitting in the Trash in plain text; those removals never come here.
 	Trash func(path string) error
 
+	// HistoryDir, when set, is where earlier versions of each note are kept.
+	// It belongs outside the vault: history is per device, and a folder that
+	// syncs would carry every version to every other machine. Left empty,
+	// nothing is kept and nothing is written; see history.go.
+	HistoryDir string
+
 	db  *sql.DB
 	enc *zstd.Encoder
 	dec *zstd.Decoder

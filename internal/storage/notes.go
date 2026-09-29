@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -139,7 +140,17 @@ func (s *Store) notePathSafe(rel string) (string, error) {
 // locked folder is written locked from the start — it must never touch the
 // disk in the clear first and be encrypted afterwards, because the plaintext
 // would have been there in between.
+//
+// When the store keeps history, what the note said until now is copied there
+// first, if the newest copy is not a recent one; see history.go.
 func (s *Store) WriteNote(rel, content string) error {
+	return s.writeNote(rel, content, false)
+}
+
+// writeNote is WriteNote. forceHistory keeps the current text as a version
+// whatever its age, and refuses to go on if that fails: a restore has to be
+// undoable, where an ordinary save must not be held up by a full history disk.
+func (s *Store) writeNote(rel, content string, forceHistory bool) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	rel = normalizeRel(rel)
@@ -149,6 +160,12 @@ func (s *Store) WriteNote(rel, content string) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return err
+	}
+	if err := s.snapshotHistory(rel, forceHistory); err != nil {
+		if forceHistory {
+			return fmt.Errorf("could not keep the current text as a version: %w", err)
+		}
+		log.Printf("atlas-notes: keeping a version of %q: %v", rel, err)
 	}
 
 	locked := s.IsNoteLocked(rel) || s.lockedByFolder(rel)
@@ -270,6 +287,11 @@ func (s *Store) deleteNote(rel string, trash func(string) error) error {
 			return err
 		}
 	}
+	// A note deleted for good takes its history with it. One in the Trash keeps
+	// it, so that restoring the note from there restores its versions too.
+	if trash == nil {
+		s.removeHistory(rel)
+	}
 	_, err = s.db.Exec(`DELETE FROM notes WHERE path = ?`, rel)
 	return err
 }
@@ -336,6 +358,7 @@ func (s *Store) RenameNote(oldRel, newRel string) error {
 			return err
 		}
 	}
+	s.moveHistory(oldRel, newRel)
 	folder := path.Dir(newRel)
 	if folder == "." {
 		folder = ""
