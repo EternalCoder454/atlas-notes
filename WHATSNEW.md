@@ -4,6 +4,10 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.7.1
+- Built with Go 1.27.1, so it has Go's latest security fixes. Earlier versions were built with an older Go by mistake
+- Uses a newer version of the library that connects Atlas Notes to GTK, which is more careful with memory
+
 ## 0.7.0
 - Search finds notes by what they say, not just by their names
 - Export any note as a Word document, OpenDocument, Markdown, a web page or plain text
