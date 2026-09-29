@@ -56,6 +56,10 @@ type Store struct {
 	// length of a file write.
 	formatMu    sync.RWMutex
 	compression Compression
+	// formatMod is the modification time of .atlas-vault.json when compression
+	// was read from it. That file syncs, so another device can change the format
+	// while this one runs; see refreshCompression.
+	formatMod time.Time
 
 	// lockMu guards the vault's password state. It is separate from writeMu
 	// because IsUnlocked is asked on every note row the tree draws, while
@@ -141,8 +145,11 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 		return nil, err
 	}
 
+	// The time is taken before the file is read: a change in between then shows
+	// as one at the next refresh, where the other order would miss it.
+	formatMod := settingsModTime(vaultPath)
 	s := &Store{VaultPath: vaultPath, db: db, enc: enc, dec: dec,
-		compression: loadCompression(vaultPath)}
+		compression: loadCompression(vaultPath), formatMod: formatMod}
 	// A vault with no locked notes has no lock file, which is not an error.
 	// One that cannot be read is: it would leave locked notes unopenable while
 	// the app behaved as though nothing were wrong.

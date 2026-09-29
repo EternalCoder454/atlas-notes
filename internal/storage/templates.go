@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -49,17 +50,20 @@ func (s *Store) DailyNote(day time.Time) (rel string, created bool, err error) {
 			body = ExpandTemplate(text, title, day)
 		}
 	}
-	if err := s.WriteNote(rel, body); err != nil {
+	// Created only if it is still absent: another device's sync, or another
+	// goroutine, may have made the day's note while the template was read.
+	made, err := s.createNote(rel, body)
+	if err != nil {
 		return "", false, err
 	}
-	return rel, true, nil
+	return rel, made, nil
 }
 
 // Templates lists the notes in the templates folder, including any in folders
 // inside it, sorted by name.
 func (s *Store) Templates() ([]string, error) {
 	rows, err := s.db.Query(`SELECT path FROM notes WHERE folder = ? OR folder LIKE ? ESCAPE '\'`,
-		TemplatesFolder, escapeForLikeTemplates(TemplatesFolder)+"/%")
+		TemplatesFolder, escapeLike(TemplatesFolder)+"/%")
 	if err != nil {
 		return nil, err
 	}
@@ -87,11 +91,19 @@ func (s *Store) NewFromTemplate(templateRel, folder, title string, now time.Time
 	if strings.TrimSpace(title) == "" {
 		title = path.Base(normalizeRel(templateRel))
 	}
-	rel := s.UniqueName(folder, title)
-	if err := s.WriteNote(rel, ExpandTemplate(text, path.Base(rel), now)); err != nil {
-		return "", err
+	// A name that was free when it was chosen can be taken by the time the note
+	// is written, so a lost race chooses again rather than writing over it.
+	for range 20 {
+		rel := s.UniqueName(folder, title)
+		made, err := s.createNote(rel, ExpandTemplate(text, path.Base(rel), now))
+		if err != nil {
+			return "", err
+		}
+		if made {
+			return rel, nil
+		}
 	}
-	return rel, nil
+	return "", errors.New("could not find a free name for the new note")
 }
 
 // ExpandTemplate fills in a template's placeholders:
@@ -136,11 +148,4 @@ func ExpandTemplate(text, title string, now time.Time) string {
 	}
 	b.WriteString(text)
 	return b.String()
-}
-
-// escapeForLikeTemplates escapes the characters LIKE treats as wildcards, for use with
-// ESCAPE '\'.
-func escapeForLikeTemplates(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return r.Replace(s)
 }

@@ -3,12 +3,14 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	"atlas-notes/internal/markup"
 	"atlas-notes/internal/vaultlock"
 )
 
@@ -167,6 +169,7 @@ func (s *Store) lockNote(rel string) error {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	s.refreshCompression()
 
 	rel = normalizeRel(rel)
 	lockedAbs, err := s.lockedPathSafe(rel)
@@ -200,7 +203,7 @@ func (s *Store) lockNote(rel string) error {
 	if err := atomicWrite(lockedAbs, sealed); err != nil {
 		return err
 	}
-	if err := s.removePlain(rel, ""); err != nil {
+	if err := s.removePlain(rel, "", "", text, key); err != nil {
 		// The note is readable either way; leaving both would be worse than
 		// reporting it, because the plaintext would still be on disk.
 		return fmt.Errorf("locked, but the unencrypted copy is still there: %w", err)
@@ -226,6 +229,7 @@ func (s *Store) UnlockNote(rel string) error {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	s.refreshCompression()
 
 	rel = normalizeRel(rel)
 	plainAbs, err := s.notePathSafe(rel)
@@ -255,6 +259,11 @@ func (s *Store) UnlockNote(rel string) error {
 	}
 	data, err := s.encode(s.Compression(), text)
 	if err != nil {
+		return err
+	}
+	// A plain copy that says something else, in this format or another, is kept
+	// as a note of its own before the note is put back in its place.
+	if err := s.removePlain(rel, "", "", text, nil); err != nil {
 		return err
 	}
 	if err := atomicWrite(plainAbs, data); err != nil {
@@ -370,9 +379,107 @@ func (s *Store) lockedByFolder(rel string) bool {
 	return false
 }
 
-// ChangePassword re-seals every locked note under a new password. It is done
-// note by note rather than atomically, so a failure part way through is
-// reported with the old password still working for whatever is left.
+// sealedFile is one file a password change rewrites: what it holds now and what
+// it will hold under the new key. The old bytes are kept so that a change that
+// fails part way can put every file back.
+type sealedFile struct {
+	path     string
+	old, new []byte
+}
+
+// writeSealed writes one file of a password change. It is a variable so that a
+// test can make a write fail part way through.
+var writeSealed = atomicWrite
+
+// resealBytes opens a sealed file's contents with the old key and seals them
+// again under the new one, in memory.
+func resealBytes(p string, sealed []byte, oldKey, newKey vaultlock.Key) (sealedFile, error) {
+	raw, err := vaultlock.Open(oldKey, sealed)
+	if err != nil {
+		return sealedFile{}, fmt.Errorf("re-sealing %q: %w", filepath.Base(p), err)
+	}
+	resealed, err := vaultlock.Seal(newKey, raw)
+	if err != nil {
+		return sealedFile{}, err
+	}
+	return sealedFile{p, sealed, resealed}, nil
+}
+
+// planNoteReseal reseals every locked note in memory. The notes are found on
+// disk and not in the index: a note that arrived by sync since the last scan is
+// sealed under the old key like the rest, and one left out would be lost.
+func (s *Store) planNoteReseal(oldKey, newKey vaultlock.Key) ([]sealedFile, error) {
+	var plan []sealedFile
+	err := filepath.WalkDir(s.VaultPath, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if s.hiddenDir(p, d) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || isAppleDouble(d.Name()) {
+			return nil
+		}
+		if _, locked, _, ok := relFromFileName(d.Name()); !ok || !locked {
+			return nil
+		}
+		sealed, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		f, err := resealBytes(p, sealed, oldKey, newKey)
+		if err != nil {
+			return err
+		}
+		plan = append(plan, f)
+		return nil
+	})
+	return plan, err
+}
+
+// planAttachmentReseal reseals every sealed image in the vault's attachments
+// folder in memory. It is resealAttachments without the writing.
+func (s *Store) planAttachmentReseal(oldKey, newKey vaultlock.Key) ([]sealedFile, error) {
+	dir := s.attachmentsPath()
+	var plan []sealedFile
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if p == dir && os.IsNotExist(err) {
+				return nil // no image has ever been saved
+			}
+			return err
+		}
+		plainName := strings.TrimSuffix(d.Name(), sealedExt)
+		if d.IsDir() || plainName == d.Name() || !markup.IsImagePath(plainName) {
+			return nil
+		}
+		sealed, err := readCapped(p, maxAttachmentBytes+sealOverhead)
+		if err != nil {
+			return err
+		}
+		f, err := resealBytes(p, sealed, oldKey, newKey)
+		if err != nil {
+			return err
+		}
+		plan = append(plan, f)
+		return nil
+	})
+	return plan, err
+}
+
+// ChangePassword re-seals everything that is sealed under a new password, all
+// or nothing. Every locked note, every sealed image and every sealed version is
+// opened with the old key and sealed again in memory first, and nothing is
+// written until all of that has worked, so a file that will not open leaves the
+// vault untouched and the old password working. Then the files are written, and
+// if one of those writes fails the ones already written are put back from the
+// old bytes held in memory. The new salt and verifier are written last: they are
+// only in memory until then, so files under the new key without them could never
+// be opened again.
+//
+// A sealed version of a note's history that will not open with the old key is
+// left as it is and logged, and does not stop the change: it could not be read
+// before, and history is a record, not the vault.
 func (s *Store) ChangePassword(current, next string) error {
 	if !s.HasPassword() {
 		return ErrNoPassword
@@ -388,50 +495,48 @@ func (s *Store) ChangePassword(current, next string) error {
 	if err != nil {
 		return err
 	}
-
-	locked, err := s.LockedNotes()
+	cfgData, err := newCfg.Marshal()
 	if err != nil {
 		return err
 	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	for _, rel := range locked {
-		abs, err := s.lockedPathSafe(rel)
-		if err != nil {
-			return err
-		}
-		sealed, err := os.ReadFile(abs)
-		if err != nil {
-			return err
-		}
-		raw, err := vaultlock.Open(oldKey, sealed)
-		if err != nil {
-			return fmt.Errorf("re-sealing %q: %w", rel, err)
-		}
-		resealed, err := vaultlock.Seal(newKey, raw)
-		if err != nil {
-			return err
-		}
-		if err := atomicWrite(abs, resealed); err != nil {
-			return err
-		}
-	}
-	// Sealed images are under the same key as the notes that refer to them.
-	if err := s.resealAttachments(oldKey, newKey); err != nil {
-		return err
-	}
-	// So are the sealed versions of locked notes. History is a record, not
-	// the vault: a version that cannot be resealed is logged by resealHistory
-	// and reported here, but it does not stop the password from changing.
-	if err := s.resealHistory(oldKey, newKey); err != nil {
-		log.Printf("atlas-notes: resealing history: %v", err)
-	}
-
-	data, err := newCfg.Marshal()
+	plan, err := s.planNoteReseal(oldKey, newKey)
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(s.lockConfigPath(), data); err != nil {
+	// Sealed images are under the same key as the notes that refer to them.
+	images, err := s.planAttachmentReseal(oldKey, newKey)
+	if err != nil {
+		return err
+	}
+	plan = append(plan, images...)
+	history, herr := s.planHistoryReseal(oldKey, newKey)
+	if herr != nil {
+		// Versions that could not be opened stay as they are, and the rest of
+		// the history is re-sealed with everything else.
+		log.Printf("atlas-notes: resealing history: %v", herr)
+	}
+	plan = append(plan, history...)
+
+	var written []sealedFile
+	undo := func() {
+		for i := len(written) - 1; i >= 0; i-- {
+			if err := writeSealed(written[i].path, written[i].old); err != nil {
+				log.Printf("atlas-notes: putting %s back after a failed password change: %v", written[i].path, err)
+			}
+		}
+	}
+	for _, f := range plan {
+		if err := writeSealed(f.path, f.new); err != nil {
+			undo()
+			return fmt.Errorf("re-sealing %q: %w", filepath.Base(f.path), err)
+		}
+		written = append(written, f)
+	}
+	if err := writeSealed(s.lockConfigPath(), cfgData); err != nil {
+		undo()
 		return err
 	}
 	s.lockMu.Lock()

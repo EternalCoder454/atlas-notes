@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ListFolders walks the vault and returns all subfolders (vault-relative,
@@ -31,12 +32,6 @@ func (s *Store) ListFolders() ([]string, error) {
 		}
 		if rel == "." {
 			return nil
-		}
-		// Images live in a folder of their own, in view of other apps and sync
-		// but not of the note tree, which would otherwise list it as if it
-		// were where notes go. Only the top-level one is the app's.
-		if rel == attachmentsDir {
-			return filepath.SkipDir
 		}
 		folders = append(folders, filepath.ToSlash(rel))
 		return nil
@@ -130,7 +125,9 @@ func (s *Store) RenameFolder(oldRel, newRel string) error {
 	// pattern is escaped, so an underscore or a percent sign in the folder's
 	// name is matched as itself.
 	oldSlash := escapeLike(oldRel) + "/%"
-	skip := len(oldRel) + 1 // SQLite substr is 1-based; skip "oldRel"
+	// SQLite's substr counts characters, not bytes, so the length is too: a
+	// folder called "Café" is four to it and five to len.
+	skip := utf8.RuneCountInString(oldRel) + 1 // substr is 1-based; skip "oldRel"
 	_, err = s.db.Exec(`
 		UPDATE notes
 		SET path = ? || substr(path, ?),
@@ -169,6 +166,7 @@ func (s *Store) RenameFolder(oldRel, newRel string) error {
 func (s *Store) Reindex() error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	s.refreshCompression()
 
 	known, err := s.indexedModTimes()
 	if err != nil {
@@ -197,15 +195,23 @@ func (s *Store) Reindex() error {
 		// Every form of a note is indexed: plain or compressed in any format,
 		// and locked. Which extension a file carries is what says whether it is
 		// locked, so the scan reads it off the name rather than opening anything.
-		locked := strings.HasSuffix(p, lockedExt)
-		if _, plain := plainCompression(d.Name()); !locked && !plain {
+		if isAppleDouble(d.Name()) {
 			return nil
 		}
-		rel, rerr := filepath.Rel(s.VaultPath, p)
+		if _, _, _, ok := relFromFileName(d.Name()); !ok {
+			return nil
+		}
+		relPath, rerr := filepath.Rel(s.VaultPath, p)
 		if rerr != nil {
 			return rerr
 		}
-		rel = normalizeRel(rel)
+		// One extension comes off, and the name that is left is the note's, even
+		// if it ends in ".md" itself: "foo.md.md" is the note "foo.md".
+		stem, locked, _, _ := relFromFileName(filepath.ToSlash(relPath))
+		rel := normalizeRel(stem)
+		if rel == "" {
+			return nil
+		}
 		seen[rel] = true
 		modified := time.Now()
 		if info, ierr := d.Info(); ierr == nil {

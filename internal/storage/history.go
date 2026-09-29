@@ -157,11 +157,98 @@ func listVersions(dir string) ([]Version, error) {
 
 // History lists a note's earlier versions, newest first. A note with none, or a
 // store that keeps none, has an empty list and no error.
+//
+// A note that is locked has no plain versions to show. One that a sync brought
+// in from a device that locked it might still have some here, from before, so
+// with the key they are sealed first, and without it they are left out of the
+// list: their existence is not private, but they are the old text in the clear.
 func (s *Store) History(rel string) ([]Version, error) {
 	if s.HistoryDir == "" {
 		return nil, nil
 	}
-	return listVersions(s.historyDirFor(rel))
+	rel = normalizeRel(rel)
+	locked := s.historyLocked(rel)
+	sealed := false
+	if locked {
+		if key, err := s.key(); err == nil {
+			sealed = true
+			if err := s.sealHistoryLocked(rel, key); err != nil {
+				log.Printf("atlas-notes: sealing the history of %q: %v", rel, err)
+			}
+		}
+	}
+	versions, err := listVersions(s.historyDirFor(rel))
+	if err != nil || !locked || sealed {
+		return versions, err
+	}
+	kept := versions[:0]
+	for _, v := range versions {
+		if v.Locked {
+			kept = append(kept, v)
+		}
+	}
+	return kept, nil
+}
+
+// historyLocked reports whether a note's history has to be kept sealed: the note
+// is stored locked. A note in a locked folder that is still plain, because it has
+// not been saved since the folder was locked, is not locked yet, and its versions
+// are as readable as the note is; they are sealed when a save locks it.
+func (s *Store) historyLocked(rel string) bool {
+	rel = normalizeRel(rel)
+	return s.IsNoteLocked(rel) || (s.lockedByFolder(rel) && s.newestPlain(rel) == "")
+}
+
+// sealHistoryLocked is sealHistory for a caller that does not hold writeMu.
+func (s *Store) sealHistoryLocked(rel string, key vaultlock.Key) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.sealHistory(rel, key)
+}
+
+// SealLockedHistory seals the plain versions of every note that is locked. A
+// note locked on another device arrives without its history, but one locked
+// here, or synced from somewhere that did not seal it, can have plain versions
+// in this device's history, and this is what to call once the vault is unlocked
+// to put that right. It needs the key, and fails with ErrLocked without it. It
+// finds the notes from the history itself, not from the index, so it does not
+// depend on a scan having been done. It carries on past a note it cannot deal
+// with and reports the failures together.
+func (s *Store) SealLockedHistory() error {
+	if s.HistoryDir == "" {
+		return nil
+	}
+	key, err := s.key()
+	if err != nil {
+		return err
+	}
+	dirs, err := os.ReadDir(s.HistoryDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var errs []error
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		name, err := os.ReadFile(filepath.Join(s.HistoryDir, d.Name(), historyNoteFile))
+		if err != nil || len(name) == 0 {
+			continue
+		}
+		rel := normalizeRel(string(name))
+		if rel == "" || !s.historyLocked(rel) {
+			continue
+		}
+		if err := s.sealHistory(rel, key); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", rel, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // versionFile checks an id and maps it to its file. The id arrives from the
@@ -194,6 +281,22 @@ func (s *Store) ReadVersion(rel, id string) (string, error) {
 	p, ext, err := s.versionFile(rel, id)
 	if err != nil {
 		return "", err
+	}
+	// A plain version of a note that is locked is not read in the clear. With the
+	// key it is sealed first and the sealed one is read; without it, it is as
+	// locked as the note is.
+	if ext != lockedExt && s.historyLocked(rel) {
+		key, kerr := s.key()
+		if kerr != nil {
+			return "", ErrLocked
+		}
+		if err := s.sealHistoryLocked(rel, key); err != nil {
+			log.Printf("atlas-notes: sealing the history of %q: %v", rel, err)
+		}
+		ns, _, _ := parseVersionID(id)
+		if p, ext, err = s.versionFile(rel, strconv.FormatInt(ns, 10)+lockedExt); err != nil {
+			return "", err
+		}
 	}
 	if ext == lockedExt {
 		key, err := s.key()
@@ -523,26 +626,35 @@ func (s *Store) sealVersion(dir string, v Version, key vaultlock.Key) error {
 	return os.Remove(old)
 }
 
-// resealHistory re-encrypts every sealed version, of every note, from oldKey to
-// newKey, for when the vault's password changes: the notes are re-sealed then,
-// and their history has to follow or it could never be opened again. The caller
-// holds writeMu.
+// planHistoryReseal is the first half of resealing history, for when the vault's
+// password changes: the notes are re-sealed then, and their sealed versions have
+// to follow or they could never be opened again. It opens every sealed version,
+// of every note, with oldKey and seals it again under newKey in memory, and
+// returns what is to be written. It writes nothing; the caller does, with the
+// notes, so that all of it happens or none of it does. The caller holds writeMu.
 //
-// A version that cannot be opened with oldKey is left as it is and the rest go
-// on, so one bad file does not strand the others; the first failure is reported
-// at the end.
-func (s *Store) resealHistory(oldKey, newKey vaultlock.Key) error {
+// A version that cannot be read or opened with oldKey is left out of the plan
+// and the first such failure is returned with the rest of it: the version could
+// not be read before and is no worse off, and one bad file must not strand the
+// others.
+func (s *Store) planHistoryReseal(oldKey, newKey vaultlock.Key) ([]sealedFile, error) {
 	if s.HistoryDir == "" {
-		return nil
+		return nil, nil
 	}
 	notes, err := os.ReadDir(s.HistoryDir)
 	if os.IsNotExist(err) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var plan []sealedFile
 	var first error
+	note := func(err error) {
+		if first == nil {
+			first = err
+		}
+	}
 	for _, n := range notes {
 		if !n.IsDir() {
 			continue
@@ -550,36 +662,25 @@ func (s *Store) resealHistory(oldKey, newKey vaultlock.Key) error {
 		dir := filepath.Join(s.HistoryDir, n.Name())
 		versions, err := listVersions(dir)
 		if err != nil {
-			if first == nil {
-				first = err
-			}
+			note(err)
 			continue
 		}
 		for _, v := range versions {
 			if !v.Locked {
 				continue
 			}
-			if err := resealVersion(filepath.Join(dir, v.ID), oldKey, newKey); err != nil && first == nil {
-				first = fmt.Errorf("re-sealing version %s: %w", v.ID, err)
+			p := filepath.Join(dir, v.ID)
+			sealed, err := readFileCapped(p)
+			if err == nil {
+				var f sealedFile
+				if f, err = resealBytes(p, sealed, oldKey, newKey); err == nil {
+					plan = append(plan, f)
+				}
+			}
+			if err != nil {
+				note(fmt.Errorf("version %s: %w", v.ID, err))
 			}
 		}
 	}
-	return first
-}
-
-// resealVersion re-seals one version file in place.
-func resealVersion(path string, oldKey, newKey vaultlock.Key) error {
-	sealed, err := readFileCapped(path)
-	if err != nil {
-		return err
-	}
-	payload, err := vaultlock.Open(oldKey, sealed)
-	if err != nil {
-		return err
-	}
-	resealed, err := vaultlock.Seal(newKey, payload)
-	if err != nil {
-		return err
-	}
-	return atomicWrite(path, resealed)
+	return plan, first
 }

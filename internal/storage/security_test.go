@@ -112,7 +112,7 @@ func TestNormalizeRelSanitizes(t *testing.T) {
 		"..":                    "",
 		"":                      "",
 		"   ":                   "",
-		"Note.md.zst":           "Note",
+		"Note.md.zst":           "Note.md.zst", // no extension is stripped, see relFromFileName
 		"  Padded  /  Note  ":   "Padded/Note",
 		"Work/../../../../root": "Work/root",
 	}

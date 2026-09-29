@@ -7,12 +7,18 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/klauspost/compress/gzip"
 	"github.com/ulikunitz/xz"
+
+	"atlas-notes/internal/vaultlock"
 )
 
 // Compression is how a vault stores its notes on disk. It is a property of the
@@ -84,6 +90,36 @@ func loadCompression(vault string) Compression {
 	return ParseCompression(string(v.Compression))
 }
 
+// settingsModTime is when the vault's settings file last changed, or the zero
+// time when there is none. Comparing it is how a change is noticed without
+// reading the file every time.
+func settingsModTime(vault string) time.Time {
+	info, err := os.Stat(filepath.Join(vault, vaultFileName))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+// refreshCompression picks up a format change made on another device. The
+// settings file syncs with the vault, and if it were read only at start-up this
+// device would go on saving in the old format until it was restarted, leaving
+// the vault with notes in two. It costs a stat, and the file is read again only
+// when its time has changed.
+func (s *Store) refreshCompression() {
+	mod := settingsModTime(s.VaultPath)
+	s.formatMu.RLock()
+	same := mod.Equal(s.formatMod)
+	s.formatMu.RUnlock()
+	if same {
+		return
+	}
+	c := loadCompression(s.VaultPath)
+	s.formatMu.Lock()
+	s.compression, s.formatMod = c, mod
+	s.formatMu.Unlock()
+}
+
 // Compression is the format the vault writes new and saved notes in.
 func (s *Store) Compression() Compression {
 	s.formatMu.RLock()
@@ -109,8 +145,9 @@ func (s *Store) SetCompression(c Compression) error {
 	if err := atomicWrite(filepath.Join(s.VaultPath, vaultFileName), data); err != nil {
 		return err
 	}
+	mod := settingsModTime(s.VaultPath)
 	s.formatMu.Lock()
-	s.compression = c
+	s.compression, s.formatMod = c, mod
 	s.formatMu.Unlock()
 	return nil
 }
@@ -253,14 +290,6 @@ func plainCompression(name string) (Compression, bool) {
 	return "", false
 }
 
-// stripNoteExt removes a note's extension, whichever of the plain ones it is.
-func stripNoteExt(name string) string {
-	if c, ok := plainCompression(name); ok {
-		return strings.TrimSuffix(name, c.ext())
-	}
-	return name
-}
-
 // plainFile is one place an unlocked note may be, and the format it is in.
 type plainFile struct {
 	c    Compression
@@ -287,30 +316,100 @@ func (s *Store) plainFiles(rel string) ([]plainFile, error) {
 	return files, nil
 }
 
-// readPlain reads and decodes an unlocked note. When the note has no file it
-// fails as a missing file does, so that the caller can go on to look for the
-// locked form.
-func (s *Store) readPlain(rel string) ([]byte, error) {
+// existingPlain lists the forms of a note that are on disk, the most recently
+// modified first. Forms with the same time keep the order of plainFiles, so the
+// vault's own format wins a tie.
+func (s *Store) existingPlain(rel string) ([]plainFile, error) {
 	files, err := s.plainFiles(rel)
 	if err != nil {
 		return nil, err
 	}
+	type candidate struct {
+		f   plainFile
+		mod time.Time
+	}
+	var have []candidate
 	for _, f := range files {
-		data, err := readFileCapped(f.path)
+		info, err := os.Stat(f.path)
 		if os.IsNotExist(err) {
 			continue
 		}
+		var mod time.Time
+		if err == nil {
+			mod = info.ModTime()
+		}
+		have = append(have, candidate{f, mod})
+	}
+	sort.SliceStable(have, func(i, j int) bool { return have[i].mod.After(have[j].mod) })
+	out := make([]plainFile, len(have))
+	for i, c := range have {
+		out[i] = c.f
+	}
+	return out, nil
+}
+
+// newestPlain is the path of the form a note is read from, or "" if it has no
+// unlocked form.
+func (s *Store) newestPlain(rel string) string {
+	if have, err := s.existingPlain(rel); err == nil && len(have) > 0 {
+		return have[0].path
+	}
+	return ""
+}
+
+// readPlain reads and decodes an unlocked note. When the note has no file it
+// fails as a missing file does, so that the caller can go on to look for the
+// locked form.
+//
+// When a sync has left several forms of the note, the most recently modified is
+// the one read: it is the one somebody last saved. A form that will not decode
+// does not stop the others being tried, and its error is only what is returned
+// when none of them can be read.
+func (s *Store) readPlain(rel string) ([]byte, error) {
+	// Twice, because a conversion can move the note from one form to another
+	// between listing the files and reading them, and the note is then still
+	// there, just under another name.
+	for attempt := 0; attempt < 2; attempt++ {
+		have, err := s.existingPlain(rel)
 		if err != nil {
 			return nil, err
 		}
-		return s.decode(f.c, data)
+		var first error
+		for _, f := range have {
+			data, err := readFileCapped(f.path)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err == nil {
+				var text []byte
+				if text, err = s.decode(f.c, data); err == nil {
+					return text, nil
+				}
+			}
+			if first == nil {
+				first = err
+			}
+		}
+		if first != nil {
+			return nil, first
+		}
 	}
-	return nil, &fs.PathError{Op: "open", Path: files[0].path, Err: fs.ErrNotExist}
+	return nil, &fs.PathError{Op: "open", Path: s.notePath(rel), Err: fs.ErrNotExist}
 }
 
 // removePlain deletes every unlocked form of a note except keep, which may be
-// empty to keep none. A form that is not there is already gone.
-func (s *Store) removePlain(rel, keep string) error {
+// empty to keep none. A form that is not there is already gone. text is what the
+// note now says, and key is the vault's key when the note is being written
+// locked, so that what is kept of a differing copy is not left in the clear.
+//
+// A form that says something else is not just deleted: two devices can each have
+// saved the note, and the sync leaves both. It is kept as a note of its own
+// first, see saveConflict. The exception is base, the form the note was read
+// from before this write, which is what the new text is an edit of: saving a
+// note that is still in an older format would otherwise make a conflict of every
+// edit. A form that cannot be read cannot be kept as text, so it is left where
+// it is and reported.
+func (s *Store) removePlain(rel, keep, base string, text []byte, key vaultlock.Key) error {
 	files, err := s.plainFiles(rel)
 	if err != nil {
 		return err
@@ -319,9 +418,74 @@ func (s *Store) removePlain(rel, keep string) error {
 		if f.path == keep {
 			continue
 		}
+		data, err := readFileCapped(f.path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("%s cannot be read, so it was not removed: %w", filepath.Base(f.path), err)
+		}
+		got, err := s.decode(f.c, data)
+		if err != nil {
+			return fmt.Errorf("%s cannot be read, so it was not removed: %w", filepath.Base(f.path), err)
+		}
+		if f.path != base && !bytes.Equal(got, text) {
+			if err := s.saveConflict(rel, got, key); err != nil {
+				return fmt.Errorf("keeping the differing copy in %s: %w", filepath.Base(f.path), err)
+			}
+		}
 		if err := os.Remove(f.path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+	}
+	return nil
+}
+
+// saveConflict keeps the text of a copy of a note that is about to be removed as
+// a note of its own, beside the note: "Plan (conflict 2026-09-29 1405)", or with
+// a number after it when that is taken. It is written in the vault's format, or
+// sealed when key is set, and indexed so that it is seen. The caller holds
+// writeMu.
+func (s *Store) saveConflict(rel string, text []byte, key vaultlock.Key) error {
+	now := time.Now()
+	folder := path.Dir(rel)
+	if folder == "." {
+		folder = ""
+	}
+	conflict := s.UniqueName(folder, path.Base(rel)+" (conflict "+now.Format("2006-01-02 1504")+")")
+	if key != nil {
+		sealed, err := vaultlock.Seal(key, s.enc.EncodeAll(text, nil))
+		if err != nil {
+			return err
+		}
+		abs, err := s.lockedPathSafe(conflict)
+		if err != nil {
+			return err
+		}
+		if err := atomicWrite(abs, sealed); err != nil {
+			return err
+		}
+		if err := s.indexNote(conflict, now, true, false); err != nil {
+			log.Printf("atlas-notes: indexing %q: %v", conflict, err)
+		}
+		return nil
+	}
+	data, err := s.encode(s.Compression(), text)
+	if err != nil {
+		return err
+	}
+	abs, err := s.notePathSafe(conflict)
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(abs, data); err != nil {
+		return err
+	}
+	// The copy is saved by now, so failing to index it is not a failure to keep it.
+	if err := s.indexNote(conflict, now, false, HasTasks(string(text))); err != nil {
+		log.Printf("atlas-notes: indexing %q: %v", conflict, err)
+	} else if err := s.indexWritten(conflict, string(text)); err != nil {
+		log.Printf("atlas-notes: indexing %q: %v", conflict, err)
 	}
 	return nil
 }
@@ -370,14 +534,35 @@ func (s *Store) NoteFileName(rel string) string {
 	return rel + s.Compression().ext()
 }
 
-// hiddenDir reports whether a walk of the vault should stay out of a
-// directory: one whose name starts with a dot, which is where Syncthing keeps
-// old versions (.stversions), and git and trash folders keep theirs. Notes in
-// there are copies, and would show up as notes twice. The vault itself is
-// never skipped, whatever it is called.
-func (s *Store) hiddenDir(p string, d fs.DirEntry) bool {
-	return d.IsDir() && p != s.VaultPath && strings.HasPrefix(d.Name(), ".")
+// toolDirs are the folders other programs keep inside a vault: Syncthing's old
+// versions and its marker, git, the trash folders of file managers, and the
+// settings of Obsidian and Resilio Sync. What is in them is a copy or not a
+// note, and would show up as a note twice.
+var toolDirs = map[string]bool{
+	".stversions": true, ".stfolder": true, ".git": true, ".trash": true,
+	".Trash": true, ".obsidian": true, ".sync": true,
 }
+
+// hiddenDir reports whether a walk of the vault should stay out of a directory:
+// one of toolDirs, by name and at any depth, or the top-level folder the app
+// keeps images in. Only those: a folder of the user's own that happens to begin
+// with a dot is a folder of notes. The vault itself is never skipped, whatever
+// it is called.
+func (s *Store) hiddenDir(p string, d fs.DirEntry) bool {
+	if !d.IsDir() || p == s.VaultPath {
+		return false
+	}
+	name := d.Name()
+	if toolDirs[name] || strings.HasPrefix(name, ".Trash-") {
+		return true
+	}
+	return name == attachmentsDir && filepath.Dir(p) == s.VaultPath
+}
+
+// isAppleDouble reports whether a file name is macOS's companion to a file on a
+// volume that cannot hold its extra data. It carries the note's extension and is
+// not a note.
+func isAppleDouble(name string) bool { return strings.HasPrefix(name, "._") }
 
 // walkPlain calls fn for every unlocked note file in the vault, without
 // opening any of them.
@@ -389,10 +574,10 @@ func (s *Store) walkPlain(fn func(p string, c Compression) error) error {
 		if s.hiddenDir(p, d) {
 			return filepath.SkipDir
 		}
-		if d.IsDir() {
+		if d.IsDir() || isAppleDouble(d.Name()) {
 			return nil
 		}
-		if c, ok := plainCompression(d.Name()); ok {
+		if _, locked, c, ok := relFromFileName(d.Name()); ok && !locked {
 			return fn(p, c)
 		}
 		return nil
@@ -429,6 +614,7 @@ func (s *Store) NeedsConversion() bool {
 // between notes and is not an error, as for ResolveContent: what is left is
 // found again next time.
 func (s *Store) ConvertVault(ctx context.Context, progress func(done, total int)) (int, error) {
+	s.refreshCompression()
 	own := s.Compression()
 	type job struct {
 		path string
@@ -507,9 +693,22 @@ func (s *Store) convertNote(old string, from Compression) (bool, error) {
 		// The note is already there in the vault's format: a conversion that was
 		// interrupted before it removed the old file, or a copy that arrived by
 		// sync. It is never written over, since it may be the newer one. If it
-		// says the same thing, the old file is all that is left to do.
+		// says the same thing, the old file is all that is left to do. If it
+		// says something else the old file is kept as a note of its own before
+		// it goes, so that neither text is lost and both notes are not left
+		// behind to be converted again.
 		if existing, err := readFileCapped(target); err == nil {
-			if got, err := s.decode(to, existing); err == nil && bytes.Equal(got, text) {
+			if got, err := s.decode(to, existing); err == nil {
+				if !bytes.Equal(got, text) {
+					relFile, rerr := filepath.Rel(s.VaultPath, old)
+					if rerr != nil {
+						return false, rerr
+					}
+					stem, _, _, _ := relFromFileName(filepath.ToSlash(relFile))
+					if err := s.saveConflict(normalizeRel(stem), text, nil); err != nil {
+						return false, err
+					}
+				}
 				return true, os.Remove(old)
 			}
 		}
