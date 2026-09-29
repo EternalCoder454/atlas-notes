@@ -102,6 +102,13 @@ type Tree struct {
 	contentFor  string
 	contentGen  uint64
 
+	// tagNotes is what the index said for each tag query typed so far, so a tag
+	// asked for again, by clicking through the home screen's list say, shows
+	// at once. A vault change marks the entries stale rather than dropping them:
+	// they go on being drawn until the fresh answer lands, so a save while a tag
+	// is showing does not blank the list for the moment the query takes.
+	tagNotes map[string]*tagResult
+
 	summariesEnabled bool
 	summaries        map[string]string
 	summaryPending   map[string]bool
@@ -341,6 +348,9 @@ func (t *Tree) Refresh() {
 // in between.
 func (t *Tree) ForceRefresh() {
 	t.cacheValid = false
+	for _, r := range t.tagNotes {
+		r.stale = true
+	}
 	t.refresh(true)
 	if t.query != "" {
 		t.searchContent()
@@ -364,6 +374,13 @@ func (t *Tree) searchContent() {
 	gen, q := t.contentGen, t.query
 	if q == "" || t.store == nil {
 		t.contentHits, t.contentFor = nil, ""
+		return
+	}
+	if tag, ok := tagSearch(q); ok {
+		// A tag is looked up, not typed into: the index answers from a table
+		// of tags, so there is no text to wait for the end of.
+		t.contentHits, t.contentFor = nil, ""
+		t.searchTag(gen, q, tag)
 		return
 	}
 	coreglib.TimeoutAdd(contentSearchDelay, func() bool {
@@ -393,6 +410,70 @@ func (t *Tree) searchContent() {
 	})
 }
 
+// tagResult is the notes a tag query found.
+type tagResult struct {
+	notes []storage.NoteMeta
+	stale bool // the vault has changed since; a fresh answer is on its way
+}
+
+// tagCacheLimit bounds tagNotes. Every prefix of a tag typed is a query of its
+// own, and none of them is worth keeping once there are this many.
+const tagCacheLimit = 32
+
+// tagSearch reports whether a query asks for a tag, and which. A bare "#" does
+// not: it is what typing a tag looks like before the first letter, and until
+// there is one it is an ordinary search, for the character itself.
+func tagSearch(q string) (tag string, ok bool) {
+	q = strings.TrimSpace(q)
+	if !strings.HasPrefix(q, "#") {
+		return "", false
+	}
+	tag = strings.TrimSpace(q[1:])
+	return tag, tag != ""
+}
+
+// searchTag asks the index for the notes carrying a tag, off the main thread,
+// and applies the answer if the query is still the one asked for. gen is the
+// generation searchContent has just taken; see contentGen.
+func (t *Tree) searchTag(gen uint64, q, tag string) {
+	if r, ok := t.tagNotes[q]; ok && !r.stale {
+		return // asked before, and nothing has changed since
+	}
+	go func() {
+		notes, err := t.store.NotesWithTag(tag)
+		coreglib.IdleAdd(func() bool {
+			if gen != t.contentGen {
+				return false
+			}
+			if err != nil {
+				log.Printf("atlas-notes: tag search: %v", err)
+				return false
+			}
+			if t.tagNotes == nil || len(t.tagNotes) >= tagCacheLimit {
+				t.tagNotes = make(map[string]*tagResult, 8)
+			}
+			t.tagNotes[q] = &tagResult{notes: notes}
+			t.refresh(true)
+			return false
+		})
+	}()
+}
+
+// taggedNotes turns a tag's notes into rows, in the order the index gave them:
+// newest first, whatever the panel's sort is set to, since a tag is a list of
+// what was touched under it.
+func (t *Tree) taggedNotes(notes []storage.NoteMeta) []*node {
+	out := make([]*node, 0, len(notes))
+	for _, m := range notes {
+		out = append(out, &node{
+			name: path.Base(m.Path), rel: m.Path, folder: m.Folder,
+			created: m.CreatedAt, modified: m.ModifiedAt,
+			starred: t.starred(m.Path, false), tasks: m.HasTasks,
+		})
+	}
+	return out
+}
+
 func (t *Tree) refresh(force bool) {
 	expanded := t.snapshotExpanded()
 	t.reloadCache()
@@ -402,6 +483,20 @@ func (t *Tree) refresh(force bool) {
 		t.signature = sig
 	}
 
+	if _, ok := tagSearch(t.query); ok {
+		res, known := t.tagNotes[t.query]
+		if !known {
+			// The index has not answered yet. The rows stay as they are for the
+			// few milliseconds that takes, rather than emptying and filling.
+			t.updateHeader(0)
+			return
+		}
+		matches := t.taggedNotes(res.notes)
+		syncModel(t.rootModel, matches)
+		t.updateHeader(len(matches))
+		t.updateEmptyState(len(matches))
+		return
+	}
 	if t.query != "" {
 		// Searching flattens the tree: every matching note, wherever it lives.
 		matches := t.matchingNotes()
@@ -429,7 +524,11 @@ func (t *Tree) refresh(force bool) {
 // widgets, and every widget the bindings wrap stays resident afterwards.
 func (t *Tree) vaultSignature() string {
 	h := fnv.New64a()
-	fmt.Fprintf(h, "q=%s r=%v c=%s/%d\n", t.query, t.sortRecent, t.contentFor, len(t.contentHits))
+	tagAnswer := -1 // no answer yet, which differs from an answer of no notes
+	if r, ok := t.tagNotes[t.query]; ok {
+		tagAnswer = len(r.notes)
+	}
+	fmt.Fprintf(h, "q=%s r=%v c=%s/%d t=%d\n", t.query, t.sortRecent, t.contentFor, len(t.contentHits), tagAnswer)
 	// Lock, checklist and favourite state are part of what a row shows, so a
 	// change to any of them has to reach the signature — otherwise Refresh sees
 	// no difference and the badge the user just asked for never appears.
@@ -558,6 +657,10 @@ func (t *Tree) updateHeader(n int) {
 	if t.countLabel == nil {
 		return
 	}
+	if tag, ok := tagSearch(t.query); ok {
+		t.countLabel.SetText("· Tagged #" + tag)
+		return
+	}
 	switch {
 	case t.query != "":
 		label := fmt.Sprintf("· %d found", n)
@@ -585,6 +688,11 @@ func (t *Tree) updateEmptyState(n int) {
 	t.emptyState.SetVisible(empty)
 	t.scroll.SetVisible(!empty)
 	if !empty {
+		return
+	}
+	if tag, ok := tagSearch(t.query); ok {
+		t.emptyTitle.SetText("No notes tagged #" + tag)
+		t.emptyHint.SetText("Write #" + tag + " in a note to tag it")
 		return
 	}
 	if t.query != "" {

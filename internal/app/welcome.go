@@ -2,12 +2,17 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/storage"
@@ -19,8 +24,8 @@ import (
 const guideNote = "Getting Started"
 
 // buildWelcome constructs the home screen shown when no note is open: a
-// greeting, the four things a new user actually wants to do, and a way back
-// into recent work. It replaces landing on a "Welcome" note, which looked like
+// greeting, the things a new user actually wants to do, what is due, and a way
+// back into recent work. It replaces landing on a "Welcome" note, which looked like
 // an ordinary document the user had somehow already written.
 func (a *App) buildWelcome() *gtk.Widget {
 	outer := gtk.NewBox(gtk.OrientationVertical, 0)
@@ -62,6 +67,9 @@ func (a *App) buildWelcome() *gtk.Widget {
 	}{
 		{"atlasnotes-note-new-symbolic", "New note", "Start writing straight away", "Ctrl+N", a.actionNewNote},
 		{"atlasnotes-checklist-symbolic", "New checklist", "A note that starts with tasks", "Ctrl+T", a.actionNewChecklist},
+		// The action is registered with the others; going through it keeps one
+		// place that knows what "today's note" means.
+		{"atlasnotes-recent-symbolic", "Today's note", "Jot down today's plans", "Ctrl+D", func() { a.adw.ActivateAction("today", nil) }},
 		{"atlasnotes-search-symbolic", "Find a note", "Search titles across the vault", "Ctrl+K", a.actionFocusSearch},
 		{"atlasnotes-info-symbolic", "Read the guide", "Markdown, tasks and the assistant", "", a.openGuide},
 	}
@@ -70,11 +78,20 @@ func (a *App) buildWelcome() *gtk.Widget {
 		if !hasIcon(icon) {
 			icon = "atlasnotes-note-symbolic"
 		}
-		grid.Attach(a.welcomeCard(icon, c.title, c.subtitle, c.accel, c.action), i%2, i/2, 1, 1)
+		// With an odd number of cards the last one takes the whole row, rather
+		// than leaving a hole beside it.
+		span := 1
+		if i == len(cards)-1 && len(cards)%2 == 1 {
+			span = 2
+		}
+		grid.Attach(a.welcomeCard(icon, c.title, c.subtitle, c.accel, c.action), i%2, i/2, span, 1)
 	}
 	content.Append(grid)
 
+	home = a.newHomeLists()
+	content.Append(home.dueBox)
 	content.Append(a.buildRecents())
+	content.Append(home.tagsBox)
 	a.refreshRecents()
 
 	content.Append(a.welcomeFooter())
@@ -205,6 +222,7 @@ func (a *App) refreshRecents() {
 	if len(a.recents) == 0 {
 		return
 	}
+	a.refreshHomeLists()
 	var notes []storage.NoteMeta
 	if a.store != nil {
 		notes, _ = a.store.RecentNotes(recentSlots)
@@ -234,6 +252,325 @@ func (a *App) refreshRecents() {
 		r.snippet.SetText(a.snippets[n.Path].text)
 		r.snippet.SetVisible(r.snippet.Text() != "")
 		r.button.SetVisible(true)
+	}
+}
+
+// The two lists between the cards and the footer besides the recents: what is
+// due, and the vault's tags. Like the recents they are a fixed set of widgets
+// re-pointed at new data, since every widget the bindings wrap stays resident.
+const (
+	dueSlots      = 8 // rows of due tasks the home screen shows
+	dueWindowDays = 7 // how far ahead "due" looks
+	tagSlots      = 24
+	dateLayout    = "2006-01-02"
+)
+
+// The groups a due task falls into, in the order they are listed.
+const (
+	dueOverdue = iota
+	dueToday
+	dueSoon
+)
+
+var dueGroupTitles = [...]string{"Overdue", "Today", "This week"}
+
+// dueGroup says which group a task due on due (yyyy-mm-dd) belongs to, on the
+// day today (also yyyy-mm-dd). Dates in this form order the way they read, so
+// no parsing is needed.
+func dueGroup(due, today string) int {
+	switch {
+	case due < today:
+		return dueOverdue
+	case due == today:
+		return dueToday
+	}
+	return dueSoon
+}
+
+// planDue cuts the tasks to the rows there is room for and counts the rest.
+func planDue(tasks []storage.DueTask, limit int) (shown []storage.DueTask, more int) {
+	if len(tasks) <= limit {
+		return tasks, 0
+	}
+	return tasks[:limit], len(tasks) - limit
+}
+
+// topTags is the n tags on the most notes, most first. The index lists them by
+// name, and the sort is stable, so tags on as many notes stay alphabetical.
+func topTags(tags []storage.TagCount, n int) []storage.TagCount {
+	out := slices.Clone(tags)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Notes > out[j].Notes })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// dueSlot is one row of the Due list, with the heading of its group above it
+// for the row that starts one.
+type dueSlot struct {
+	box     *gtk.Box
+	heading *gtk.Label
+	button  *gtk.Button
+	text    *gtk.Label
+	note    *gtk.Label
+	chip    *gtk.Label
+	rel     string
+}
+
+// tagPill is one button of the Tags list.
+type tagPill struct {
+	item   *gtk.FlowBoxChild
+	button *gtk.Button
+	name   *gtk.Label
+	count  *gtk.Label
+	tag    string
+}
+
+// homeLists are the Due and Tags sections of the home screen. There is one App
+// per process and one home screen, so they are held here, rebuilt with the page.
+type homeLists struct {
+	dueBox  *gtk.Box
+	slots   []*dueSlot
+	dueMore *gtk.Label
+	tagsBox *gtk.Box
+	pills   []*tagPill
+
+	gen       uint64 // tells a stale answer from the latest
+	shownDue  []storage.DueTask
+	shownDay  string // the day the due rows were grouped for
+	shownTags []storage.TagCount
+}
+
+var home *homeLists
+
+// newHomeLists builds both sections, hidden until there is something to show.
+func (a *App) newHomeLists() *homeLists {
+	h := &homeLists{}
+
+	h.dueBox = gtk.NewBox(gtk.OrientationVertical, 2)
+	h.dueBox.AddCSSClass("welcome-recents")
+	h.dueBox.SetVisible(false)
+	due := gtk.NewLabel("Due")
+	due.SetXAlign(0)
+	due.AddCSSClass("welcome-section")
+	h.dueBox.Append(due)
+
+	for i := 0; i < dueSlots; i++ {
+		s := &dueSlot{box: gtk.NewBox(gtk.OrientationVertical, 2)}
+		s.heading = gtk.NewLabel("")
+		s.heading.SetXAlign(0)
+		s.heading.SetMarginTop(6)
+		s.heading.SetMarginStart(4)
+		s.heading.AddCSSClass("caption-heading")
+		s.heading.AddCSSClass("dim-label")
+		s.box.Append(s.heading)
+
+		s.button = gtk.NewButton()
+		s.button.AddCSSClass("welcome-recent")
+		s.button.ConnectClicked(func() {
+			if s.rel != "" {
+				a.openNote(s.rel)
+			}
+		})
+		line := gtk.NewBox(gtk.OrientationHorizontal, 8)
+		s.text = gtk.NewLabel("")
+		s.text.SetXAlign(0)
+		s.text.SetHExpand(true)
+		s.text.SetEllipsize(3) // PANGO_ELLIPSIZE_END
+		// Ellipsizing alone leaves the label asking for its full length, and a
+		// long task would widen the whole page.
+		s.text.SetMaxWidthChars(44)
+		s.text.AddCSSClass("welcome-recent-title")
+		line.Append(s.text)
+		s.note = gtk.NewLabel("")
+		s.note.SetEllipsize(3)
+		s.note.SetMaxWidthChars(20)
+		s.note.AddCSSClass("dim-label")
+		line.Append(s.note)
+		s.chip = gtk.NewLabel("")
+		s.chip.AddCSSClass("due-chip")
+		line.Append(s.chip)
+		s.button.SetChild(line)
+		s.box.Append(s.button)
+
+		s.box.SetVisible(false)
+		h.dueBox.Append(s.box)
+		h.slots = append(h.slots, s)
+	}
+	h.dueMore = gtk.NewLabel("")
+	h.dueMore.SetXAlign(0)
+	h.dueMore.SetMarginStart(4)
+	h.dueMore.SetMarginTop(2)
+	h.dueMore.AddCSSClass("dim-label")
+	h.dueMore.SetVisible(false)
+	h.dueBox.Append(h.dueMore)
+
+	h.tagsBox = gtk.NewBox(gtk.OrientationVertical, 2)
+	h.tagsBox.AddCSSClass("welcome-recents")
+	h.tagsBox.SetVisible(false)
+	tags := gtk.NewLabel("Tags")
+	tags.SetXAlign(0)
+	tags.AddCSSClass("welcome-section")
+	h.tagsBox.Append(tags)
+
+	flow := gtk.NewFlowBox()
+	flow.SetSelectionMode(gtk.SelectionNone)
+	flow.SetColumnSpacing(6)
+	flow.SetRowSpacing(6)
+	flow.SetHAlign(gtk.AlignStart)
+	// Wraps at about the width of the cards above rather than running the page
+	// out to one long line.
+	flow.SetMaxChildrenPerLine(6)
+	for i := 0; i < tagSlots; i++ {
+		p := &tagPill{item: gtk.NewFlowBoxChild(), button: gtk.NewButton()}
+		p.button.AddCSSClass("ai-chip") // the small rounded button the assistant's suggestions use
+		p.button.ConnectClicked(func() {
+			if p.tag != "" {
+				a.showTag(p.tag)
+			}
+		})
+		line := gtk.NewBox(gtk.OrientationHorizontal, 6)
+		p.name = gtk.NewLabel("")
+		p.name.SetEllipsize(3)
+		p.name.SetMaxWidthChars(24)
+		line.Append(p.name)
+		p.count = gtk.NewLabel("")
+		p.count.AddCSSClass("dim-label")
+		line.Append(p.count)
+		p.button.SetChild(line)
+		p.item.SetChild(p.button)
+		p.item.SetVisible(false)
+		flow.Append(p.item)
+		h.pills = append(h.pills, p)
+	}
+	h.tagsBox.Append(flow)
+	return h
+}
+
+// showTag searches the vault for a tag, showing the vault panel if it is away.
+func (a *App) showTag(tag string) {
+	if a.tree == nil {
+		return
+	}
+	if a.leftToggle != nil && !a.leftToggle.Active() {
+		a.leftToggle.SetActive(true)
+	}
+	a.tree.SetSearch("#" + tag)
+}
+
+// refreshHomeLists brings the Due and Tags sections up to date.
+//
+// The queries run off the main thread, and only while the home screen is where
+// the user is: the vault changes on every save, and a note being written has
+// no use for a list nobody can see. Going home refreshes it. The answer is
+// dropped if a newer question has been asked since.
+func (a *App) refreshHomeLists() {
+	h := home
+	if h == nil || a.store == nil || a.currentNote != "" {
+		return
+	}
+	h.gen++
+	gen := h.gen
+	now := time.Now()
+	today := now.Format(dateLayout)
+	through := now.AddDate(0, 0, dueWindowDays).Format(dateLayout)
+	go func() {
+		due, derr := a.store.DueTasks(through)
+		tags, terr := a.store.Tags()
+		coreglib.IdleAdd(func() bool {
+			if a.closing || home != h || gen != h.gen {
+				return false
+			}
+			if derr != nil {
+				log.Printf("atlas-notes: due tasks: %v", derr)
+			} else {
+				h.showDue(due, today)
+			}
+			if terr != nil {
+				log.Printf("atlas-notes: tags: %v", terr)
+			} else {
+				h.showTags(tags)
+			}
+			return false
+		})
+	}()
+}
+
+// showDue points the Due rows at tasks, which the index lists by date, so each
+// group is one run. Nothing is touched when neither the tasks nor the day have
+// changed.
+func (h *homeLists) showDue(tasks []storage.DueTask, today string) {
+	if today == h.shownDay && slices.Equal(tasks, h.shownDue) {
+		return
+	}
+	h.shownDay, h.shownDue = today, tasks
+	shown, more := planDue(tasks, len(h.slots))
+	h.dueBox.SetVisible(len(shown) > 0)
+	group := -1
+	for i, s := range h.slots {
+		if i >= len(shown) {
+			s.rel = ""
+			s.box.SetVisible(false)
+			continue
+		}
+		t := shown[i]
+		g := dueGroup(t.Due, today)
+		s.heading.SetText(dueGroupTitles[g])
+		s.heading.SetVisible(g != group)
+		group = g
+		s.rel = t.Path
+		s.text.SetText(t.Text)
+		s.note.SetText(path.Base(t.Path))
+		dressHomeChip(s.chip, t.Due, g)
+		s.box.SetVisible(true)
+	}
+	h.dueMore.SetText(fmt.Sprintf("and %d more", more))
+	h.dueMore.SetVisible(more > 0)
+}
+
+// dressHomeChip writes a due date on a chip the way the checklist rows do: as
+// "Jan 2", red once overdue and amber on the day.
+func dressHomeChip(chip *gtk.Label, due string, group int) {
+	chip.RemoveCSSClass("due-today")
+	chip.RemoveCSSClass("due-overdue")
+	t, err := time.Parse(dateLayout, due)
+	if err != nil {
+		chip.SetText(due)
+		return
+	}
+	chip.SetText(t.Format("Jan 2"))
+	switch group {
+	case dueOverdue:
+		chip.AddCSSClass("due-overdue")
+		chip.SetTooltipText("Overdue · " + t.Format("Mon, Jan 2 2006"))
+	case dueToday:
+		chip.AddCSSClass("due-today")
+		chip.SetTooltipText("Due today")
+	default:
+		chip.SetTooltipText("Due " + t.Format("Mon, Jan 2 2006"))
+	}
+}
+
+// showTags points the pills at the vault's most used tags.
+func (h *homeLists) showTags(tags []storage.TagCount) {
+	top := topTags(tags, len(h.pills))
+	if slices.Equal(top, h.shownTags) {
+		return
+	}
+	h.shownTags = top
+	h.tagsBox.SetVisible(len(top) > 0)
+	for i, p := range h.pills {
+		if i >= len(top) {
+			p.tag = ""
+			p.item.SetVisible(false)
+			continue
+		}
+		p.tag = top[i].Tag
+		p.name.SetText("#" + top[i].Tag)
+		p.count.SetText(strconv.Itoa(top[i].Notes))
+		p.button.SetTooltipText(plural(top[i].Notes, "note"))
+		p.item.SetVisible(true)
 	}
 }
 

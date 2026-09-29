@@ -203,6 +203,7 @@ func (a *App) activate() {
 		return false
 	})
 	a.scheduleReindex()
+	a.startReminders()
 	a.maybeCheckForUpdate()
 	a.runBench()
 	a.runDevView()
