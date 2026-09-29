@@ -43,6 +43,27 @@ type Editor struct {
 	// opened note renders fully clean; the markers appear once the caret is
 	// actually moved or something is typed.
 	revealCaret bool
+	shown       int // the line whose markers the last render pass left showing, or -1
+
+	// press is what a click's button-down was over, kept for its release (see
+	// installLinks); overLink is whether the pointer is currently a hand.
+	press    linkPress
+	overLink bool
+	// sg is the suggestion popover for note names and tags (see complete.go).
+	sg suggester
+
+	// OnOpenNote, OnOpenTag and OnOpenURL are called when a link is clicked: a
+	// note link with its target and heading (either may be a bare name or a
+	// path), a tag without its "#", and a web address. A nil callback means
+	// that kind of link does nothing.
+	OnOpenNote func(target, heading string)
+	OnOpenTag  func(tag string)
+	OnOpenURL  func(url string)
+	// NoteNames lists the notes that can be linked to, as vault-relative paths
+	// without an extension ("Work/Todo"), and TagNames the tags in use without
+	// their "#". They are asked for when a suggestion popover opens.
+	NoteNames func() []string
+	TagNames  func() []string
 
 	// OnChanged fires after a user edit (suppressed during SetContent).
 	OnChanged func()
@@ -55,7 +76,7 @@ type Editor struct {
 
 // New builds the editor component.
 func New() *Editor {
-	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1}
+	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1, shown: -1}
 
 	e.view = gtk.NewTextView()
 	e.view.SetWrapMode(gtk.WrapWordChar)
@@ -95,6 +116,8 @@ func New() *Editor {
 		}
 	})
 	e.installItemMenu()
+	e.installLinks()
+	e.installComplete()
 
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
 		if mark.Name() != "insert" {
@@ -157,6 +180,10 @@ func (e *Editor) createTags() {
 	e.newTag("divider", map[string]any{"foreground": "#9a9a9a", "scale": 0.8})
 	// A finished task reads as done: struck through and receded.
 	e.newTag("done", map[string]any{"strikethrough": true, "foreground": "#9a9a9a"})
+	// Links go last of the formatting tags, so their colour wins over the quote
+	// and done grays. Nothing else creates tags after this, apart from the find
+	// highlights, which are made on first use and so rank above all of these.
+	e.createLinkTags()
 }
 
 func (e *Editor) newTag(name string, props map[string]any) {
@@ -172,6 +199,7 @@ func (e *Editor) newTag(name string, props map[string]any) {
 // caret is placed at the top, so opening a note shows its beginning.
 func (e *Editor) SetContent(s string) {
 	e.clearItems() // the old note's checkboxes go with its text
+	e.closeSuggest()
 
 	// The text is replaced with the view detached from the buffer.
 	//
@@ -314,6 +342,7 @@ func (e *Editor) reparse() {
 	if e.revealCaret {
 		revealLine = cursorLine
 	}
+	e.shown = revealLine // what the person sees from now on; a click asks (see linkPress)
 
 	lastLine := e.buffer.LineCount() - 1
 	from, to := e.dirtyFrom, e.dirtyTo
@@ -365,6 +394,11 @@ func (e *Editor) tagRange(from, to, cursorLine int) {
 		// line in characters for every render pass was costing more than the
 		// parse itself.
 		for _, sp := range parseLineSpans(line, lineNum == cursorLine) {
+			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
+		}
+		// Note links, tags and web addresses go on top. A line with none of them
+		// costs a few substring searches and allocates nothing.
+		for _, sp := range linkSpans(line, lineNum == cursorLine) {
 			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
 		}
 		if breadcrumbsOn {
