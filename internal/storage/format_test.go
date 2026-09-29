@@ -82,10 +82,26 @@ func TestCompressionNames(t *testing.T) {
 	}
 }
 
-func TestNormalizeRelStripsEveryNoteExtension(t *testing.T) {
+func TestNormalizeRelStripsNoExtensionAndRelFromFileNameStripsOne(t *testing.T) {
+	// A name is normalized again at every step, so it must not lose an
+	// extension each time: a note called "foo.md" is the file "foo.md.md".
 	for _, ext := range []string{".md", ".md.zst", ".md.gz", ".md.xz", ".md.enc"} {
-		if got := normalizeRel("Work/Todo" + ext); got != "Work/Todo" {
-			t.Errorf("normalizeRel(%q) = %q, want Work/Todo", "Work/Todo"+ext, got)
+		if got := normalizeRel("Work/Todo" + ext); got != "Work/Todo"+ext {
+			t.Errorf("normalizeRel(%q) = %q, it stripped an extension", "Work/Todo"+ext, got)
+		}
+		want := "Work/Todo"
+		if got, locked, _, ok := relFromFileName("Work/Todo" + ext); !ok || got != want || locked != (ext == ".md.enc") {
+			t.Errorf("relFromFileName(%q) = %q, %v, %v", "Work/Todo"+ext, got, locked, ok)
+		}
+	}
+	for name, want := range map[string]string{"foo.md.md": "foo.md", "foo.md.md.enc": "foo.md", "foo.md.md.zst": "foo.md"} {
+		if got, _, _, ok := relFromFileName(name); !ok || got != want {
+			t.Errorf("relFromFileName(%q) = %q, %v, want %q", name, got, ok, want)
+		}
+	}
+	for _, name := range []string{".md", ".md.enc", "note.txt", "note.md.bak", ""} {
+		if _, _, _, ok := relFromFileName(name); ok {
+			t.Errorf("relFromFileName(%q) says it is a note", name)
 		}
 	}
 	if got := normalizeRel("Work/Todo"); got != "Work/Todo" {
@@ -523,14 +539,21 @@ func TestConvertVaultNeverWritesOverANoteAlreadyInTheFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertVault: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("converted %d, want 1 (the finished one)", n)
+	if n != 2 {
+		t.Errorf("converted %d, want 2 (the finished one, and the differing one kept as a conflict copy)", n)
 	}
 	if got, _ := os.ReadFile(newer); string(got) != "# newer\n" {
 		t.Errorf("the note in the vault's format was overwritten: %q", got)
 	}
-	if !exists(vaultFile(s, "Diverged.md.zst")) {
-		t.Error("the differing legacy copy was deleted")
+	if exists(vaultFile(s, "Diverged.md.zst")) {
+		t.Error("the differing legacy copy was left beside the note")
+	}
+	conflicts := conflictsOf(t, s, "Diverged")
+	if len(conflicts) != 1 {
+		t.Fatalf("conflict copies of Diverged = %q, want one", conflicts)
+	}
+	if got, _ := s.ReadNote(conflicts[0]); got != "# older\n" {
+		t.Errorf("the conflict copy says %q, want the older text", got)
 	}
 	if exists(vaultFile(s, "Same.md.zst")) {
 		t.Error("the finished conversion left the old file")
@@ -550,7 +573,16 @@ func TestReindexSeesEveryExtensionAndIgnoresHiddenFolders(t *testing.T) {
 	plant(t, s, CompressionNone, ".stversions/Old", "# old\n", time.Time{})
 	plant(t, s, CompressionZstd, ".git/objects/x", "# x\n", time.Time{})
 	plant(t, s, CompressionGzip, ".trash/Gone", "# gone\n", time.Time{})
+	plant(t, s, CompressionZstd, ".Trash-1000/Gone", "# gone\n", time.Time{})
+	plant(t, s, CompressionNone, ".obsidian/Cfg", "# cfg\n", time.Time{})
+	plant(t, s, CompressionNone, ".sync/x", "# x\n", time.Time{})
+	plant(t, s, CompressionNone, ".stfolder/x", "# x\n", time.Time{})
+	plant(t, s, CompressionNone, "Work/.Trash/Gone", "# gone\n", time.Time{}) // at any depth
+	plant(t, s, CompressionNone, "attachments/Pic note", "# pic\n", time.Time{})
+	plant(t, s, CompressionNone, "Work/._Apple", "# apple\n", time.Time{})
+	// Any other dot-folder is the user's, and its notes are notes.
 	plant(t, s, CompressionNone, "Work/.hidden/Inside", "# inside\n", time.Time{})
+	plant(t, s, CompressionNone, "Work/attachments/Nested", "# nested\n", time.Time{})
 
 	if err := s.Reindex(); err != nil {
 		t.Fatal(err)
@@ -564,7 +596,7 @@ func TestReindexSeesEveryExtensionAndIgnoresHiddenFolders(t *testing.T) {
 		got = append(got, n.Path)
 	}
 	slices.Sort(got)
-	want := []string{"Work/In gzip", "Work/In none", "Work/In xz", "Work/In zstd", "Work/Locked"}
+	want := []string{"Work/.hidden/Inside", "Work/In gzip", "Work/In none", "Work/In xz", "Work/In zstd", "Work/Locked", "Work/attachments/Nested"}
 	if !slices.Equal(got, want) {
 		t.Errorf("indexed %q, want %q", got, want)
 	}
@@ -578,8 +610,8 @@ func TestReindexSeesEveryExtensionAndIgnoresHiddenFolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(folders, []string{"Work"}) {
-		t.Errorf("ListFolders = %q, want just Work", folders)
+	if !slices.Equal(folders, []string{"Work", "Work/.hidden", "Work/attachments"}) {
+		t.Errorf("ListFolders = %q, want Work and its two folders of the user's own", folders)
 	}
 }
 

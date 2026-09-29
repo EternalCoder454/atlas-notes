@@ -238,6 +238,28 @@ func (s *Store) notesLinkingTo(targets []string) (map[string]map[string]bool, er
 	return out, nil
 }
 
+// unindexedNotes lists the unlocked notes whose text the index has not read
+// since they were last seen on disk. A scan adds a note without opening it, and
+// a note that changed by sync is marked the same way, so until the content pass
+// has read it its link rows are missing or out of date, and they say nothing
+// about what it links to.
+func (s *Store) unindexedNotes() ([]string, error) {
+	rows, err := s.db.Query(`SELECT path FROM notes WHERE locked = 0 AND indexed = 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // Backlinks lists the notes that link to rel, sorted, not counting rel itself.
 //
 // A link written as a path means rel when it is rel, whatever the case. A link
@@ -501,6 +523,21 @@ func (s *Store) rewriteLinks(moves []move, before, after []string) (int, error) 
 	linking, err := s.notesLinkingTo(keys)
 	if err != nil {
 		return 0, err
+	}
+	// A note the index has not read yet might link to any of them, so it is a
+	// candidate for all. It costs a read, and it is written only if its text
+	// changes, like the others.
+	stale, err := s.unindexedNotes()
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range stale {
+		if linking[p] == nil {
+			linking[p] = map[string]bool{}
+		}
+		for _, k := range keys {
+			linking[p][k] = true
+		}
 	}
 	paths := make([]string, 0, len(linking))
 	for p := range linking {
