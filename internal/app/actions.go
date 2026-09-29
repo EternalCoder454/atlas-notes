@@ -33,7 +33,11 @@ func (a *App) registerActions() {
 		{"save", []string{"<Control>s"}, a.saveCurrent},
 		{"rename", []string{"F2"}, a.actionRename},
 		{"export", []string{"<Control><Shift>e"}, a.exportCurrent},
-		{"search", []string{"<Control>k", "<Control>p", "<Control>f"}, a.actionFocusSearch},
+		{"search", []string{"<Control>k", "<Control>p", "<Control><Shift>f"}, a.actionFocusSearch},
+		{"find", []string{"<Control>f"}, a.actionFind},
+		{"find-replace", []string{"<Control>r"}, a.actionFindReplace},
+		{"find-next", []string{"<Control>g", "F3"}, func() { a.stepFind(true) }},
+		{"find-previous", []string{"<Control><Shift>g", "<Shift>F3"}, func() { a.stepFind(false) }},
 		{"home", []string{"<Control>h"}, a.showWelcome},
 		{"toggle-vault", []string{"F9"}, func() { a.toggle(a.leftToggle) }},
 		{"toggle-assistant", []string{"F10"}, func() { a.toggle(a.rightToggle) }},
@@ -127,6 +131,26 @@ func (a *App) actionFocusSearch() {
 	a.tree.FocusSearch()
 }
 
+// actionFind opens the find bar in the open note. On the home screen there is
+// no note to search, and Ctrl+F keeps the meaning it had before the bar
+// existed: the vault's search.
+func (a *App) actionFind() {
+	if !a.noteOpen() {
+		a.actionFocusSearch()
+		return
+	}
+	a.openFind(false)
+}
+
+// actionFindReplace opens the find bar with its replace row showing.
+func (a *App) actionFindReplace() {
+	if !a.noteOpen() {
+		a.toast("Open a note to find and replace in it")
+		return
+	}
+	a.openFind(true)
+}
+
 // focusAssistant reveals the assistant panel and focuses its prompt field.
 func (a *App) focusAssistant() {
 	if a.sidebar == nil {
@@ -176,11 +200,20 @@ func (a *App) showShortcuts() {
 			{"F2", "Rename the open note"},
 		}},
 		{"Moving around", []shortcutRow{
-			{"Ctrl+K", "Find a note"},
+			{"Ctrl+K / Ctrl+P / Ctrl+Shift+F", "Find a note"},
 			{"Ctrl+H", "Home screen"},
 			{"F9", "Show or hide the vault"},
 			{"F10", "Show or hide the assistant"},
 			{"Ctrl+L", "Ask the assistant"},
+		}},
+		{"Find in the open note", []shortcutRow{
+			{"Ctrl+F", "Find"},
+			{"Ctrl+R", "Find and replace"},
+			{"Ctrl+G / F3", "Next match"},
+			{"Ctrl+Shift+G / Shift+F3", "Previous match"},
+			{"Enter", "Next match, in the find box"},
+			{"Shift+Enter", "Previous match, in the find box"},
+			{"Esc", "Close the find bar"},
 		}},
 		{"Formatting", []shortcutRow{
 			{"Ctrl+B", "Bold"},

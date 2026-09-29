@@ -205,6 +205,8 @@ func (a *App) buildMainMenu() *gio.Menu {
 	current.Append("Rename…", "app.rename")
 	current.Append("Export…", "app.export")
 	current.Append("Find a Note", "app.search")
+	current.Append("Find in Note", "app.find")
+	current.Append("Find and Replace", "app.find-replace")
 	menu.AppendSection("", current)
 
 	view := gio.NewMenu()
