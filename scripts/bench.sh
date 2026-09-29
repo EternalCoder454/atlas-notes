@@ -157,8 +157,13 @@ warm=$(snapshot warm "$bin")
 largest=$(python3 - "$warm/atlas-notes/vault" <<'PY'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1])
-p = max(root.rglob("*.md.zst"), key=lambda f: f.stat().st_size)
-print(str(p.relative_to(root))[: -len(".md.zst")])
+# Any format a note can be stored in: 0.8 writes plain .md by default, and
+# older builds, measured with --ab, write .md.zst.
+exts = (".md.zst", ".md.gz", ".md.xz", ".md")
+notes = [f for f in root.rglob("*") if f.is_file() and f.name.endswith(exts)]
+p = max(notes, key=lambda f: f.stat().st_size)
+name = str(p.relative_to(root))
+print(next(name[: -len(e)] for e in exts if name.endswith(e)))
 PY
 )
 big=$work/big
