@@ -4,8 +4,10 @@
 // It is written for the Markdown Atlas Notes writes, which is a small and
 // fairly strict subset: headings, bold, italic, struck-through and code text,
 // quotes, bullet and numbered lists, checklist items with their priority and
-// due date, fenced code, dividers and links. Anything else comes through as
-// the text it is. There is no GTK here and no network, so the desktop app and
+// due date, fenced code, dividers, links, links to other notes and images.
+// Anything else comes through as the text it is. What counts as a link to
+// another note or an image is decided by package markup, the same as everywhere
+// else in the app. There is no GTK here and no network, so the desktop app and
 // the phone export through the same code and get the same documents.
 //
 // The formats are built by hand rather than through a converter. A Word or
@@ -15,11 +17,13 @@
 package export
 
 import (
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"atlas-notes/internal/checklist"
+	"atlas-notes/internal/markup"
 )
 
 // kind is what a block is.
@@ -34,10 +38,11 @@ const (
 	quote
 	code
 	divider
+	figure // an image on a line of its own
 )
 
 // block is one piece of a document: a paragraph, a heading, one list item, a
-// fenced code block, or a divider. A paragraph and a quote may hold several
+// fenced code block, a divider, or a picture. A paragraph and a quote may hold several
 // lines; they are kept as lines because the note kept them as lines, and each
 // format turns the breaks between them into its own line break.
 type block struct {
@@ -49,6 +54,9 @@ type block struct {
 	lines   [][]inline // the text, a line at a time
 	code    string     // a code block's text, verbatim
 	lang    string     // a code block's language, if it named one
+	src     string     // a picture's path, as the note wrote it
+	alt     string     // a picture's alt text, if the note gave any
+	pic     *picture   // a picture's bytes, once withImages has found them
 }
 
 // inline is a run of text with the same formatting.
@@ -89,6 +97,10 @@ func parse(md string) []block {
 		}
 		if lvl, text, ok := headingLine(line); ok {
 			out = append(out, block{kind: heading, level: lvl, lines: [][]inline{parseInline(text)}})
+			continue
+		}
+		if figs, ok := imageLine(stripComments(trimmed)); ok {
+			out = append(out, figs...)
 			continue
 		}
 		if strings.HasPrefix(trimmed, ">") {
@@ -244,10 +256,11 @@ func stripComments(s string) string {
 
 // parseInline splits a line into runs of text with the same formatting. Code
 // is taken literally; bold, italic and struck-through text may nest; a link's
-// text may be formatted too.
+// text may be formatted too. A link to another note, and an image inside a
+// line, become the text they stand for, in the formatting around them.
 func parseInline(s string) []inline {
 	var out []inline
-	parseRuns(s, inline{}, &out)
+	parseRuns(s, 0, noteRefs(s), inline{}, &out)
 	// Adjacent runs that ended up formatted alike are one run.
 	merged := out[:0]
 	for _, r := range out {
@@ -264,7 +277,105 @@ func sameStyle(a, b inline) bool {
 	return a.bold == b.bold && a.italic == b.italic && a.strike == b.strike && a.mono == b.mono && a.link == b.link
 }
 
-func parseRuns(s string, style inline, out *[]inline) {
+// noteRef is a link to another note, or an image, found inside a line: where
+// it ends, and the text it is written as in a document.
+type noteRef struct {
+	end  int
+	text string
+}
+
+// noteRefs finds the links to other notes and the images in a line, keyed by
+// where each starts. Package markup decides what is one, so that a link the
+// editor draws in a note is a link this exports.
+func noteRefs(line string) map[int]noteRef {
+	if !strings.Contains(line, "[[") && !strings.Contains(line, "![") {
+		return nil
+	}
+	var refs map[int]noteRef
+	for _, sp := range markup.Line(line, false) {
+		var text string
+		switch sp.Kind {
+		case markup.KindWikiLink:
+			text = wikiText(sp)
+		case markup.KindImage:
+			text = imageLabel(imageAlt(line, sp), sp.Target)
+		default:
+			continue
+		}
+		if refs == nil {
+			refs = map[int]noteRef{}
+		}
+		refs[sp.Start] = noteRef{end: sp.End, text: text}
+	}
+	return refs
+}
+
+// wikiText is how a link to another note reads in a document that cannot
+// follow it: the alias the note gave it, or else the note's name without the
+// folders it sits in, and the heading if it names one. An alias is what the
+// writer chose to have shown, so it is shown as it is.
+func wikiText(sp markup.Span) string {
+	if sp.Alias != "" {
+		return sp.Alias
+	}
+	name := path.Base(strings.Trim(sp.Target, "/"))
+	if name == "." || name == "/" {
+		name = sp.Target
+	}
+	if sp.Heading != "" {
+		name += " › " + sp.Heading
+	}
+	return name
+}
+
+// imageAlt is an image's alt text. A note may also write ![[photo.png|300]],
+// where the text after the bar is a width and not a description.
+func imageAlt(line string, sp markup.Span) string {
+	if strings.HasPrefix(line[sp.Start:], "![[") && isSize(sp.Alias) {
+		return ""
+	}
+	return sp.Alias
+}
+
+// isSize reports whether s is "300" or "300x200".
+func isSize(s string) bool {
+	w, h, both := strings.Cut(s, "x")
+	return isDigits(w) && (!both || isDigits(h))
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// imageLine reads a line that holds nothing but images, which is how a note
+// shows a picture as a picture. It gives one block for each, so two side by
+// side stay two. A line with words among its images is a paragraph, and its
+// images become their alt text.
+func imageLine(line string) ([]block, bool) {
+	var out []block
+	pos := 0
+	for _, sp := range markup.Line(line, false) {
+		if sp.Kind != markup.KindImage || strings.TrimSpace(line[pos:sp.Start]) != "" {
+			return nil, false
+		}
+		out = append(out, block{kind: figure, src: sp.Target, alt: imageAlt(line, sp)})
+		pos = sp.End
+	}
+	if len(out) == 0 || strings.TrimSpace(line[pos:]) != "" {
+		return nil, false
+	}
+	return out, true
+}
+
+// parseRuns reads s, which starts off bytes into the line the refs were found
+// in, so that a ref is still known for one after the formatting has cut the
+// line into pieces.
+func parseRuns(s string, off int, refs map[int]noteRef, style inline, out *[]inline) {
 	plain := func(t string) {
 		if t != "" {
 			r := style
@@ -273,44 +384,49 @@ func parseRuns(s string, style inline, out *[]inline) {
 		}
 	}
 	for len(s) > 0 {
-		i := strings.IndexAny(s, "`*~[")
+		i := strings.IndexAny(s, "`*~[!")
 		if i < 0 {
 			plain(s)
 			return
 		}
 		plain(s[:i])
-		s = s[i:]
+		s, off = s[i:], off+i
+		if ref, ok := refs[off]; ok && ref.end-off <= len(s) {
+			plain(ref.text)
+			s, off = s[ref.end-off:], ref.end
+			continue
+		}
 		switch {
 		case s[0] == '`':
 			if j := strings.IndexByte(s[1:], '`'); j >= 0 {
 				r := style
 				r.text, r.mono = s[1:1+j], true
 				*out = append(*out, r)
-				s = s[j+2:]
+				s, off = s[j+2:], off+j+2
 				continue
 			}
 		case strings.HasPrefix(s, "**"):
 			if j := strings.Index(s[2:], "**"); j > 0 {
 				inner := style
 				inner.bold = true
-				parseRuns(s[2:2+j], inner, out)
-				s = s[j+4:]
+				parseRuns(s[2:2+j], off+2, refs, inner, out)
+				s, off = s[j+4:], off+j+4
 				continue
 			}
 		case strings.HasPrefix(s, "~~"):
 			if j := strings.Index(s[2:], "~~"); j > 0 {
 				inner := style
 				inner.strike = true
-				parseRuns(s[2:2+j], inner, out)
-				s = s[j+4:]
+				parseRuns(s[2:2+j], off+2, refs, inner, out)
+				s, off = s[j+4:], off+j+4
 				continue
 			}
 		case s[0] == '*':
 			if j := strings.IndexByte(s[1:], '*'); j > 0 && s[1] != ' ' {
 				inner := style
 				inner.italic = true
-				parseRuns(s[1:1+j], inner, out)
-				s = s[j+2:]
+				parseRuns(s[1:1+j], off+1, refs, inner, out)
+				s, off = s[j+2:], off+j+2
 				continue
 			}
 		case s[0] == '[':
@@ -318,15 +434,15 @@ func parseRuns(s string, style inline, out *[]inline) {
 				if end := strings.IndexByte(s[close+2:], ')'); end >= 0 {
 					inner := style
 					inner.link = s[close+2 : close+2+end]
-					parseRuns(s[1:close], inner, out)
-					s = s[close+3+end:]
+					parseRuns(s[1:close], off+1, refs, inner, out)
+					s, off = s[close+3+end:], off+close+3+end
 					continue
 				}
 			}
 		}
 		// Not the start of anything after all: the character is text.
 		plain(s[:1])
-		s = s[1:]
+		s, off = s[1:], off+1
 	}
 }
 

@@ -1,6 +1,7 @@
 package export
 
 import (
+	"encoding/base64"
 	"fmt"
 	"html"
 	"strings"
@@ -33,28 +34,46 @@ func Lookup(id string) (Format, bool) {
 	return Format{}, false
 }
 
+// Options are what a render may be given besides the note.
+type Options struct {
+	// Image returns the bytes of an image the note refers to, by the path
+	// written in the note. Nil, or an error, means the image is left out
+	// and its alt text (or file name) is written in its place.
+	Image func(path string) ([]byte, error)
+}
+
 // Render turns a note into a document of the given format. title is the
 // note's name, which goes into the document's own properties where the format
-// has somewhere to put it.
+// has somewhere to put it. The document has no pictures: see RenderWith.
 func Render(formatID, title, markdown string) ([]byte, error) {
+	return RenderWith(formatID, title, markdown, Options{})
+}
+
+// RenderWith is Render with a way to fetch the images the note shows. This
+// package knows nothing of vaults or files, so the caller, which does, passes
+// that in. A picture that cannot be had, or is not one a document can hold,
+// never fails the export: its alt text stands in for it.
+func RenderWith(formatID, title, markdown string, opt Options) ([]byte, error) {
 	switch formatID {
 	case "md":
 		// The note as it is, comments included: they are invisible to any
 		// Markdown reader, and keeping them means a note exported and brought
-		// back into a vault keeps its priorities and due dates.
+		// back into a vault keeps its priorities and due dates. Its images and
+		// links to other notes stay as written, too: it is the note itself.
 		out := markdown
 		if !strings.HasSuffix(out, "\n") {
 			out += "\n"
 		}
 		return []byte(out), nil
 	case "txt":
+		// Text has nowhere to put a picture, so it never asks for one.
 		return []byte(renderText(parse(markdown))), nil
 	case "html":
-		return []byte(renderHTML(title, parse(markdown))), nil
+		return []byte(renderHTML(title, withImages(parse(markdown), opt))), nil
 	case "docx":
-		return renderDOCX(title, parse(markdown))
+		return renderDOCX(title, withImages(parse(markdown), opt))
 	case "odt":
-		return renderODT(title, parse(markdown))
+		return renderODT(title, withImages(parse(markdown), opt))
 	}
 	return nil, fmt.Errorf("export: no format %q", formatID)
 }
@@ -123,6 +142,8 @@ func renderText(blocks []block) string {
 			}
 		case divider:
 			b.WriteString("\n")
+		case figure:
+			b.WriteString("[Image: " + imageLabel(bl.alt, bl.src) + "]\n")
 		}
 	}
 	return b.String()
@@ -143,6 +164,7 @@ pre{padding:.8em;overflow-x:auto}code{padding:0 .2em}
 ul.tasks{list-style:none;padding-left:0}ul.tasks ul.tasks{padding-left:1.5em}
 .detail{color:#666;font-size:.9em}.done{color:#777}
 hr{border:0;border-top:1px solid #ccc}
+figure{margin:1em 0}img{max-width:100%;height:auto}
 @media(prefers-color-scheme:dark){body{background:#141218;color:#e6e0e9}pre,code{background:#2b2930}blockquote{color:#aaa}}`
 
 func renderHTML(title string, blocks []block) string {
@@ -174,6 +196,16 @@ func writeHTMLBlocks(b *strings.Builder, blocks []block) {
 			b.WriteString("<pre><code" + class + ">" + html.EscapeString(bl.code) + "</code></pre>\n")
 		case divider:
 			b.WriteString("<hr>\n")
+		case figure:
+			// The picture goes in the page itself, as a data URI, so the file
+			// still shows it when it is moved or sent on by itself.
+			alt := html.EscapeString(imageLabel(bl.alt, bl.src))
+			if bl.pic == nil {
+				b.WriteString("<p>" + alt + "</p>\n")
+				break
+			}
+			b.WriteString(`<figure><img src="data:` + bl.pic.mime + `;base64,` +
+				base64.StdEncoding.EncodeToString(bl.pic.data) + `" alt="` + alt + `"></figure>` + "\n")
 		default: // a run of list items, with their nesting
 			j := i
 			for j < len(blocks) && isListItem(blocks[j]) {

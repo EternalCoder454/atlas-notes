@@ -25,6 +25,7 @@ const odtNS = `xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" `
 	`xmlns:dc="http://purl.org/dc/elements/1.1/" ` +
 	`xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" ` +
 	`xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" ` +
+	`xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" ` +
 	`office:version="1.3"`
 
 // odtStyles defines the named styles, with the names LibreOffice gives its
@@ -146,6 +147,7 @@ func odtSpanName(r inline) string {
 
 func renderODT(title string, blocks []block) ([]byte, error) {
 	var body strings.Builder
+	pics := &odtPictures{}
 	for i := 0; i < len(blocks); {
 		bl := blocks[i]
 		switch bl.kind {
@@ -164,6 +166,12 @@ func renderODT(title string, blocks []block) ([]byte, error) {
 			body.WriteString(`<text:p text:style-name="Preformatted_20_Text">` + strings.Join(lines, "<text:line-break/>") + "</text:p>\n")
 		case divider:
 			body.WriteString(`<text:p text:style-name="PDivider"/>` + "\n")
+		case figure:
+			if bl.pic != nil {
+				body.WriteString(`<text:p text:style-name="Text_20_body">` + pics.frame(bl) + "</text:p>\n")
+			} else {
+				body.WriteString(`<text:p text:style-name="Text_20_body">` + odtText(imageLabel(bl.alt, bl.src)) + "</text:p>\n")
+			}
 		default:
 			j := i
 			for j < len(blocks) && isListItem(blocks[j]) {
@@ -189,6 +197,7 @@ func renderODT(title string, blocks []block) ([]byte, error) {
 		`<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>` + "\n" +
 		`<manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>` + "\n" +
 		`<manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>` + "\n" +
+		pics.manifestEntries() +
 		"</manifest:manifest>"
 
 	var out bytes.Buffer
@@ -226,10 +235,63 @@ func renderODT(title string, blocks []block) ([]byte, error) {
 			return nil, err
 		}
 	}
+	// Deflated like the rest, not stored: only the mimetype entry is written
+	// raw, and a stored entry streamed by the zip writer has the problem
+	// described above.
+	for i, p := range pics.list {
+		w, err := z.Create(odtPicturePath(i, p))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(p.data); err != nil {
+			return nil, err
+		}
+	}
 	if err := z.Close(); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// odtPictures collects the pictures a document shows. Each is a file under
+// Pictures/, listed in the manifest, and a frame in the text points at it.
+type odtPictures struct {
+	list   []*picture // the distinct pictures; list[i] is Pictures/image(i+1)
+	frames int        // how many are placed, for their unique names
+}
+
+func odtPicturePath(i int, p *picture) string {
+	return fmt.Sprintf("Pictures/image%d.%s", i+1, p.ext)
+}
+
+// frame places a picture in the text, anchored as a character so that it sits
+// in its paragraph as a letter would. A picture used twice is one file with two
+// frames.
+func (o *odtPictures) frame(bl block) string {
+	idx := -1
+	for i, m := range o.list {
+		if m == bl.pic {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		o.list = append(o.list, bl.pic)
+		idx = len(o.list) - 1
+	}
+	o.frames++
+	w, h := bl.pic.inches()
+	return fmt.Sprintf(`<draw:frame draw:name="Image%d" text:anchor-type="as-char" svg:width="%.4fin" svg:height="%.4fin">`+
+		`<draw:image xlink:href="%s" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>`+
+		`<svg:desc>%s</svg:desc></draw:frame>`,
+		o.frames, w, h, odtPicturePath(idx, bl.pic), xmlText(imageLabel(bl.alt, bl.src)))
+}
+
+func (o *odtPictures) manifestEntries() string {
+	var b strings.Builder
+	for i, p := range o.list {
+		fmt.Fprintf(&b, `<manifest:file-entry manifest:full-path="%s" manifest:media-type="%s"/>`+"\n", odtPicturePath(i, p), p.mime)
+	}
+	return b.String()
 }
 
 // odtList writes consecutive list items as nested lists. A checklist item is a
