@@ -61,14 +61,16 @@ func (a *App) exportNote(rel string) {
 		if !ok {
 			return
 		}
-		a.saveExport(name, text, f)
+		a.saveExport(rel, name, text, f)
 	})
 	dialog.Present(a.win)
 }
 
 // saveExport renders the note and asks where to put it.
-func (a *App) saveExport(name, text string, f export.Format) {
-	data, err := export.Render(f.ID, name, text)
+func (a *App) saveExport(rel, name, text string, f export.Format) {
+	// The note's pictures go into the document, read as the note names them.
+	opt := export.Options{Image: func(p string) ([]byte, error) { return a.store.ReadAttachment(rel, p) }}
+	data, err := export.RenderWith(f.ID, name, text, opt)
 	if err != nil {
 		a.toast("Couldn't export: " + err.Error())
 		return

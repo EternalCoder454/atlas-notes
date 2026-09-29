@@ -29,7 +29,14 @@ func ExportNote(rel, format string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return export.Render(format, path.Base(rel), text)
+	s, err := vault()
+	if err != nil {
+		return nil, err
+	}
+	// Pictures are read from the vault as the note names them, decrypted
+	// when the note is protected, so the document carries them.
+	opt := export.Options{Image: func(p string) ([]byte, error) { return s.ReadAttachment(rel, p) }}
+	return export.RenderWith(format, path.Base(rel), text, opt)
 }
 
 // ExportFileName is the name an export of a note is offered under.
