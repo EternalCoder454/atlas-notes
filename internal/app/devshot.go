@@ -77,6 +77,28 @@ func (a *App) runDevView() {
 			if a.tree != nil {
 				a.tree.SetSearch(arg)
 			}
+		case "note":
+			// Open a note by path; "note=Work/Plan|find=word" also opens the
+			// find bar on it, and "note=Work/Plan|history" its version history.
+			rel, then, _ := strings.Cut(arg, "|")
+			a.openNote(rel)
+			what, q, _ := strings.Cut(then, "=")
+			switch what {
+			case "find":
+				a.openFind(false)
+				if fb := findBars[a]; fb != nil {
+					fb.entry.SetText(q)
+				}
+			case "replace":
+				a.openFind(true)
+				if fb := findBars[a]; fb != nil {
+					fb.entry.SetText(q)
+				}
+			case "history":
+				a.showHistory()
+			}
+		case "templates":
+			a.actionNewFromTemplate()
 		case "item-menu":
 			// Open a task line's context menu (arg = line number) so the
 			// screenshot tooling can capture it.
