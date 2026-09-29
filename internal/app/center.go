@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/checklist"
@@ -21,8 +22,8 @@ const editorMaxWidth = 860
 const noteFileSuffix = ".md.zst"
 
 // buildCenter assembles the center panel as a stack of two pages: the welcome
-// home screen, and the note editor (title row · formatting toolbar · text ·
-// status bar).
+// home screen, and the note editor (title row · formatting toolbar · find bar ·
+// text · status bar).
 func (a *App) buildCenter() *gtk.Box {
 	center := gtk.NewBox(gtk.OrientationVertical, 0)
 	center.SetHExpand(true)
@@ -53,6 +54,7 @@ func (a *App) buildEditorPage() *gtk.Box {
 	a.editor = editor.New()
 	a.editor.OnChanged = a.onEditorChanged
 	a.editor.OnReparsed = a.onEditorReparsed
+	page.Append(a.buildFindBar())
 
 	clamp := adw.NewClamp()
 	clamp.SetMaximumSize(editorMaxWidth)
@@ -180,6 +182,300 @@ func (a *App) withEditor(fn func(*editor.Editor)) {
 	a.editor.Focus()
 }
 
+// findSearchDelayMs is how long the find entry waits after the last keystroke
+// before it reports a new query. It is the debounce: a long note is searched
+// once the typing pauses, not once per letter.
+const findSearchDelayMs = 100
+
+// findBar is the strip between the toolbar and the text for finding, and
+// replacing, text in the open note. It is built once and shown or hidden.
+type findBar struct {
+	revealer      *gtk.Revealer
+	entry         *gtk.SearchEntry
+	counter       *gtk.Label
+	matchCase     *gtk.ToggleButton
+	replaceToggle *gtk.ToggleButton
+	replaceReveal *gtk.Revealer // the second row
+	replaceEntry  *gtk.Entry
+
+	// holdCounter keeps "Replaced N" on the counter until the next search or
+	// step. Without it the very next refresh would overwrite the answer with
+	// how many matches are left, which is not what was just asked.
+	holdCounter bool
+}
+
+// findBars holds each App's find bar, so that everything about it stays in this
+// file.
+var findBars = map[*App]*findBar{}
+
+// buildFindBar makes the find bar, hidden until Ctrl+F (or the menu) asks for
+// it. It reuses the toolbar's look, so it reads as part of the same chrome.
+func (a *App) buildFindBar() *gtk.Revealer {
+	fb := &findBar{}
+	findBars[a] = fb
+
+	fb.entry = gtk.NewSearchEntry()
+	fb.entry.SetHExpand(true)
+	fb.entry.SetPlaceholderText("Find in this note")
+	fb.entry.SetSearchDelay(findSearchDelayMs)
+	fb.entry.ConnectSearchChanged(a.runFind)
+	// GtkSearchEntry binds Ctrl+G and Ctrl+Shift+G itself, and if it gets the key
+	// before the application shortcut does, it must still go somewhere.
+	fb.entry.ConnectNextMatch(func() { a.stepFind(true) })
+	fb.entry.ConnectPreviousMatch(func() { a.stepFind(false) })
+	// Enter is next and Shift+Enter previous. Handled while the key is still on
+	// its way down, before the entry can treat it as "activate".
+	fb.entry.AddController(enterKey(func(shift bool) { a.stepFind(!shift) }))
+
+	fb.counter = gtk.NewLabel("")
+	fb.counter.AddCSSClass("dim-label")
+	fb.counter.AddCSSClass("numeric")
+	fb.counter.SetWidthChars(10) // room for "No matches", so the bar does not shift as it changes
+	fb.counter.SetXAlign(1)
+
+	prev := findIconButton("go-up-symbolic", "↑", "Previous match (Ctrl+Shift+G)", func() { a.stepFind(false) })
+	next := findIconButton("go-down-symbolic", "↓", "Next match (Ctrl+G)", func() { a.stepFind(true) })
+
+	fb.matchCase = gtk.NewToggleButtonWithLabel("Match case")
+	fb.matchCase.AddCSSClass("flat")
+	fb.matchCase.SetFocusOnClick(false)
+	fb.matchCase.SetTooltipText("Only match text with the same capitals")
+	fb.matchCase.ConnectToggled(a.runFind)
+
+	fb.replaceToggle = gtk.NewToggleButton()
+	if hasIcon("edit-find-replace-symbolic") {
+		fb.replaceToggle.SetIconName("edit-find-replace-symbolic")
+	} else {
+		fb.replaceToggle.SetLabel("⇄")
+	}
+	fb.replaceToggle.AddCSSClass("flat")
+	fb.replaceToggle.SetFocusOnClick(false)
+	fb.replaceToggle.SetTooltipText("Replace (Ctrl+R)")
+	fb.replaceToggle.ConnectToggled(func() { fb.replaceReveal.SetRevealChild(fb.replaceToggle.Active()) })
+
+	closeBtn := findIconButton("window-close-symbolic", "✕", "Close (Esc)", func() { a.closeFind(true) })
+
+	top := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	top.Append(fb.replaceToggle)
+	top.Append(fb.entry)
+	top.Append(fb.counter)
+	top.Append(prev)
+	top.Append(next)
+	top.Append(fb.matchCase)
+	top.Append(closeBtn)
+
+	// The second row starts under the first row's entry: a spacer as wide as the
+	// replace toggle stands in for it.
+	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	widths := gtk.NewSizeGroup(gtk.SizeGroupHorizontal)
+	widths.AddWidget(fb.replaceToggle)
+	widths.AddWidget(spacer)
+
+	fb.replaceEntry = gtk.NewEntry()
+	fb.replaceEntry.SetHExpand(true)
+	fb.replaceEntry.SetPlaceholderText("Replace with")
+	fb.replaceEntry.AddController(enterKey(func(bool) { a.replaceOne() }))
+
+	replace := gtk.NewButtonWithLabel("Replace")
+	replace.SetFocusOnClick(false)
+	replace.SetTooltipText("Replace this match and go to the next")
+	replace.ConnectClicked(a.replaceOne)
+	replaceAll := gtk.NewButtonWithLabel("Replace All")
+	replaceAll.SetFocusOnClick(false)
+	replaceAll.SetTooltipText("Replace every match. Undo puts them all back at once")
+	replaceAll.ConnectClicked(a.replaceEvery)
+
+	bottom := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	bottom.Append(spacer)
+	bottom.Append(fb.replaceEntry)
+	bottom.Append(replace)
+	bottom.Append(replaceAll)
+
+	fb.replaceReveal = gtk.NewRevealer()
+	fb.replaceReveal.SetTransitionType(gtk.RevealerTransitionTypeSlideDown)
+	fb.replaceReveal.SetChild(bottom)
+
+	box := gtk.NewBox(gtk.OrientationVertical, 6)
+	box.AddCSSClass("format-bar") // the toolbar's padding and rule underneath
+	box.AddCSSClass("find-bar")
+	box.Append(top)
+	box.Append(fb.replaceReveal)
+
+	// Escape closes the bar from either entry. It is taken on the way down, above
+	// the entries, which have their own ideas about Escape.
+	esc := gtk.NewEventControllerKey()
+	esc.SetPropagationPhase(gtk.PhaseCapture)
+	esc.ConnectKeyPressed(func(keyval, _ uint, _ gdk.ModifierType) bool {
+		if keyval != gdk.KEY_Escape {
+			return false
+		}
+		a.closeFind(true)
+		return true
+	})
+	box.AddController(esc)
+
+	fb.revealer = gtk.NewRevealer()
+	fb.revealer.SetTransitionType(gtk.RevealerTransitionTypeSlideDown)
+	fb.revealer.SetChild(box)
+
+	a.editor.SetFindListener(fb.show)
+	return fb.revealer
+}
+
+// findIconButton is a flat button for the find bar. label stands in when the
+// icon theme has no icon by that name, as in the formatting toolbar.
+//
+// It does not take focus when clicked: the caret should stay in the entry it
+// was in, so that stepping through matches does not cost the search box.
+func findIconButton(icon, label, tooltip string, action func()) *gtk.Button {
+	var btn *gtk.Button
+	if hasIcon(icon) {
+		btn = gtk.NewButtonFromIconName(icon)
+	} else {
+		btn = gtk.NewButtonWithLabel(label)
+	}
+	btn.AddCSSClass("flat")
+	btn.SetFocusOnClick(false)
+	btn.SetTooltipText(tooltip)
+	btn.ConnectClicked(action)
+	return btn
+}
+
+// enterKey makes a key controller that calls fn when Enter is pressed, telling
+// it whether Shift was down, and keeps the entry from seeing the key.
+func enterKey(fn func(shift bool)) *gtk.EventControllerKey {
+	kc := gtk.NewEventControllerKey()
+	kc.SetPropagationPhase(gtk.PhaseCapture)
+	kc.ConnectKeyPressed(func(keyval, _ uint, state gdk.ModifierType) bool {
+		switch keyval {
+		case gdk.KEY_Return, gdk.KEY_KP_Enter, gdk.KEY_ISO_Enter:
+			fn(state&gdk.ShiftMask != 0)
+			return true
+		}
+		return false
+	})
+	return kc
+}
+
+// show puts where the search stands on the counter, and flags the entry when a
+// query finds nothing.
+func (fb *findBar) show(current, count int) {
+	if fb.holdCounter {
+		return
+	}
+	switch {
+	case fb.entry.Text() == "":
+		fb.counter.SetText("")
+		fb.entry.RemoveCSSClass("error")
+	case count == 0:
+		fb.counter.SetText("No matches")
+		fb.entry.AddCSSClass("error")
+	default:
+		fb.counter.SetText(fmt.Sprintf("%d of %d", current, count))
+		fb.entry.RemoveCSSClass("error")
+	}
+}
+
+// noteOpen reports whether a note is on screen, as opposed to the home screen.
+func (a *App) noteOpen() bool {
+	return a.currentNote != "" && a.centerStack != nil && a.centerStack.VisibleChildName() == "editor"
+}
+
+// openFind shows the find bar with the caret in its entry. Text selected on
+// one line in the note becomes the query.
+func (a *App) openFind(withReplace bool) {
+	fb := findBars[a]
+	if fb == nil || a.editor == nil {
+		return
+	}
+	fb.revealer.SetRevealChild(true)
+	if withReplace {
+		fb.replaceToggle.SetActive(true)
+	}
+	if seed := a.editor.FindSeed(); seed != "" {
+		fb.entry.SetText(seed)
+	}
+	fb.entry.GrabFocus()
+	fb.entry.SelectRegion(0, -1)
+	a.runFind() // closing the bar cleared the highlights; an old query brings them back
+}
+
+// closeFind hides the bar and takes the highlights off the note. refocus puts
+// the caret back in the text.
+func (a *App) closeFind(refocus bool) {
+	fb := findBars[a]
+	if fb == nil || !fb.revealer.RevealChild() {
+		return
+	}
+	fb.revealer.SetRevealChild(false)
+	fb.holdCounter = false
+	if a.editor == nil {
+		return
+	}
+	a.editor.ClearFind()
+	if refocus {
+		a.editor.Focus()
+	}
+}
+
+// runFind searches for what the entry holds, under the Match case setting.
+func (a *App) runFind() {
+	fb := findBars[a]
+	// The entry reports a changed query a moment after the keystroke, which can
+	// be after Escape. A search then would light the note up under a closed bar.
+	if fb == nil || a.editor == nil || !fb.revealer.RevealChild() {
+		return
+	}
+	fb.holdCounter = false
+	a.editor.SetFindQuery(fb.entry.Text(), fb.matchCase.Active())
+}
+
+// stepFind goes to the next or previous match. With the bar closed there is no
+// search to step through, so it opens the bar.
+func (a *App) stepFind(forward bool) {
+	fb := findBars[a]
+	if fb == nil || a.editor == nil || !a.noteOpen() {
+		return
+	}
+	if !fb.revealer.RevealChild() {
+		a.openFind(false)
+		return
+	}
+	fb.holdCounter = false
+	if forward {
+		a.editor.FindNext()
+	} else {
+		a.editor.FindPrev()
+	}
+}
+
+// replaceOne replaces the current match and moves to the next.
+func (a *App) replaceOne() {
+	fb := findBars[a]
+	if fb == nil || a.editor == nil {
+		return
+	}
+	fb.holdCounter = false
+	a.editor.ReplaceCurrent(fb.replaceEntry.Text())
+}
+
+// replaceEvery replaces every match, and says how many there were.
+func (a *App) replaceEvery() {
+	fb := findBars[a]
+	if fb == nil || a.editor == nil {
+		return
+	}
+	fb.holdCounter = true // the editor reports the count left as it finishes; that is not the answer
+	n := a.editor.ReplaceAll(fb.replaceEntry.Text())
+	if n == 0 {
+		fb.holdCounter = false
+		fb.show(a.editor.CurrentMatch(), a.editor.FindCount())
+		return
+	}
+	fb.counter.SetText(fmt.Sprintf("Replaced %d", n))
+	fb.entry.RemoveCSSClass("error")
+}
+
 // buildStatusBar is the footer, and the one place the app reports on the note
 // in front of you: word and character counts, reading time, how far through its
 // checklist you are, where it lives, and whether it is saved.
@@ -221,6 +517,7 @@ func (a *App) showWelcome() {
 	if a.centerStack == nil {
 		return
 	}
+	a.closeFind(false) // the note it searched is going away
 	a.welcomeBuilt = true
 	a.currentNote = ""
 	a.dirty = false
