@@ -55,7 +55,10 @@ func renderDOCX(title string, blocks []block) ([]byte, error) {
 	d := &docxWriter{}
 	d.body.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n" +
 		`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ` +
-		`xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>` + "\n")
+		`xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ` +
+		`xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ` +
+		`xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+		`xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>` + "\n")
 	for i, bl := range blocks {
 		switch bl.kind {
 		case heading:
@@ -68,6 +71,12 @@ func renderDOCX(title string, blocks []block) ([]byte, error) {
 			d.codeBlock(bl.code)
 		case divider:
 			d.body.WriteString(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="BBBBBB"/></w:pBdr></w:pPr></w:p>` + "\n")
+		case figure:
+			if bl.pic != nil {
+				d.picture(bl)
+			} else {
+				d.para("", [][]inline{{{text: imageLabel(bl.alt, bl.src)}}})
+			}
 		case bullet, numbered, task:
 			// A numbered list restarts where a new one begins, which in Word
 			// takes a numbering instance of its own.
@@ -82,15 +91,7 @@ func renderDOCX(title string, blocks []block) ([]byte, error) {
 	var out bytes.Buffer
 	z := zip.NewWriter(&out)
 	files := []struct{ name, data string }{
-		{"[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="xml" ContentType="application/xml"/>
-<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
-</Types>`},
+		{"[Content_Types].xml", d.contentTypes()},
 		{"_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
@@ -117,18 +118,31 @@ func renderDOCX(title string, blocks []block) ([]byte, error) {
 			return nil, err
 		}
 	}
+	// Each picture is a part of its own, as it came: an image file is already
+	// compressed, and Word does not look inside it.
+	for i, p := range d.media {
+		w, err := z.Create(fmt.Sprintf("word/media/image%d.%s", i+1, p.ext))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(p.data); err != nil {
+			return nil, err
+		}
+	}
 	if err := z.Close(); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
 }
 
-// docxWriter accumulates the document body, and the links and numbered lists
-// it needs relationships and numbering definitions for.
+// docxWriter accumulates the document body, and the links, pictures and
+// numbered lists it needs relationships and numbering definitions for.
 type docxWriter struct {
 	body     strings.Builder
-	links    []string // hyperlink targets; each is relationship rId(100+index)
-	numLists []int    // the starting number of each numbered list, in order
+	links    []string   // hyperlink targets; each is relationship rId(100+index)
+	numLists []int      // the starting number of each numbered list, in order
+	media    []*picture // the distinct pictures; media[i] is word/media/image(i+1)
+	drawings int        // how many pictures are placed, which is the last docPr id used
 }
 
 // numbering ids: 1 is every bullet and checklist list; 10 onwards are the
@@ -247,8 +261,71 @@ func (d *docxWriter) rels() string {
 		fmt.Fprintf(&b, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="%s" TargetMode="External"/>`+"\n",
 			100+i, xmlAttr(safeLink(l)))
 	}
+	for i, p := range d.media {
+		fmt.Fprintf(&b, `<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image%d.%s"/>`+"\n",
+			imageRelID(i), i+1, p.ext)
+	}
 	b.WriteString("</Relationships>")
 	return b.String()
+}
+
+// imageRelID is the relationship a picture's part is reached by. Its name is
+// its own rather than a number, so it can never meet a link's rId(100+n).
+func imageRelID(i int) string { return fmt.Sprintf("rIdImage%d", i+1) }
+
+// contentTypes says what each part is. A picture's part is named by its
+// extension, so each extension in use is declared once.
+func (d *docxWriter) contentTypes() string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+`)
+	seen := map[string]bool{}
+	for _, p := range d.media {
+		if !seen[p.ext] {
+			seen[p.ext] = true
+			fmt.Fprintf(&b, `<Default Extension="%s" ContentType="%s"/>`+"\n", p.ext, p.mime)
+		}
+	}
+	b.WriteString(`<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+</Types>`)
+	return b.String()
+}
+
+// picture places a picture in a paragraph of its own, as Word does when one is
+// inserted. A picture used twice in a note is one part in the file with two
+// drawings pointing at it, and each drawing has an id of its own, which Word
+// wants to be unique across the document.
+func (d *docxWriter) picture(bl block) {
+	idx := -1
+	for i, m := range d.media {
+		if m == bl.pic {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		d.media = append(d.media, bl.pic)
+		idx = len(d.media) - 1
+	}
+	d.drawings++
+	id := d.drawings
+	w, h := bl.pic.inches()
+	cx, cy := emu(w), emu(h)
+	fmt.Fprintf(&d.body, `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">`+
+		`<wp:extent cx="%d" cy="%d"/>`+
+		`<wp:docPr id="%d" name="Picture %d" descr="%s"/>`+
+		`<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`+
+		`<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`+
+		`<pic:pic><pic:nvPicPr><pic:cNvPr id="%d" name="image%d.%s"/><pic:cNvPicPr/></pic:nvPicPr>`+
+		`<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`+
+		`<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`+
+		`</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`+"\n",
+		cx, cy, id, id, xmlAttr(imageLabel(bl.alt, bl.src)), id, idx+1, bl.pic.ext, imageRelID(idx), cx, cy)
 }
 
 func (d *docxWriter) numbering() string {
