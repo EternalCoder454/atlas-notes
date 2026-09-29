@@ -173,6 +173,75 @@ func TestSettlePicksUpWhatSyncChanged(t *testing.T) {
 	}
 }
 
+// zipped makes a note in a vault that says it writes plain Markdown, but which
+// is stored compressed, the state a folder is in when another device chose a
+// format. The store is left with its settings file saying plain Markdown.
+func zipped(t *testing.T, s *storage.Store, name string) {
+	t.Helper()
+	if err := s.SetCompression(storage.CompressionZstd); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteNote(name, "# "+name+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCompression(storage.CompressionNone); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func exists(t *testing.T, dir, file string) bool {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(dir, file))
+	return err == nil
+}
+
+// The notes of a shared folder can arrive before the settings file that says
+// what format they are in; converting them then would fight the device that
+// chose it.
+func TestSettleDoesNotConvertASharedFolderWithoutItsSettings(t *testing.T) {
+	newVault(t)
+	shared := t.TempDir()
+	zipped(t, desktop(t, shared), "Zipped")
+	if err := os.Remove(filepath.Join(shared, ".atlas-vault.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetVaultPath(shared); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Settle(); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(t, shared, "Zipped.md.zst") || exists(t, shared, "Zipped.md") {
+		t.Error("a note was converted before the folder's settings had arrived")
+	}
+}
+
+// Conversion is for the first pass only: what arrives later, in another
+// format, was put there by another device.
+func TestSettleConvertsOnlyOnTheFirstPass(t *testing.T) {
+	newVault(t)
+	shared := t.TempDir()
+	d := desktop(t, shared)
+	zipped(t, d, "Early")
+	if err := SetVaultPath(shared); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Settle(); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(t, shared, "Early.md") || exists(t, shared, "Early.md.zst") {
+		t.Error("the first pass did not convert a note in the wrong format")
+	}
+
+	zipped(t, d, "Late")
+	if _, err := Settle(); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(t, shared, "Late.md.zst") || exists(t, shared, "Late.md") {
+		t.Error("a later pass converted a note another device wrote")
+	}
+}
+
 // Switching folders while a content pass runs stops the pass and switches;
 // neither waits on the other forever.
 func TestSwitchingWhileSettlingDoesNotHang(t *testing.T) {

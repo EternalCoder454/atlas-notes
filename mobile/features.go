@@ -20,16 +20,19 @@ import (
 const dateLayout = "2006-01-02"
 
 // DailyNote returns the path of today's note, making it first if there is none
-// yet. "Today" is the phone's own day, in its own time zone, because that is
-// the day the person holding it means. A note in a locked folder while the
-// vault is locked fails with ErrLockedMessage, which is a request for the
-// password and not a failure, the same as reading a locked note.
-func DailyNote() (string, error) {
+// yet. "Today" is the phone's own day, which only the phone can say: Go's local
+// time zone on Android is UTC, so the host passes its current offset from UTC in
+// seconds (east positive) and the day is worked out there. Without it a phone in
+// Sydney would open yesterday's note for half of every day. A note in a locked
+// folder while the vault is locked fails with ErrLockedMessage, which is a
+// request for the password and not a failure, the same as reading a locked note.
+func DailyNote(offsetSeconds int) (string, error) {
 	s, err := vault()
 	if err != nil {
 		return "", err
 	}
-	rel, _, err := s.DailyNote(time.Now())
+	day := time.Now().In(time.FixedZone("", offsetSeconds))
+	rel, _, err := s.DailyNote(day)
 	if errors.Is(err, storage.ErrLocked) {
 		return "", errors.New(ErrLockedMessage)
 	}

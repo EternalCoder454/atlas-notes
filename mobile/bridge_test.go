@@ -236,3 +236,37 @@ func TestExportNote(t *testing.T) {
 		t.Errorf("formats: %s", raw)
 	}
 }
+
+func TestRenameNoteMovesItAndFollowsLinksToIt(t *testing.T) {
+	newVault(t)
+	if err := WriteNote("Old name", "# Old name\n\nsee [[Old name]]\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteNote("Other", "# Other\n\nlinks to [[Old name]]\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RenameNote("Old name", "New name"); err != nil {
+		t.Fatalf("RenameNote: %v", err)
+	}
+	if _, err := ReadNote("Old name"); err == nil {
+		t.Error("the old name still reads")
+	}
+	// The renamed note's own links are rewritten too, which is why Kotlin reads
+	// its body again rather than keeping the text it had open.
+	for note, want := range map[string]string{
+		"New name": "# Old name\n\nsee [[New name]]\n",
+		"Other":    "# Other\n\nlinks to [[New name]]\n",
+	} {
+		if got, err := ReadNote(note); err != nil || got != want {
+			t.Errorf("%s = %q, %v; want %q", note, got, err, want)
+		}
+	}
+}
+
+func TestRenameNoteReportsOnlyTheMove(t *testing.T) {
+	newVault(t)
+	if err := RenameNote("Missing", "Elsewhere"); err == nil {
+		t.Error("renaming a note that is not there did not fail")
+	}
+}
