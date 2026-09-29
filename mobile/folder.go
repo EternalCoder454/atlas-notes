@@ -89,6 +89,7 @@ func SetVaultPath(path string) error {
 		store.Close()
 	}
 	store = next
+	converted = false // a different folder gets its own first pass
 	return nil
 }
 
@@ -110,6 +111,15 @@ func Settle() (int, error) {
 		mu.Unlock()
 		return 0, errors.New("the vault is not open")
 	}
+	// Converting is for the first pass on a vault only. Later passes run after
+	// every sync, and a note that arrives in another format then was written
+	// that way by another device on purpose, so it is not ours to rewrite. A
+	// shared folder is also left alone until its settings file has arrived,
+	// because a sync app may deliver notes before the file that says what
+	// format they are in, and converting them to the default would fight the
+	// device that chose another.
+	first := !converted
+	converted = true
 	ctx, cancel := context.WithCancel(context.Background())
 	settleCancel = cancel
 	mu.Unlock()
@@ -126,7 +136,7 @@ func Settle() (int, error) {
 	// Notes still in another format than the vault's are rewritten before they
 	// are read, so the pass below reads each one once. A note that will not
 	// convert is not a reason to leave search unbuilt, so it is only logged.
-	if s.NeedsConversion() {
+	if first && (isPrivate(s.VaultPath) || s.VaultSettingsExist()) && s.NeedsConversion() {
 		if _, err := s.ConvertVault(ctx, nil); err != nil {
 			log.Printf("atlas-notes: converting notes to the vault's format: %v", err)
 		}

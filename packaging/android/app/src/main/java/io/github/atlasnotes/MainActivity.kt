@@ -43,12 +43,16 @@ class MainActivity : ComponentActivity() {
     private val model: VaultModel by viewModels()
 
     /**
-     * The system's prompt for permission to show notifications. Nothing is done
-     * with the answer: the reminder checks the permission itself each time it
-     * would post, so a refusal, or a grant later in settings, both just work.
+     * The system's prompt for permission to show notifications. The reminder
+     * checks the permission itself each time it would post, so a refusal, or a
+     * grant later in settings, both just work. The alarm is only set while a
+     * notification can be shown, though, so the answer is where it gets set
+     * after a grant, rather than at the next start of the app.
      */
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            DueReminders.schedule(this)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

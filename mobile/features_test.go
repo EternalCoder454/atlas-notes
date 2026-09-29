@@ -3,6 +3,7 @@ package bridge
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,7 +14,8 @@ import (
 func TestDailyNoteIsTodaysAndMadeOnce(t *testing.T) {
 	newVault(t)
 
-	rel, err := DailyNote()
+	_, offset := time.Now().Zone()
+	rel, err := DailyNote(offset)
 	if err != nil {
 		t.Fatalf("DailyNote: %v", err)
 	}
@@ -30,12 +32,48 @@ func TestDailyNoteIsTodaysAndMadeOnce(t *testing.T) {
 	if err := WriteNote(rel, body); err != nil {
 		t.Fatalf("WriteNote: %v", err)
 	}
-	again, err := DailyNote()
+	again, err := DailyNote(offset)
 	if err != nil || again != rel {
 		t.Fatalf("second DailyNote = %q, %v; want %q", again, err, rel)
 	}
 	if got, _ := ReadNote(rel); got != body {
 		t.Errorf("asking again replaced the note: %q", got)
+	}
+}
+
+// Go's local time zone on Android is UTC, so the day has to come from the offset
+// the phone passes and not from the clock's own zone.
+func TestDailyNoteIsTheDayAtTheOffsetItIsGiven(t *testing.T) {
+	newVault(t)
+
+	// Between them these two offsets cannot both land on the UTC date: UTC+14
+	// is a day ahead from 10:00 UTC, UTC-12 a day behind before 12:00 UTC.
+	offset := 14 * 3600
+	if time.Now().UTC().Hour() < 10 {
+		offset = -12 * 3600
+	}
+	utcDay := time.Now().UTC().Format(dateLayout)
+	want := "Daily/" + time.Now().In(time.FixedZone("", offset)).Format(dateLayout)
+	if want == "Daily/"+utcDay {
+		t.Fatalf("test setup: offset %d gives the UTC day %s", offset, utcDay)
+	}
+
+	rel, err := DailyNote(offset)
+	if err != nil {
+		t.Fatalf("DailyNote: %v", err)
+	}
+	if rel != want {
+		t.Errorf("DailyNote(%d) = %q, want %q", offset, rel, want)
+	}
+	// The heading carries the same day, so the note is not a UTC note with a
+	// local name.
+	body, err := ReadNote(rel)
+	if err != nil {
+		t.Fatalf("ReadNote: %v", err)
+	}
+	title := time.Now().In(time.FixedZone("", offset)).Format("Monday 2 January 2006")
+	if !strings.HasPrefix(body, "# "+title) {
+		t.Errorf("the note's heading is not %q: %q", title, body)
 	}
 }
 
@@ -57,13 +95,13 @@ func TestDailyNoteInALockedFolderAsksForThePassword(t *testing.T) {
 	Lock()
 
 	// Kotlin matches on this string, as it does for a locked note.
-	if _, err := DailyNote(); err == nil || err.Error() != ErrLockedMessage {
+	if _, err := DailyNote(0); err == nil || err.Error() != ErrLockedMessage {
 		t.Fatalf("DailyNote = %v, want %q", err, ErrLockedMessage)
 	}
 	if err := Unlock("correct horse battery staple"); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
-	if _, err := DailyNote(); err != nil {
+	if _, err := DailyNote(0); err != nil {
 		t.Errorf("DailyNote after unlocking: %v", err)
 	}
 }
@@ -175,7 +213,7 @@ func TestTagsAndNotesWithTag(t *testing.T) {
 
 func TestFeaturesBeforeOpenFailRatherThanPanic(t *testing.T) {
 	Close()
-	if _, err := DailyNote(); err == nil {
+	if _, err := DailyNote(0); err == nil {
 		t.Error("DailyNote worked with no vault open")
 	}
 	if _, err := DueTasks("2026-09-29"); err == nil {

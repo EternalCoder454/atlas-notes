@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"path"
 	"sync"
 	"time"
@@ -31,9 +32,13 @@ import (
 )
 
 var (
-	// mu guards store and settleCancel.
+	// mu guards store, converted and settleCancel.
 	mu    sync.Mutex
 	store *storage.Store
+
+	// converted is whether Settle has already had its one chance to convert
+	// the open vault's notes to the vault's format.
+	converted bool
 
 	// settleMu is held for the whole of a content pass, so there is only ever
 	// one, and so switching vaults can wait for the one running to stop. It is
@@ -74,6 +79,7 @@ func Open(dataDir string) error {
 		return err
 	}
 	store = s
+	converted = false
 	return nil
 }
 
@@ -204,13 +210,23 @@ func DeleteNote(rel string) error {
 
 // RenameNote moves a note, which is how it is renamed: the name is the file.
 // Links to it in other notes are rewritten to follow.
+//
+// Only the move can fail the call. By the time the links are rewritten the note
+// has already been renamed, so reporting a failure there would tell the person
+// their rename did not happen when it did; it is logged instead, and the links
+// that were missed are the ones a later edit will find.
 func RenameNote(oldRel, newRel string) error {
 	s, err := vault()
 	if err != nil {
 		return err
 	}
-	_, err = s.RenameNoteAndLinks(oldRel, newRel)
-	return err
+	if err := s.RenameNote(oldRel, newRel); err != nil {
+		return err
+	}
+	if _, err := s.UpdateLinksAfterRename(oldRel, newRel); err != nil {
+		log.Printf("atlas-notes: rewriting links after renaming %q: %v", oldRel, err)
+	}
+	return nil
 }
 
 // Password protection. The password is never stored, never logged, and never

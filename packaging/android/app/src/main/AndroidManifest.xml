@@ -124,14 +124,17 @@
             android:exported="false" />
 
         <!-- Sets that alarm again after a restart or an update, which clear
-             it. Both broadcasts come from the system, which may send to a
-             receiver that is not exported. -->
+             it, and after a change of time zone or of the clock, which move
+             nine o'clock. All of these broadcasts come from the system, which
+             may send to a receiver that is not exported. -->
         <receiver
             android:name=".BootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
 

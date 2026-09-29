@@ -6,9 +6,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * [runCatching], except that being cancelled is not a failure to catch.
+ *
+ * A coroutine that is cancelled learns of it as a [CancellationException] at
+ * its next suspension, and one that catches that and carries on has ignored the
+ * request to stop: the job that was replaced or dropped goes on, and may
+ * report an error nobody caused. Everything else is caught as before.
+ */
+private inline fun <T> attempt(block: () -> T): Result<T> =
+    runCatching(block).onFailure { if (it is CancellationException) throw it }
 
 /**
  * What the interface is currently showing, and everything that changes it.
@@ -23,6 +35,13 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     private val autosaveDelay = 700L
 
     var ready by mutableStateOf(false); private set
+
+    /**
+     * Whether the vault actually opened. [ready] is set either way, so that
+     * the interface stops waiting and can show why, but a request from outside
+     * has nowhere to go until this is true.
+     */
+    private var opened = false
     var notes by mutableStateOf<List<Vault.Note>>(emptyList()); private set
     var query by mutableStateOf(""); private set
     var error by mutableStateOf<String?>(null)
@@ -48,7 +67,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     var exportChoices by mutableStateOf<List<Vault.ExportFormat>?>(null)
 
     fun chooseExport() = viewModelScope.launch {
-        exportChoices = runCatching { Vault.exportFormats() }.getOrElse {
+        exportChoices = attempt { Vault.exportFormats() }.getOrElse {
             error = it.message
             null
         }
@@ -71,6 +90,8 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             error = "Exported as " + format.name
         } catch (e: Vault.Locked) {
             error = "Unlock this note to export it"
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.message ?: "The export failed"
         }
@@ -110,6 +131,14 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     private var captureJob: Job? = null
 
     /**
+     * The newest note a request made, so that a blank request can reuse it
+     * while it is still empty. See [reusable]. It is only remembered while the
+     * app runs: a note left over from an earlier run is not worth reading the
+     * vault at every start to find.
+     */
+    private var lastCaptured: String? = null
+
+    /**
      * Requests from outside the app that have not been carried out yet, oldest
      * first. Only the main thread touches this, so it needs no lock.
      */
@@ -133,7 +162,10 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
                 Vault.open(Vault.dataDir(getApplication<Application>()))
                 notes = Vault.notes()
                 location = Vault.location()
+                opened = true
                 ready = true
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = e.message ?: "The vault would not open"
                 ready = true
@@ -159,7 +191,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     private fun settleInBackground() {
         if (settleJob?.isActive == true) return
         settleJob = viewModelScope.launch {
-            runCatching {
+            attempt {
                 Vault.settle()
                 notes = Vault.notes()
                 if (query.isNotBlank()) {
@@ -174,7 +206,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() = viewModelScope.launch {
-        runCatching { notes = Vault.notes() }.onFailure { error = it.message }
+        attempt { notes = Vault.notes() }.onFailure { error = it.message }
     }
 
     /**
@@ -229,11 +261,19 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun searchText(text: String) {
-        contentHits = runCatching { Vault.searchText(text.trim()) }.getOrDefault(emptySet())
+        val found = attempt { Vault.searchText(text.trim()) }.getOrDefault(emptySet())
+        // The query may have moved on while the index was being asked, and
+        // hits for words no longer in the box would show notes that do not
+        // match what is there.
+        if (tagQuery == null && query.trim() == text.trim()) contentHits = found
     }
 
     private suspend fun searchTag(tag: String) {
-        tagFound = tag to runCatching { Vault.notesWithTag(tag) }.getOrDefault(emptyList())
+        val found = attempt { Vault.notesWithTag(tag) }.getOrDefault(emptyList())
+        // The same as for text. Here it also matters that [tagSearched] treats
+        // an answer for a tag as the answer for the tag in the box, so one
+        // that arrived late would be taken for it.
+        if (tagQuery == tag) tagFound = tag to found
     }
 
     /**
@@ -273,6 +313,10 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     fun useFolder(path: String) = viewModelScope.launch {
         switching = true
         try {
+            // Held back from starting anything new by [switching], but one
+            // already under way is writing a note into the folder being left,
+            // and has to be finished before the vault is moved.
+            captureJob?.join()
             saveJob?.cancel()
             save()
             openPath = null
@@ -287,6 +331,8 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             // its own, once the old one has finished returning.
             settleJob?.join()
             settleInBackground()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.message ?: "That folder could not be used"
         } finally {
@@ -312,6 +358,8 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             // Not a failure: the note is fine, we just have not been told the
             // password yet. Ask, and pick up where we left off.
             askForPassword("to open this note") { load(path) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.message ?: "That note would not open"
         }
@@ -324,7 +372,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         saveJob = viewModelScope.launch {
             delay(autosaveDelay)
             save()
-            tasks = runCatching { Vault.tasks(body) }.getOrDefault(tasks)
+            tasks = attempt { Vault.tasks(body) }.getOrDefault(tasks)
         }
     }
 
@@ -332,9 +380,9 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     suspend fun save() {
         val path = openPath ?: return
         saving = true
-        runCatching { Vault.write(path, body) }.onFailure { error = it.message }
+        attempt { Vault.write(path, body) }.onFailure { error = it.message }
         saving = false
-        runCatching { notes = Vault.notes() }
+        attempt { notes = Vault.notes() }
     }
 
     /**
@@ -354,13 +402,13 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         openPath = null
         body = ""
         tasks = emptyList()
-        notes = runCatching { Vault.notes() }.getOrDefault(notes)
+        notes = attempt { Vault.notes() }.getOrDefault(notes)
         // The note may have gained or lost the tag that found it.
         tagQuery?.let { searchTag(it) }
     }
 
     fun toggleTask(line: Int) = viewModelScope.launch {
-        runCatching {
+        attempt {
             body = Vault.toggleTask(body, line)
             tasks = Vault.tasks(body)
             save()
@@ -368,7 +416,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun create() = viewModelScope.launch {
-        runCatching {
+        attempt {
             val path = Vault.create("Untitled")
             notes = Vault.notes()
             load(path)
@@ -383,8 +431,15 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
      * vault can take it: now if it is open, and otherwise once it is. Nothing
      * is dropped, because a shared text that vanishes because the app was
      * still starting is worse than one that takes a moment.
+     *
+     * The exception is a share with nothing in it to save, which there is
+     * nothing to wait for: it only says so.
      */
     fun capture(request: Capture) {
+        if (request.kind == Capture.Kind.UNSUPPORTED) {
+            error = Capture.ONLY_TEXT
+            return
+        }
         waiting.addLast(request)
         runCaptures()
     }
@@ -393,20 +448,36 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
      * Carries out the waiting requests, one at a time and in the order they
      * came. A second call while one is running does nothing, because the
      * running loop will get to what was added.
+     *
+     * A request leaves the queue only once its note has been written, see
+     * [carryOut]. One that fails stays at the head and stops the loop, so the
+     * error is shown once and the request is tried again with the next, and
+     * nothing behind it is made ahead of it.
      */
     private fun runCaptures() {
-        if (!ready || switching || captureJob?.isActive == true) return
+        if (!opened || switching || captureJob?.isActive == true) return
         captureJob = viewModelScope.launch {
-            while (ready && !switching) {
-                val next = waiting.removeFirstOrNull() ?: break
-                runCatching { carryOut(next) }
-                    .onFailure { error = it.message ?: "That note could not be made" }
+            while (opened && !switching) {
+                val next = waiting.firstOrNull() ?: break
+                try {
+                    carryOut(next)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    error = e.message ?: "That note could not be made"
+                    break
+                }
             }
         }
     }
 
     /**
      * Makes the note and opens it.
+     *
+     * The request is taken off the queue as soon as its note is on disk, and
+     * not before: a failure earlier than that leaves it at the head to be tried
+     * again, and one later than that, in opening the note, must not make the
+     * note a second time.
      *
      * The note that was open is written first, because opening another
      * replaces it on screen, and typing that had not yet reached the autosave
@@ -422,14 +493,37 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         save()
         ask = null
         if (request.kind == Capture.Kind.TODAY) {
-            openToday(request.typing)
+            openToday(request.typing) { waiting.removeFirstOrNull() }
             return
         }
-        val path = createNote(request.title)
-        Vault.write(path, request.body)
-        notes = Vault.notes()
+        val path = reusable(request) ?: createNote(request)
+        waiting.removeFirstOrNull()
+        attempt { notes = Vault.notes() }
         load(path)
         if (openPath == path) focusEditor = request.typing
+    }
+
+    /**
+     * The note a blank request can use instead of making another: the newest
+     * one a request made, if it is still empty. A shortcut, tile or widget
+     * that is tapped again, or an app that sends the intent over and over,
+     * would otherwise leave an empty note behind each time.
+     *
+     * Only a request with nothing to put in the note is given one, since one
+     * with text has a name and content of its own. A note that cannot be read,
+     * because it has since been locked or deleted, is not reused.
+     */
+    private suspend fun reusable(request: Capture): String? {
+        val last = lastCaptured ?: return null
+        if (request.body.isNotEmpty()) return null
+        val empty = try {
+            Vault.read(last).isBlank()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
+        return last.takeIf { empty }
     }
 
     /**
@@ -437,26 +531,35 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
      * otherwise finds as it was left. Like any other note it may be in a
      * locked folder, in which case the password is asked for and this is run
      * again, rather than the shortcut ending in an error.
+     *
+     * [taken] is called once the note exists, or the password has been asked
+     * for, which is as far as this request goes.
      */
-    private suspend fun openToday(typing: Boolean) {
-        try {
-            val path = Vault.dailyNote()
-            notes = Vault.notes()
-            load(path)
-            if (openPath == path) focusEditor = typing
+    private suspend fun openToday(typing: Boolean, taken: () -> Unit = {}) {
+        val path = try {
+            Vault.dailyNote()
         } catch (e: Vault.Locked) {
+            taken()
             askForPassword("to open today's note") { openToday(typing) }
+            return
         }
+        taken()
+        attempt { notes = Vault.notes() }
+        load(path)
+        if (openPath == path) focusEditor = typing
     }
 
     /**
-     * Makes a note whose name is not already taken. The Go core only checks
-     * for an ordinary note of that name and not a protected one, and would
-     * write the new note over it, so the list is checked first. See
-     * [Capture.distinct].
+     * Makes a note for [request] and writes what it says into it. The name is
+     * the Go core's to choose: it gives one that no note has, protected ones
+     * included, so nothing here has to look for a free one.
      */
-    private suspend fun createNote(title: String): String =
-        Vault.create(Capture.distinct(title, Vault.notes().map { it.path }))
+    private suspend fun createNote(request: Capture): String {
+        val path = Vault.create(request.title)
+        Vault.write(path, request.body)
+        lastCaptured = path
+        return path
+    }
 
     /** The editor has taken the keyboard, so it is not to be asked for again. */
     fun editorFocused() { focusEditor = false }
@@ -467,11 +570,20 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         if (trimmed.isEmpty() || trimmed == from.substringAfterLast('/')) return@launch
         val folder = from.substringBeforeLast('/', "")
         val target = if (folder.isEmpty()) trimmed else "$folder/$trimmed"
-        runCatching {
+        attempt {
             saveJob?.cancel()
             save()
             Vault.rename(from, target)
             openPath = target
+            // Links to the note are rewritten as it is renamed, and that
+            // includes any in the note itself, so the text on screen may be out
+            // of date. It was saved just before, so nothing typed is lost by
+            // reading it again; leaving it would have the next save write the
+            // old links back over the new ones.
+            attempt {
+                body = Vault.read(target)
+                tasks = Vault.tasks(body)
+            }.onFailure { error = it.message }
             notes = Vault.notes()
         }.onFailure { error = it.message }
     }
@@ -479,7 +591,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     fun deleteOpen() = viewModelScope.launch {
         val path = openPath ?: return@launch
         saveJob?.cancel()
-        runCatching {
+        attempt {
             Vault.delete(path)
             openPath = null
             body = ""
@@ -513,7 +625,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun withPassword(purpose: String, block: suspend () -> Unit) {
         if (Vault.isUnlocked()) {
-            runCatching { block() }.onFailure { error = it.message }
+            attempt { block() }.onFailure { error = it.message }
             return
         }
         askForPassword(purpose) { block() }
@@ -527,6 +639,8 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
                     if (setting) Vault.setPassword(entered) else Vault.unlock(entered)
                     ask = null
                     then()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     // Wrong password is the expected case, so it is reported in
                     // the sheet rather than as a failure of the app.
@@ -563,7 +677,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         remindersOffered = true
         val app = getApplication<Application>()
         if (!DueReminders.shouldAsk(app)) return
-        val due = runCatching { Vault.dueTasks(DueReminders.today()) }.getOrDefault(emptyList())
+        val due = attempt { Vault.dueTasks(DueReminders.today()) }.getOrDefault(emptyList())
         if (due.isNotEmpty()) askNotifications = true
     }
 
@@ -573,13 +687,13 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
      */
     fun notificationPromptShown() {
         askNotifications = false
-        DueReminders.markAsked(getApplication<Application>())
+        viewModelScope.launch { DueReminders.markAsked(getApplication<Application>()) }
     }
 
     // Updates.
 
     private suspend fun checkForUpdate() {
-        runCatching { update = Vault.checkUpdate(BuildConfig.ATLAS_VERSION) }
+        attempt { update = Vault.checkUpdate(BuildConfig.ATLAS_VERSION) }
     }
 
     fun dismissUpdate() { update = null }

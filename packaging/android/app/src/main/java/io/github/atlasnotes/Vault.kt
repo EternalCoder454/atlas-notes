@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
+import java.util.TimeZone
 
 /**
  * The vault, as Kotlin sees it.
@@ -96,10 +97,16 @@ object Vault {
      * Today's note, made first if there is none yet. It is a note in a folder
      * that may be locked, so like [read] it throws [Locked] rather than
      * failing when the password is what is missing.
+     *
+     * The phone's own offset from UTC is passed in, because the Go runtime on
+     * Android has no time zone of its own and would name the UTC day. It is
+     * read at the moment of asking, so a change of zone or of daylight time is
+     * followed.
      */
     suspend fun dailyNote(): String = io {
+        val offset = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000
         try {
-            Bridge.dailyNote()
+            Bridge.dailyNote(offset.toLong())
         } catch (e: Exception) {
             if (e.message == LOCKED) throw Locked() else throw e
         }
