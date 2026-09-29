@@ -43,12 +43,13 @@ func devRun() bool {
 // (docs/screenshots) without a human driving the app; it is inert unless the
 // variable is set.
 func (a *App) runDevView() {
-	view := strings.ToLower(os.Getenv("ATLAS_DEV_VIEW"))
+	view := os.Getenv("ATLAS_DEV_VIEW")
 	if view == "" {
 		return
 	}
 	coreglib.TimeoutAdd(400, func() bool {
 		name, arg, _ := strings.Cut(view, "=")
+		name = strings.ToLower(name) // the argument keeps its case: it may be a note
 		switch name {
 		case "settings":
 			a.showSettingsPage(arg)
