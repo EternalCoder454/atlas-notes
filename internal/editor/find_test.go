@@ -70,6 +70,40 @@ func TestFindMatches(t *testing.T) {
 	}
 }
 
+// A task's "<!-- ... -->" comment is hidden by the editor, so what is written in
+// it is not there to find. Offsets still count the hidden characters.
+func TestFindMatchesSkipTaskMetadata(t *testing.T) {
+	task := "￼Pay rent <!-- priority:high due:2026-10-01 order:1 -->"
+	cases := []struct {
+		name  string
+		text  string
+		query string
+		want  [][2]int
+	}{
+		{"due in the comment", task, "due", nil},
+		{"high in the comment", task, "high", nil},
+		{"a date in the comment", task, "2026-10-01", nil},
+		{"part of a date", task, "2026", nil},
+		{"the comment's own markers", task, "<!--", nil},
+		{"visible text before the comment", task, "rent", [][2]int{{5, 9}}},
+		{"visible text after the comment", "￼Do it <!-- due:2026-10-01 --> due tomorrow", "due", [][2]int{{31, 34}}},
+		{"each line has its own comment", "high due\n￼Task <!-- priority:high -->\nhigh", "high", [][2]int{{0, 4}, {38, 42}}},
+		{"not across the edge of a comment", "due<!-- x -->due", "due<", nil},
+		{"either side of a comment", "due<!-- x -->due", "due", [][2]int{{0, 3}, {13, 16}}},
+		{"characters, not bytes, before it", "é😀 <!-- due -->due", "due", [][2]int{{15, 18}}},
+		{"a comment that is never closed is text", "todo <!-- due", "due", [][2]int{{10, 13}}},
+		{"only the first comment is metadata", "a <!-- x --> <!-- due -->", "due", [][2]int{{18, 21}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := findMatches(c.text, c.query, false)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("findMatches(%q, %q) = %v, want %v", c.text, c.query, got, c.want)
+			}
+		})
+	}
+}
+
 // Every rune of a folding orbit must fold to the same rune, or "K" (Kelvin)
 // would match "k" from one side and not from the other.
 func TestFoldRuneOrbits(t *testing.T) {

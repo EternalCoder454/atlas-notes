@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -54,7 +55,9 @@ type Editor struct {
 	hoverCtrl      bool
 	hoverIn        bool
 	hoverGen       uint64
-	shown          int // the line whose markers the last render pass left showing, or -1
+	hoverAt        time.Time // when the pointer last moved
+	hoverArmed     bool      // the one hover timer is pending
+	shown          int       // the line whose markers the last render pass left showing, or -1
 
 	// press is what a click's button-down was over, kept for its release (see
 	// installLinks); overLink is whether the pointer is currently a hand.
@@ -155,12 +158,23 @@ func New() *Editor {
 		e.scheduleReparse()
 	})
 
-	// When a selection goes away, run the pass that was held back while it
-	// existed (see reparse).
+	// When a selection goes away, run what was held back while it existed: the
+	// render pass (see reparse), the pictures' spacing (see placeImages) and the
+	// find highlights (see finder.schedule). All of them change tags.
 	e.buffer.NotifyProperty("has-selection", func() {
-		if !e.buffer.HasSelection() && e.reparseDeferred {
+		if e.buffer.HasSelection() {
+			return
+		}
+		if e.reparseDeferred {
 			e.reparseDeferred = false
 			e.scheduleReparse()
+		}
+		if e.img.padDeferred {
+			e.img.padDeferred = false
+			e.queuePlace()
+		}
+		if f := finders[e]; f != nil {
+			f.resume()
 		}
 	})
 
@@ -227,6 +241,7 @@ func (e *Editor) SetContent(s string) {
 	e.clearItems()  // the old note's checkboxes go with its text
 	e.clearImages() // and so do its pictures
 	e.closeSuggest()
+	e.sg.dismissed = -1 // an Escape in the last note says nothing about this one
 
 	// The text is replaced with the view detached from the buffer.
 	//
@@ -393,10 +408,21 @@ func (e *Editor) reparse() {
 	if e.OnReparsed != nil {
 		e.OnReparsed()
 	}
+	// The pass stripped the find highlights along with every other tag on the
+	// lines it touched, so they are put back. This is called from here, not hung
+	// on OnReparsed, which belongs to the app and may be assigned again.
+	if f := finders[e]; f != nil {
+		f.restore()
+	}
 }
 
 // tagRange re-applies every formatting tag for lines [from, to].
 func (e *Editor) tagRange(from, to, cursorLine int) {
+	// Tags are about to change under a layout the pointer may be hit-tested
+	// against (see linkUnder). Every place that changes tags says so itself; the
+	// buffer's tag signals are not listened to, as they fire for each tag of each
+	// range and a render pass makes thousands of those.
+	e.markLayoutStale()
 	start, ok1 := e.buffer.IterAtLine(from)
 	end, ok2 := e.buffer.IterAtLine(to)
 	if !ok1 || !ok2 {

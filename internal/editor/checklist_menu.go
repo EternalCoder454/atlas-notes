@@ -23,12 +23,15 @@ func (e *Editor) installItemMenu() {
 	gesture := gtk.NewGestureClick()
 	gesture.SetButton(3) // secondary (right) click
 	gesture.ConnectPressed(func(_ int, x, y float64) {
-		bx, by := e.view.WindowToBufferCoords(gtk.TextWindowWidget, int(x), int(y))
-		iter, ok := e.view.IterAtLocation(bx, by)
-		if !ok || iter == nil {
+		// Only the line is needed, so only the line is looked up: the character
+		// under the pointer is a byte-level hit-test, which is not safe against a
+		// layout a render pass has just changed (see linkUnder).
+		_, by := e.view.WindowToBufferCoords(gtk.TextWindowWidget, int(x), int(y))
+		lineIt, _ := e.view.LineAtY(by)
+		if lineIt == nil {
 			return
 		}
-		ln := iter.Line()
+		ln := lineIt.Line()
 		if line, ok := e.lineText(ln); !ok || !strings.HasPrefix(line, anchorChar) {
 			return // not a rendered task line
 		}

@@ -99,6 +99,9 @@ func (e *Editor) renderChecklists(from, to, excludeLine int) {
 		anchor := e.buffer.CreateChildAnchor(at)
 		row := e.takeRow(it)
 		e.view.AddChildAtAnchor(row.box, anchor)
+		// The prefix swap changes the line's shape, and putting a widget in sends
+		// no signal of its own, so the layout is marked here (see markLayoutStale).
+		e.markLayoutStale()
 		e.items = append(e.items, anchoredItem{anchor: anchor, row: row})
 		e.hasAnchors = true
 	}

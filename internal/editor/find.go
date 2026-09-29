@@ -46,6 +46,7 @@ type finder struct {
 	current   int      // index into matches, or -1
 	stale     bool     // the text changed since matches was computed
 	pending   bool     // a debounced refresh is scheduled
+	held      bool     // a refresh came due while text was selected and waits for it to collapse
 
 	match, cur *gtk.TextTag
 	listener   func(current, count int)
@@ -94,14 +95,9 @@ func (f *finder) hook() {
 
 	// The render pass strips every tag from the lines it re-tags (RemoveAllTags),
 	// and that includes ours: the caret's line gets it on every caret move. So
-	// once a pass is done, whatever it stripped is put back.
-	prev := e.OnReparsed
-	e.OnReparsed = func() {
-		if prev != nil {
-			prev()
-		}
-		f.restore()
-	}
+	// once a pass is done, whatever it stripped is put back; reparse calls
+	// restore itself when a finder exists, rather than through a hook here that
+	// the app could overwrite.
 }
 
 // schedule arms one refresh for the edits of the next findDebounceMs.
@@ -112,11 +108,30 @@ func (f *finder) schedule() {
 	f.pending = true
 	coreglib.TimeoutAdd(findDebounceMs, func() bool {
 		f.pending = false
-		if f.active && f.stale {
-			f.refresh(false)
+		if !f.active || !f.stale {
+			return false
 		}
+		// Repainting changes tags, and tags must not change while text is selected,
+		// when a drag may have GTK hit-testing the lines (see reparse). The refresh
+		// waits, and resume runs it once the selection has collapsed.
+		if f.e.buffer.HasSelection() {
+			f.held = true
+			return false
+		}
+		f.refresh(false)
 		return false // one-shot
 	})
+}
+
+// resume schedules the refresh that was put off while text was selected.
+func (f *finder) resume() {
+	if !f.held {
+		return
+	}
+	f.held = false
+	if f.active && f.stale {
+		f.schedule()
+	}
 }
 
 // refresh recomputes the matches from the text and repaints them. The current
@@ -140,6 +155,7 @@ func (f *finder) refresh(reveal bool) {
 
 // paint puts the tags on every match and the current one, from scratch.
 func (f *finder) paint() {
+	f.e.markLayoutStale()
 	b := f.e.buffer
 	start, end := b.Bounds()
 	b.RemoveTag(f.match, start, end)
@@ -153,6 +169,7 @@ func (f *finder) paint() {
 // every render pass, and in a long note with many matches, tagging them all
 // again each time the caret moved would be work for nothing.
 func (f *finder) apply() {
+	f.e.markLayoutStale() // tags change below; see linkUnder
 	b := f.e.buffer
 	total := b.CharCount()
 	for i, m := range f.matches {
@@ -245,6 +262,7 @@ func (f *finder) step(dir int) {
 		f.current = f.lastBefore(from)
 	}
 	// Only the strong tag moves; the soft ones stay where they are.
+	f.e.markLayoutStale()
 	b := f.e.buffer
 	start, end := b.Bounds()
 	b.RemoveTag(f.cur, start, end)
@@ -361,11 +379,19 @@ func (e *Editor) ReplaceAll(with string) int {
 		return 0
 	}
 	with = cleanReplacement(with)
-	e.buffer.BeginUserAction()
-	for i := len(matches) - 1; i >= 0; i-- {
-		f.replaceRange(matches[i], with)
-	}
-	e.buffer.EndUserAction()
+	// The edits run as loading, so the buffer's changed handler does not fire
+	// OnChanged, and with it the autosave, once per match. markEdited does that
+	// once for the lot. Nothing else is lost by it: the handlers that track dirty
+	// lines and find's own hook (which is what marks the matches stale) do not
+	// look at the flag.
+	e.withLoading(func() {
+		e.buffer.BeginUserAction()
+		for i := len(matches) - 1; i >= 0; i-- {
+			f.replaceRange(matches[i], with)
+		}
+		e.buffer.EndUserAction()
+	})
+	e.markEdited()
 	f.refresh(false)
 	return len(matches)
 }
@@ -384,9 +410,10 @@ func (e *Editor) ClearFind() {
 	if f == nil {
 		return
 	}
-	f.active, f.stale = false, false
+	f.active, f.stale, f.held = false, false, false
 	f.query, f.matches, f.current = "", nil, -1
 	if f.hooked {
+		e.markLayoutStale()
 		start, end := e.buffer.Bounds()
 		e.buffer.RemoveTag(f.match, start, end)
 		e.buffer.RemoveTag(f.cur, start, end)
@@ -403,6 +430,11 @@ func (e *Editor) ClearFind() {
 //
 // U+FFFC stands for an embedded checkbox in the buffer's text. A match never
 // includes one, so a query cannot match across or on a widget.
+//
+// The "<!-- ... -->" comment a task carries its priority and due date in is
+// hidden by the editor, so it is not text the person can see and a match in it
+// would highlight nothing. Those runes are treated like a widget: never part of
+// a match, and counted in the offsets all the same.
 func findMatches(text, query string, matchCase bool) [][2]int {
 	if query == "" {
 		return nil
@@ -414,6 +446,7 @@ func findMatches(text, query string, matchCase bool) [][2]int {
 		}
 	}
 	t := []rune(text)
+	maskMetadata(text, t)
 
 	var out [][2]int
 	for i := 0; i+len(q) <= len(t); {
@@ -425,6 +458,34 @@ func findMatches(text, query string, matchCase bool) [][2]int {
 		i++
 	}
 	return out
+}
+
+// maskMetadata overwrites, in t (the runes of text), each line's metadata
+// comment with the widget character, which no match includes. The comment is the
+// one parseLineSpans hides: from the line's first "<!--" to the first "-->" after
+// it, and a "<!--" with no "-->" is ordinary text.
+func maskMetadata(text string, t []rune) {
+	if !strings.Contains(text, "<!--") {
+		return // nearly every note
+	}
+	lineStart := 0 // rune offset of the line's first character
+	for rest := text; ; {
+		line, next, more := strings.Cut(rest, "\n")
+		if b := strings.Index(line, "<!--"); b >= 0 {
+			if rel := strings.Index(line[b:], "-->"); rel >= 0 {
+				from := lineStart + utf8.RuneCountInString(line[:b])
+				to := from + utf8.RuneCountInString(line[b:b+rel+len("-->")])
+				for i := from; i < to; i++ {
+					t[i] = anchorRune
+				}
+			}
+		}
+		if !more {
+			return
+		}
+		lineStart += utf8.RuneCountInString(line) + 1
+		rest = next
+	}
 }
 
 // matchesAt reports whether q (already folded when case is ignored) sits in t

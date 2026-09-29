@@ -2,6 +2,7 @@ package editor
 
 import (
 	"strings"
+	"time"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
@@ -204,7 +205,18 @@ type linkPress struct {
 	target   string
 	heading  string
 	revealed bool // the line was showing its markers, so a plain click edits
-	x, y     float64
+	// pending is a press that came while the layout was stale, so nothing could
+	// be looked up under it; the release does that, if the layout has settled.
+	pending bool
+	x, y    float64
+}
+
+// pressOn is the press for a link found at a point.
+func (e *Editor) pressOn(sp markup.Span, line int, x, y float64) linkPress {
+	return linkPress{
+		have: true, kind: sp.Kind, target: sp.Target, heading: sp.Heading,
+		revealed: line == e.shown, x: x, y: y,
+	}
 }
 
 // linkUnder finds the link at a point in the view, and the line it is on.
@@ -250,6 +262,12 @@ const layoutSettleMs = 100
 // or a picture's spacing, and clears the mark once they have stayed as they
 // are for layoutSettleMs. The clearing runs at low priority, after GTK's own
 // layout and redraw work, which runs at higher ones.
+//
+// The text is caught by the buffer's changed signal. Tags are not: the buffer
+// signals every tag applied or removed, a render pass does thousands of those,
+// and a Go callback across cgo for each was a real cost. So whatever changes
+// tags calls this itself (tagRange, applyPad, placeImages, renderChecklists and
+// the find highlights), and a new place that does must too.
 func (e *Editor) markLayoutStale() {
 	e.layoutStale = true
 	e.staleGen++
@@ -301,24 +319,37 @@ func (e *Editor) installLinks() {
 	click.SetPropagationPhase(gtk.PhaseCapture)
 	click.ConnectPressed(func(_ int, x, y float64) {
 		e.press = linkPress{}
+		// Nothing can be looked up while the layout is stale (see linkUnder), and
+		// dropping the click would make a link pressed just after an edit dead.
+		// The position is kept and the release tries again.
+		if e.layoutStale {
+			e.press = linkPress{pending: true, x: x, y: y}
+			return
+		}
 		sp, line, ok := e.linkUnder(x, y)
 		if !ok {
 			return
 		}
-		e.press = linkPress{
-			have: true, kind: sp.Kind, target: sp.Target, heading: sp.Heading,
-			revealed: line == e.shown, x: x, y: y,
-		}
+		e.press = e.pressOn(sp, line, x, y)
 	})
 	click.ConnectReleased(func(nPress int, x, y float64) {
 		p := e.press
 		e.press = linkPress{}
-		if !p.have || nPress != 1 || e.buffer.HasSelection() {
+		if !(p.have || p.pending) || nPress != 1 || e.buffer.HasSelection() {
 			return
 		}
 		dx, dy := x-p.x, y-p.y
 		if dx*dx+dy*dy > dragSlop*dragSlop {
 			return
+		}
+		if p.pending {
+			// Still stale, or not on a link: linkUnder says no, and the click is
+			// left to be a plain one.
+			sp, line, ok := e.linkUnder(p.x, p.y)
+			if !ok {
+				return
+			}
+			p = e.pressOn(sp, line, p.x, p.y)
 		}
 		// On a line that shows its markers a plain click is for editing; Ctrl
 		// opens the link anyway.
@@ -333,16 +364,9 @@ func (e *Editor) installLinks() {
 	motion.ConnectMotion(func(x, y float64) {
 		ctrl := motion.CurrentEventState()&gdk.ControlMask != 0
 		e.hoverX, e.hoverY, e.hoverCtrl = x, y, ctrl
+		e.hoverAt = time.Now()
 		e.hoverGen++
-		gen := e.hoverGen
-		coreglib.TimeoutAdd(hoverRestMs, func() bool {
-			if gen != e.hoverGen || !e.hoverIn {
-				return false // moved on, or left
-			}
-			sp, line, ok := e.linkUnder(e.hoverX, e.hoverY)
-			e.setLinkCursor(ok && e.canOpen(sp.Kind) && (e.hoverCtrl || line != e.shown))
-			return false
-		})
+		e.armHover(hoverRestMs)
 	})
 	motion.ConnectEnter(func(float64, float64) { e.hoverIn = true })
 	motion.ConnectLeave(func() {
@@ -352,11 +376,48 @@ func (e *Editor) installLinks() {
 	})
 	e.view.AddController(motion)
 
-	// Every change to the text or its tags leaves the layout behind until GTK
-	// lays it out again; see markLayoutStale.
+	// Every change to the text leaves the layout behind until GTK lays it out
+	// again; see markLayoutStale, which also says who marks tag changes.
 	e.buffer.ConnectChanged(e.markLayoutStale)
-	e.buffer.ConnectApplyTag(func(*gtk.TextTag, *gtk.TextIter, *gtk.TextIter) { e.markLayoutStale() })
-	e.buffer.ConnectRemoveTag(func(*gtk.TextTag, *gtk.TextIter, *gtk.TextIter) { e.markLayoutStale() })
+}
+
+// armHover makes sure the hover check runs in ms milliseconds. There is one
+// timer, not one per motion event: a pointer sweeping across the text sends
+// hundreds of events a second, and a timer for each was hundreds of callbacks
+// that all found they had been overtaken. The timer remembers the generation
+// it was armed for, and when the pointer has moved since, waits out what is
+// left of the rest instead of looking up a link the pointer has already left.
+func (e *Editor) armHover(ms int) {
+	if e.hoverArmed {
+		return
+	}
+	e.hoverArmed = true
+	gen := e.hoverGen
+	coreglib.TimeoutAdd(uint(ms), func() bool {
+		e.hoverArmed = false
+		if !e.hoverIn {
+			return false // the pointer left
+		}
+		if gen != e.hoverGen {
+			e.armHover(max(hoverRestMs-int(time.Since(e.hoverAt)/time.Millisecond), 1))
+			return false
+		}
+		e.hoverLookup()
+		return false
+	})
+}
+
+// hoverLookup sets the pointer for the link under where it has come to rest.
+func (e *Editor) hoverLookup() {
+	// With the layout stale linkUnder has no answer. Guessing would flip the
+	// cursor to the wrong thing until the next move, so it stays as it is and the
+	// check is tried again once the layout has had time to settle.
+	if e.layoutStale {
+		e.armHover(layoutSettleMs)
+		return
+	}
+	sp, line, ok := e.linkUnder(e.hoverX, e.hoverY)
+	e.setLinkCursor(ok && e.canOpen(sp.Kind) && (e.hoverCtrl || line != e.shown))
 }
 
 // setLinkCursor switches the pointer between a hand over a link and the text

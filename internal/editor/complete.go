@@ -228,18 +228,49 @@ type completion struct {
 	skip   int
 }
 
+// noteTail works out what follows the caret in a link being completed: how many
+// bytes of after are the rest of the name that is being replaced, whether the
+// link is closed with "]]" right after them, and whether something ends the
+// name at all ("]]", or the "|" or "#" of an alias or a heading).
+//
+// The name runs up to the next "]", "[", "|" or "#", none of which a name can
+// hold. Only when one of the ones that end a name follows is what lies before it
+// taken as part of the name. With none of them there the link is still open and
+// the text after the caret is not known to belong to it, as in
+// "see [[Pl| for details", so it is left alone.
+func noteTail(after string) (n int, closed, ended bool) {
+	i := strings.IndexAny(after, "[]|#")
+	if i < 0 {
+		return 0, false, false
+	}
+	switch after[i] {
+	case '|', '#':
+		return i, false, true
+	case ']':
+		if strings.HasPrefix(after[i:], "]]") {
+			return i, true, true
+		}
+	}
+	return 0, false, false
+}
+
 // completeNote works out the edit for choosing a note. It replaces what was
-// typed since "[[" with the note's name (or path, see noteInsert) and closes
-// the link unless the text after the caret already does.
+// typed since "[[" with the note's name (or path, see noteInsert), and the rest
+// of the name after the caret when the caret is inside an existing link (see
+// noteTail). The link is closed unless the text after the caret already does
+// or goes on to an alias or a heading.
 func completeNote(before, after, choice string, notes []string) (completion, bool) {
 	kind, q := suggestContext(before)
 	if kind != suggestNotes {
 		return completion{}, false
 	}
 	c := completion{before: utf8.RuneCountInString(q), text: noteInsert(choice, notes)}
-	if strings.HasPrefix(after, "]]") {
+	n, closed, ended := noteTail(after)
+	c.after = utf8.RuneCountInString(after[:n])
+	switch {
+	case closed:
 		c.skip = 2
-	} else {
+	case !ended:
 		c.text += "]]"
 	}
 	return c, true
@@ -324,6 +355,17 @@ func (e *Editor) installComplete() {
 	focus := gtk.NewEventControllerFocus()
 	focus.ConnectLeave(func() { e.closeSuggest() })
 	e.view.AddController(focus)
+
+	// The popover is parented to the view, and GTK complains of a child left
+	// behind when a view is finalized with one, so it is let go of first.
+	e.view.ConnectDestroy(func() {
+		s := &e.sg
+		s.kind = suggestNone
+		if s.pop != nil {
+			s.pop.Unparent()
+			s.pop, s.list = nil, nil
+		}
+	})
 }
 
 // lineBefore is the text of the caret's line up to the caret. The checkbox
