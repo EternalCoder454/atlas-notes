@@ -9,6 +9,7 @@ require (
 	github.com/diamondburned/gotk4/pkg v0.4.1
 	github.com/klauspost/compress v1.18.6
 	golang.org/x/crypto v0.57.0
+	golang.org/x/image v0.46.0
 	golang.org/x/mobile v0.0.0-20260908204917-8b95e45f8d3e
 	modernc.org/sqlite v1.52.0
 )
