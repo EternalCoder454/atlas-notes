@@ -10,6 +10,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.atlasnotes.VaultModel
@@ -101,10 +104,22 @@ fun NoteEditor(model: VaultModel) {
             if (model.tasks.isNotEmpty()) {
                 TaskCard(model)
             }
+            // A note made to be typed into (the shortcut, the tile, the
+            // widget) takes the keyboard as soon as it is on screen. Opening a
+            // note from the list does not: that is usually to read it.
+            val focus = remember { FocusRequester() }
+            val keyboard = LocalSoftwareKeyboardController.current
+            LaunchedEffect(model.focusEditor) {
+                if (model.focusEditor) {
+                    focus.requestFocus()
+                    keyboard?.show()
+                    model.editorFocused()
+                }
+            }
             TextField(
                 value = model.body,
                 onValueChange = { model.edit(it) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).focusRequester(focus),
                 placeholder = { Text("Start writing") },
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surface,
