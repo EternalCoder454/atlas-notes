@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"os"
 	"strings"
 	"unicode"
 )
@@ -214,15 +213,7 @@ func (s *Store) ResolveContent(ctx context.Context) (int, error) {
 		for i := range jobs {
 			j := &jobs[i]
 			j.tasks = tasksUnknown
-			abs, err := s.notePathSafe(j.rel)
-			if err != nil {
-				continue
-			}
-			raw, err := os.ReadFile(abs)
-			if err != nil {
-				continue
-			}
-			out, err := s.dec.DecodeAll(raw, nil)
+			out, err := s.readPlain(j.rel)
 			if err != nil {
 				continue
 			}

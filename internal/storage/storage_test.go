@@ -108,13 +108,13 @@ func TestNoteRoundTrip(t *testing.T) {
 		t.Errorf("ReadNote = %q want %q", got, content)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(s.VaultPath, "Hello.md.zst"))
+	// A new vault stores plain Markdown, so the file is the note itself.
+	raw, err := os.ReadFile(filepath.Join(s.VaultPath, "Hello.md"))
 	if err != nil {
 		t.Fatalf("read raw file: %v", err)
 	}
-	// zstd standard frame magic: 0x28 0xB5 0x2F 0xFD (little-endian).
-	if len(raw) < 4 || raw[0] != 0x28 || raw[1] != 0xB5 || raw[2] != 0x2F || raw[3] != 0xFD {
-		t.Errorf("file is not a zstd frame: % x", raw[:min(4, len(raw))])
+	if string(raw) != content {
+		t.Errorf("file = %q want the note's own text", raw)
 	}
 }
 
@@ -579,7 +579,7 @@ func TestScanDoesNotReadNotes(t *testing.T) {
 	}
 	var paths []string
 	for _, name := range []string{"One", "Two", "Three"} {
-		p := filepath.Join(s.VaultPath, name+noteExt)
+		p := filepath.Join(s.VaultPath, name+CompressionNone.ext())
 		paths = append(paths, p)
 		if err := os.Chmod(p, 0o000); err != nil {
 			t.Skipf("cannot make files unreadable here: %v", err)

@@ -162,7 +162,7 @@ func TestCorruptNoteIsSurvivable(t *testing.T) {
 		"Truncated": {0x28, 0xb5, 0x2f, 0xfd}, // a zstd magic number and nothing else
 		"Garbage":   []byte("this is not compressed at all"),
 	} {
-		if err := os.WriteFile(filepath.Join(vault, name+noteExt), body, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(vault, name+CompressionZstd.ext()), body, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.ReadNote(name); err == nil {
@@ -172,7 +172,7 @@ func TestCorruptNoteIsSurvivable(t *testing.T) {
 
 	// A zero-length file is not corrupt, it is an empty note — opening it
 	// should show an empty document rather than fail.
-	if err := os.WriteFile(filepath.Join(vault, "Empty"+noteExt), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "Empty"+CompressionZstd.ext()), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := s.ReadNote("Empty"); err != nil || got != "" {
@@ -203,7 +203,7 @@ func TestDecompressionBombIsBounded(t *testing.T) {
 	// 512 MiB of zeros compresses to a few hundred bytes.
 	bomb := s.enc.EncodeAll(make([]byte, 512<<20), nil)
 	t.Logf("bomb: %d bytes on disk, %d MiB decompressed", len(bomb), 512)
-	if err := os.WriteFile(filepath.Join(vault, "Bomb"+noteExt), bomb, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "Bomb"+CompressionZstd.ext()), bomb, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.ReadNote("Bomb")

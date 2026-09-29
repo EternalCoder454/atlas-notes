@@ -60,7 +60,7 @@ func TestLockNoteRemovesPlaintext(t *testing.T) {
 	if at := grep(t, s.VaultPath, secret); at != "" {
 		t.Errorf("the secret is still readable on disk at %s", at)
 	}
-	if _, err := os.Stat(filepath.Join(s.VaultPath, "Private"+noteExt)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.VaultPath, "Private"+CompressionNone.ext())); !os.IsNotExist(err) {
 		t.Error("the unencrypted file is still there")
 	}
 	if _, err := os.Stat(filepath.Join(s.VaultPath, "Private"+lockedExt)); err != nil {
@@ -181,7 +181,7 @@ func TestNoteInLockedFolderIsBornLocked(t *testing.T) {
 	if !s.IsNoteLocked("Secret/New") {
 		t.Error("a note created in a locked folder is not locked")
 	}
-	if _, err := os.Stat(filepath.Join(s.VaultPath, "Secret", "New"+noteExt)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.VaultPath, "Secret", "New"+CompressionNone.ext())); !os.IsNotExist(err) {
 		t.Error("an unencrypted file exists for a note in a locked folder")
 	}
 }

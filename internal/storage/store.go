@@ -1,6 +1,6 @@
-// Package storage is the local-first persistence layer: zstd-compressed markdown
-// files in a vault directory, indexed by an embedded (CGO-free) SQLite database.
-// It has no UI dependency.
+// Package storage is the local-first persistence layer: markdown files in a
+// vault directory, plain by default and optionally compressed, indexed by an
+// embedded (CGO-free) SQLite database. It has no UI dependency.
 package storage
 
 import (
@@ -45,6 +45,12 @@ type Store struct {
 	enc *zstd.Encoder
 	dec *zstd.Decoder
 
+	// formatMu guards compression, the format the vault writes notes in. It is
+	// read on every note lookup, so it is not writeMu, which is held for the
+	// length of a file write.
+	formatMu    sync.RWMutex
+	compression Compression
+
 	// lockMu guards the vault's password state. It is separate from writeMu
 	// because IsUnlocked is asked on every note row the tree draws, while
 	// writeMu is held for the length of a file write.
@@ -61,7 +67,8 @@ type Store struct {
 }
 
 // Open initializes the vault directory, opens and migrates the SQLite index, and
-// prepares the zstd codecs. Empty vaultPath/dbPath fall back to the XDG defaults.
+// prepares the zstd codecs and reads the vault's note format. Empty
+// vaultPath/dbPath fall back to the XDG defaults.
 func Open(vaultPath, dbPath string) (*Store, error) {
 	if vaultPath == "" {
 		vaultPath = DefaultVaultPath()
@@ -109,7 +116,7 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	// synchronous=NORMAL is safe under WAL (consistent, durable across app
 	// crashes; only the last transaction can be lost on power loss) and keeps
 	// fsync off the writer path so a slow disk can't stall the UI. The index is a
-	// rebuildable cache (the .md.zst files are the source of truth), so even that
+	// rebuildable cache (the note files are the source of truth), so even that
 	// edge case is recoverable via Reindex.
 	// cache_size is negative to mean KiB rather than pages; 8 MiB comfortably
 	// holds the index of a large vault, so browsing never goes back to disk.
@@ -128,7 +135,8 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 		return nil, err
 	}
 
-	s := &Store{VaultPath: vaultPath, db: db, enc: enc, dec: dec}
+	s := &Store{VaultPath: vaultPath, db: db, enc: enc, dec: dec,
+		compression: loadCompression(vaultPath)}
 	// A vault with no locked notes has no lock file, which is not an error.
 	// One that cannot be read is: it would leave locked notes unopenable while
 	// the app behaved as though nothing were wrong.

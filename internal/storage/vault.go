@@ -19,6 +19,9 @@ func (s *Store) ListFolders() ([]string, error) {
 		if err != nil {
 			return err
 		}
+		if s.hiddenDir(p, d) {
+			return filepath.SkipDir
+		}
 		if !d.IsDir() {
 			return nil
 		}
@@ -157,14 +160,17 @@ func (s *Store) Reindex() error {
 		if err != nil {
 			return err
 		}
+		if s.hiddenDir(p, d) {
+			return filepath.SkipDir
+		}
 		if d.IsDir() {
 			return nil
 		}
-		// Both forms of a note are indexed. Which extension a file carries is
-		// what says whether it is locked, so the scan reads it off the name
-		// rather than opening anything.
+		// Every form of a note is indexed: plain or compressed in any format,
+		// and locked. Which extension a file carries is what says whether it is
+		// locked, so the scan reads it off the name rather than opening anything.
 		locked := strings.HasSuffix(p, lockedExt)
-		if !locked && !strings.HasSuffix(p, noteExt) {
+		if _, plain := plainCompression(d.Name()); !locked && !plain {
 			return nil
 		}
 		rel, rerr := filepath.Rel(s.VaultPath, p)

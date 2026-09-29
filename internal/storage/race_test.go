@@ -197,7 +197,7 @@ func TestConcurrentLockingIsSafe(t *testing.T) {
 		if _, err := s.ReadNote(rel); err != nil {
 			t.Errorf("%s is unreadable after the churn: %v", rel, err)
 		}
-		plain := filepath.Join(s.VaultPath, rel+noteExt)
+		plain := filepath.Join(s.VaultPath, rel+CompressionNone.ext())
 		sealed := filepath.Join(s.VaultPath, rel+lockedExt)
 		_, perr := os.Stat(plain)
 		_, serr := os.Stat(sealed)
