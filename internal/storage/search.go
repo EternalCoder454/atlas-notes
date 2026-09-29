@@ -85,7 +85,9 @@ func (s *Store) migrateSearch() error {
 			return err
 		}
 	}
-	return nil
+	// The links, tags and due tasks are read from the same text, so their tables
+	// are brought up with the search index.
+	return s.migrateDerived()
 }
 
 // purgeRemovedWords makes the words the index has let go of unrecoverable
@@ -111,10 +113,16 @@ func (s *Store) purgeRemovedWords() error {
 	return err
 }
 
-// indexContent puts one note's words in the index and marks it done. It runs
-// inside the caller's transaction, and does nothing for a locked note.
+// indexContent puts one note's words in the index, brings what is derived from
+// its text up to date (see deriveContent), and marks it done. It is the one
+// place a note's text is read into the index, for a save and for the content
+// pass alike. It runs inside the caller's transaction, which must only be for a
+// note that is not locked.
 func indexContent(tx *sql.Tx, id int64, body string) error {
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO notes_fts(rowid, body) VALUES (?, ?)`, id, body); err != nil {
+		return err
+	}
+	if err := deriveContent(tx, id, body); err != nil {
 		return err
 	}
 	_, err := tx.Exec(`UPDATE notes SET indexed = 1 WHERE id = ?`, id)
@@ -236,7 +244,7 @@ func (s *Store) ResolveContent(ctx context.Context) (int, error) {
 				if n, _ := res.RowsAffected(); n == 0 || !j.read {
 					continue // dealt with elsewhere meanwhile, or unreadable
 				}
-				if _, err := tx.Exec(`INSERT OR REPLACE INTO notes_fts(rowid, body) VALUES (?, ?)`, j.id, j.body); err != nil {
+				if err := indexContent(tx, j.id, j.body); err != nil {
 					return err
 				}
 			}
