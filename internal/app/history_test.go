@@ -104,15 +104,6 @@ func TestHumanSize(t *testing.T) {
 
 // TestImageMarkdown: the link is on a line of its own. In the middle of a line
 // it starts a new one, and it always ends one so typing goes on below it.
-func TestImageMarkdown(t *testing.T) {
-	const p = "../attachments/note-20260929-140500.png"
-	if got, want := imageMarkdown(p, true), "![]("+p+")\n"; got != want {
-		t.Errorf("at the start of a line: %q, want %q", got, want)
-	}
-	if got, want := imageMarkdown(p, false), "\n![]("+p+")\n"; got != want {
-		t.Errorf("in the middle of a line: %q, want %q", got, want)
-	}
-}
 
 // TestTemplateNameParts: the folder shown dimmed is what lies between
 // "Templates/" and the name.

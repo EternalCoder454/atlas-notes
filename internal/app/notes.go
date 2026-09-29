@@ -39,6 +39,7 @@ func (a *App) openNote(rel string) {
 	a.dirty = false
 	a.cfg.LastNote = rel
 	a.rememberSaved(rel, content) // what is on disk right now
+	a.bindImages(rel)
 	a.editor.SetContent(content)
 	a.showEditorPage()
 	a.refreshHeader()

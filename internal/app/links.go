@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/markup"
@@ -30,6 +32,33 @@ func (a *App) wireEditorLinks() {
 	e.OnOpenURL = a.openURL
 	e.NoteNames = a.noteNames
 	e.TagNames = a.tagNames
+	e.OnImageError = func(err error) { a.toast(imageErrorText(err)) }
+}
+
+// bindImages points the editor's pictures at the note being opened: a
+// picture's path is relative to the note that names it, so reading and saving
+// them has to know which note that is. It is set before the note's text goes
+// in, so the pictures load for the right one; the loads themselves run on the
+// editor's goroutines and only read rel, which this closure owns.
+func (a *App) bindImages(rel string) {
+	if a.editor == nil || a.store == nil {
+		return
+	}
+	store := a.store
+	a.editor.LoadImage = func(p string) ([]byte, error) { return store.ReadAttachment(rel, p) }
+	a.editor.SaveImage = func(data []byte) (string, error) { return store.SaveAttachment(rel, data) }
+	a.editor.OnOpenImage = func(p string) {
+		file, err := store.AttachmentFile(rel, p)
+		switch {
+		case errors.Is(err, storage.ErrSealedAttachment):
+			a.toast("Pictures in a protected note open only here, so no unencrypted copy is made")
+			return
+		case err != nil:
+			a.toast("Couldn't find that picture")
+			return
+		}
+		gtk.NewFileLauncher(gio.NewFileForPath(file)).Launch(context.Background(), &a.win.Window, nil)
+	}
 }
 
 // noteNames is every note's path, for the [[ suggestions.

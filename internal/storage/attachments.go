@@ -238,6 +238,30 @@ func (s *Store) attachmentCandidates(noteRel, mdPath string) ([]string, error) {
 	return []string{abs, fallback}, nil
 }
 
+// ErrSealedAttachment is returned for a picture that is stored encrypted,
+// when something asks for its file: there is no file anything else could open.
+var ErrSealedAttachment = errors.New("this picture is encrypted with its note")
+
+// AttachmentFile is the file a note's picture is stored in, for opening it in
+// another app. A picture stored encrypted has none that another app could
+// read, and returns ErrSealedAttachment: decrypting it to a file for the
+// occasion would leave a copy in the clear.
+func (s *Store) AttachmentFile(noteRel, mdPath string) (string, error) {
+	candidates, err := s.attachmentCandidates(noteRel, mdPath)
+	if err != nil {
+		return "", err
+	}
+	for _, abs := range candidates {
+		if isFile(abs) {
+			return abs, nil
+		}
+		if isFile(abs + ".enc") {
+			return "", ErrSealedAttachment
+		}
+	}
+	return "", fmt.Errorf("%q: %w", mdPath, fs.ErrNotExist)
+}
+
 // readAttachmentFile reads an image, plain or sealed. It returns an error
 // wrapping fs.ErrNotExist only when neither form is there.
 func (s *Store) readAttachmentFile(abs string) ([]byte, error) {

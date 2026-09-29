@@ -33,17 +33,6 @@ var imageSuffixes = []string{"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff",
 // errImageFileTooLarge is a chosen file over maxImageFileBytes.
 var errImageFileTooLarge = errors.New("the image file is too large")
 
-// imageMarkdown is what goes into the note for an image: the link on a line of
-// its own, since an image in the middle of a sentence is not how a note
-// reads. It starts a new line unless the caret is already at the start of one.
-func imageMarkdown(mdPath string, atLineStart bool) string {
-	link := "![](" + mdPath + ")\n"
-	if atLineStart {
-		return link
-	}
-	return "\n" + link
-}
-
 // insertImage asks for an image file and puts it into the open note.
 func (a *App) insertImage() {
 	if a.store == nil || a.editor == nil || !a.noteOpen() {
@@ -99,7 +88,9 @@ func (a *App) addImage(rel, target string) {
 				a.toast("Added the image, but you had moved to another note")
 				return false
 			}
-			a.editor.InsertAtCursor(imageMarkdown(mdPath, a.caretAtLineStart()))
+			// On a line of its own, as the editor draws pictures: an image in the
+			// middle of a sentence is not how a note reads.
+			a.editor.InsertImage(mdPath)
 			a.editor.Focus()
 			return false
 		})
@@ -158,27 +149,4 @@ func imageErrorText(err error) string {
 	default:
 		return err.Error()
 	}
-}
-
-// caretAtLineStart reports whether the caret, or the start of the selection
-// that typing would replace, is at the beginning of a line. The editor keeps
-// its text view to itself, so it is found through the widget tree; when it
-// cannot be found the answer is no, which costs an empty line and nothing else.
-func (a *App) caretAtLineStart() bool {
-	if a.editor == nil {
-		return false
-	}
-	scroll, ok := a.editor.Widget().(*gtk.ScrolledWindow)
-	if !ok {
-		return false
-	}
-	view, ok := scroll.Child().(*gtk.TextView)
-	if !ok {
-		return false
-	}
-	buf := view.Buffer()
-	if start, _, ok := buf.SelectionBounds(); ok {
-		return start.StartsLine()
-	}
-	return buf.IterAtMark(buf.GetInsert()).StartsLine()
 }
