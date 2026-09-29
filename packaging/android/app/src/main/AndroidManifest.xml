@@ -45,6 +45,15 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
+    <!--
+      For the morning reminder of tasks that are due. Android 13 and later
+      make showing any notification a permission, asked for once, and only
+      when there is a task due to remind of. The boot one is so the reminder
+      can be set again after the phone restarts, which forgets every alarm.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:allowBackup="true"
         android:fullBackupContent="true"
@@ -75,7 +84,7 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
 
-            <!-- The shortcut shown when the app's icon is held down. -->
+            <!-- The shortcuts shown when the app's icon is held down. -->
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
@@ -106,6 +115,24 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/new_note_widget_info" />
+        </receiver>
+
+        <!-- The daily alarm for the reminder of tasks due. Only this app's own
+             PendingIntent sends to it, so it is not exported. -->
+        <receiver
+            android:name=".DueReceiver"
+            android:exported="false" />
+
+        <!-- Sets that alarm again after a restart or an update, which clear
+             it. Both broadcasts come from the system, which may send to a
+             receiver that is not exported. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
         </receiver>
 
         <!-- The installer runs in another process, so a downloaded build has to

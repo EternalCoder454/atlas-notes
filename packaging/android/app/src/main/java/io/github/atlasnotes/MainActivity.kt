@@ -1,11 +1,13 @@
 package io.github.atlasnotes
 
+import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
@@ -40,14 +42,34 @@ class MainActivity : ComponentActivity() {
 
     private val model: VaultModel by viewModels()
 
+    /**
+     * The system's prompt for permission to show notifications. Nothing is done
+     * with the answer: the reminder checks the permission itself each time it
+     * would post, so a refusal, or a grant later in settings, both just work.
+     */
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Every start, and not only the first: Android drops alarms in some
+        // cases the app is not told about, and setting one that already exists
+        // only replaces it.
+        DueReminders.schedule(this)
         // Only a fresh start has a request to act on. After the process has
         // been killed and the activity restored, Android hands back the intent
         // it was first started with, and the note it asked for already exists.
         if (savedInstanceState == null) takeCapture(intent)
         setContent {
+            // The model says when the prompt is due; only an activity can show
+            // it. It is marked as shown first, so that it is never asked twice.
+            LaunchedEffect(model.askNotifications) {
+                if (model.askNotifications) {
+                    model.notificationPromptShown()
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
             AtlasTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -60,7 +82,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * A share, the shortcut, the tile or the widget reaching the app while it is
+     * A share, a shortcut, the tile or the widget reaching the app while it is
      * already running. The activity is single-task, so Android brings it forward
      * and delivers the intent here instead of starting a second copy.
      *

@@ -1,5 +1,6 @@
 package io.github.atlasnotes
 
+import android.content.Context
 import io.github.atlasnotes.core.bridge.Bridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +37,27 @@ object Vault {
 
     data class Release(val version: String, val notes: List<String>)
 
+    /**
+     * An unfinished task that has a due date, and where to find it: the note
+     * it is in and its 0-based line there. [priority] is "high", "medium",
+     * "low", or empty for none.
+     */
+    data class DueTask(
+        val path: String,
+        val line: Int,
+        val text: String,
+        val due: String,
+        val priority: String,
+    )
+
+    /**
+     * The directory Android gave this app for its vault. The interface and the
+     * daily reminder both open the vault, and the Go core keeps one per
+     * process, so they have to name the same directory or the second would
+     * open a vault the first is not looking at.
+     */
+    fun dataDir(context: Context): File = context.filesDir.resolve("vault")
+
     /** Opens the vault in the directory Android gave this app. Idempotent. */
     suspend fun open(dir: File) = io { Bridge.open(dir.absolutePath) }
 
@@ -69,6 +91,45 @@ object Vault {
     suspend fun delete(path: String) = io { Bridge.deleteNote(path) }
 
     suspend fun rename(from: String, to: String) = io { Bridge.renameNote(from, to) }
+
+    /**
+     * Today's note, made first if there is none yet. It is a note in a folder
+     * that may be locked, so like [read] it throws [Locked] rather than
+     * failing when the password is what is missing.
+     */
+    suspend fun dailyNote(): String = io {
+        try {
+            Bridge.dailyNote()
+        } catch (e: Exception) {
+            if (e.message == LOCKED) throw Locked() else throw e
+        }
+    }
+
+    /**
+     * The unfinished tasks due on or before [through], written yyyy-mm-dd, most
+     * pressing first. What is overdue is included. Tasks in locked notes never
+     * are.
+     */
+    suspend fun dueTasks(through: String): List<DueTask> = io {
+        JSONArray(Bridge.dueTasks(through)).map {
+            DueTask(
+                path = it.getString("path"),
+                line = it.getInt("line"),
+                text = it.getString("text"),
+                due = it.getString("due"),
+                priority = it.optString("priority"),
+            )
+        }
+    }
+
+    /**
+     * Paths of the notes that carry [tag], newest first. The tag may be
+     * written with its "#" and in any case.
+     */
+    suspend fun notesWithTag(tag: String): List<String> = io {
+        val a = JSONArray(Bridge.notesWithTag(tag))
+        (0 until a.length()).map { a.getString(it) }
+    }
 
     // Password protection. The password is passed in and never comes back out:
     // it is not stored, not logged, and not written anywhere on the device.
