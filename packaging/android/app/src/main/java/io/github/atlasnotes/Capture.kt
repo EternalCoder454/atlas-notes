@@ -10,21 +10,44 @@ import android.content.Intent
  * There are four ways to ask: sharing text into Atlas Notes, a launcher
  * shortcut, a quick-settings tile and a home-screen widget. The last three all
  * mean "a new note, and let me type", and the first means "a note with this in
- * it", so between them there are only two shapes of one request. MainActivity
- * reads it out of an intent, and VaultModel carries it out once the vault is
- * open.
+ * it", so between them there are only two shapes of one request. The Today
+ * button and its own shortcut add a third, which makes no note of its own but
+ * opens the day's. MainActivity reads it out of an intent, and VaultModel
+ * carries it out once the vault is open.
  *
  * @property title what the note is called. That is its file name, so it has
  *   already been made safe to use as one.
  * @property body what the note says.
  * @property typing whether the keyboard should be up as soon as it opens.
+ * @property kind whether the request makes a new note or opens today's.
  */
-data class Capture(val title: String, val body: String, val typing: Boolean) {
+data class Capture(
+    val title: String,
+    val body: String,
+    val typing: Boolean,
+    val kind: Kind = Kind.NOTE,
+) {
+
+    /** What carrying the request out means. */
+    enum class Kind {
+        /** Make a note called [title] holding [body], and open it. */
+        NOTE,
+
+        /**
+         * Open today's note, making it if there is none yet. The title and the
+         * body are not used: the note's name is its date and its first
+         * contents come from the daily template, both settled by the Go core.
+         */
+        TODAY,
+    }
 
     companion object {
 
         /** The action the shortcut, the tile and the widget all send. */
         const val ACTION_NEW_NOTE = "io.github.atlasnotes.action.NEW_NOTE"
+
+        /** The action the Today shortcut sends. */
+        const val ACTION_TODAY = "io.github.atlasnotes.action.TODAY"
 
         private const val BLANK_TITLE = "Untitled"
         private const val SHARED_TITLE = "Shared note"
@@ -54,6 +77,12 @@ data class Capture(val title: String, val body: String, val typing: Boolean) {
          * would leave the first thing typed above it.
          */
         fun blank() = Capture(BLANK_TITLE, "", typing = true)
+
+        /**
+         * Today's note, with the keyboard up as for a new one: someone who asks
+         * for it is about to write in it.
+         */
+        fun today() = Capture("", "", typing = true, kind = Kind.TODAY)
 
         /**
          * Text shared from another app.
@@ -143,6 +172,7 @@ data class Capture(val title: String, val body: String, val typing: Boolean) {
 
         private fun read(intent: Intent): Capture? = when (intent.action) {
             ACTION_NEW_NOTE -> blank()
+            ACTION_TODAY -> today()
             Intent.ACTION_SEND ->
                 if (intent.type.orEmpty().startsWith("text/")) {
                     shared(

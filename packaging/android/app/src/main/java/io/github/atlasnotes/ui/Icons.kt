@@ -126,3 +126,22 @@ val IconFolder: ImageVector by lazy {
             "0v-432 432Z",
     )
 }
+
+/**
+ * A calendar with today marked, for opening the day's note.
+ *
+ * The project's icon set has none, so this one is drawn by hand in the same
+ * 960-unit box and is only straight lines and one circle: the frame with a
+ * solid header, the two binder rings, and the day. The frame runs clockwise
+ * and the window inside it counter-clockwise, which is what cuts it out; the
+ * day runs clockwise again to fill it back in. The same shape, in white on the
+ * logo's blue, is drawable/ic_shortcut_today.
+ */
+val IconToday: ImageVector by lazy {
+    symbol(
+        "today",
+        "M144-768H816V-144H144Z M216-616V-216H744V-616Z " +
+            "M552-380a60 60 0 1 1 120 0a60 60 0 1 1-120 0Z " +
+            "M288-840H360V-696H288Z M600-840H672V-696H600Z",
+    )
+}

@@ -30,6 +30,14 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     /** Notes whose text matched the search, as the index last reported. */
     var contentHits by mutableStateOf<Set<String>>(emptySet()); private set
 
+    /**
+     * The notes carrying the tag the search box is asking for, as the index
+     * last reported, alongside the tag they were found for. The tag is kept so
+     * that results still on their way are not mistaken for an empty answer:
+     * see [tagSearched].
+     */
+    private var tagFound by mutableStateOf<Pair<String, List<String>>?>(null)
+
     /** Where the notes are, once the vault is open. */
     var location by mutableStateOf<Vault.Location?>(null); private set
 
@@ -121,7 +129,8 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
                 // readable, included in the app's backup, and removed with it.
                 // The notes are there too unless the user has chosen a shared
                 // folder, which the configuration in it remembers.
-                Vault.open(getApplication<Application>().filesDir.resolve("vault"))
+                // The reminder opens it by the same name, see Vault.dataDir.
+                Vault.open(Vault.dataDir(getApplication<Application>()))
                 notes = Vault.notes()
                 location = Vault.location()
                 ready = true
@@ -153,8 +162,14 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 Vault.settle()
                 notes = Vault.notes()
-                if (query.isNotBlank()) searchText(query)
+                if (query.isNotBlank()) {
+                    val tag = tagQuery
+                    if (tag != null) searchTag(tag) else searchText(query)
+                }
             }
+            // Only now can the tasks due be trusted: a folder brought in by a
+            // sync app has none in the index until it has been settled.
+            offerReminders()
         }
     }
 
@@ -163,13 +178,46 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * The tag the search box is asking for, without its "#", or null when it
+     * holds an ordinary search. A "#" and something after it is a tag, which is
+     * what it means in a note too; a lone "#" is the start of typing one.
+     */
+    val tagQuery: String?
+        get() = query.trim()
+            .takeIf { it.startsWith("#") }
+            ?.substring(1)?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Whether the tag search has answered for the tag now in the box. Until
+     * it has, an empty list means the answer is still coming and not that no
+     * note has the tag, so the list must not say so yet.
+     */
+    val tagSearched: Boolean
+        get() = tagQuery.let { it != null && tagFound?.first == it }
+
+    /**
      * Changes the search. Names are matched as the text changes; the text of
      * the notes is asked for once typing pauses, because asking the index on
      * every letter would cost a query per letter for nothing.
+     *
+     * A tag is asked for instead of, not as well as, the names and the text:
+     * someone who types "#recipes" wants the notes tagged so, and a note that
+     * merely says the word would only bury them.
      */
     fun updateQuery(text: String) {
         query = text
         searchJob?.cancel()
+        val tag = tagQuery
+        if (tag != null) {
+            contentHits = emptySet()
+            searchJob = viewModelScope.launch {
+                delay(150)
+                searchTag(tag)
+            }
+            return
+        }
+        tagFound = null
         if (text.trim().length < 3) {
             contentHits = emptySet()
             return
@@ -184,13 +232,24 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         contentHits = runCatching { Vault.searchText(text.trim()) }.getOrDefault(emptySet())
     }
 
+    private suspend fun searchTag(tag: String) {
+        tagFound = tag to runCatching { Vault.notesWithTag(tag) }.getOrDefault(emptyList())
+    }
+
     /**
      * The notes the search box is letting through. Those whose name or folder
      * matches come first, newest first, then those found only by their text.
+     * A tag search lets through the notes with the tag and nothing else.
      */
     fun visible(): List<Vault.Note> {
         val q = query.trim()
         if (q.isEmpty()) return notes.sortedByDescending { it.modified }
+        // A tag search shows exactly the notes the index says carry the tag,
+        // whatever their names say.
+        if (tagQuery != null) {
+            val tagged = tagFound?.second.orEmpty().toSet()
+            return notes.filter { it.path in tagged }.sortedByDescending { it.modified }
+        }
         val byName = notes.filter {
             it.name.contains(q, ignoreCase = true) || it.folder.contains(q, ignoreCase = true)
         }
@@ -202,7 +261,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     /** Whether a note is in the results only because of what it says. */
     fun foundByText(note: Vault.Note): Boolean {
         val q = query.trim()
-        return q.isNotEmpty() && note.path in contentHits &&
+        return tagQuery == null && q.isNotEmpty() && note.path in contentHits &&
             !note.name.contains(q, ignoreCase = true) && !note.folder.contains(q, ignoreCase = true)
     }
 
@@ -296,6 +355,8 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         body = ""
         tasks = emptyList()
         notes = runCatching { Vault.notes() }.getOrDefault(notes)
+        // The note may have gained or lost the tag that found it.
+        tagQuery?.let { searchTag(it) }
     }
 
     fun toggleTask(line: Int) = viewModelScope.launch {
@@ -360,11 +421,32 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         saveJob?.cancel()
         save()
         ask = null
+        if (request.kind == Capture.Kind.TODAY) {
+            openToday(request.typing)
+            return
+        }
         val path = createNote(request.title)
         Vault.write(path, request.body)
         notes = Vault.notes()
         load(path)
         if (openPath == path) focusEditor = request.typing
+    }
+
+    /**
+     * Opens today's note, which the Go core makes if there is none yet and
+     * otherwise finds as it was left. Like any other note it may be in a
+     * locked folder, in which case the password is asked for and this is run
+     * again, rather than the shortcut ending in an error.
+     */
+    private suspend fun openToday(typing: Boolean) {
+        try {
+            val path = Vault.dailyNote()
+            notes = Vault.notes()
+            load(path)
+            if (openPath == path) focusEditor = typing
+        } catch (e: Vault.Locked) {
+            askForPassword("to open today's note") { openToday(typing) }
+        }
     }
 
     /**
@@ -457,6 +539,42 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
     fun cancelAsk() { ask = null }
 
     fun dismissError() { error = null }
+
+    // Reminders.
+
+    /**
+     * Set when the system's notification prompt should be shown, which is at
+     * most once in the life of the install. The activity shows it, since only
+     * an activity can, and calls [notificationPromptShown].
+     */
+    var askNotifications by mutableStateOf(false); private set
+
+    /** Whether the check for it has been made since the app started. */
+    private var remindersOffered = false
+
+    /**
+     * Decides whether to ask to show notifications, which is only worth doing
+     * once there is something to remind of. A prompt on the first launch, for
+     * an app that has said nothing yet, is one people refuse, and a refusal is
+     * final in a way that being asked again later is not.
+     */
+    private suspend fun offerReminders() {
+        if (remindersOffered) return
+        remindersOffered = true
+        val app = getApplication<Application>()
+        if (!DueReminders.shouldAsk(app)) return
+        val due = runCatching { Vault.dueTasks(DueReminders.today()) }.getOrDefault(emptyList())
+        if (due.isNotEmpty()) askNotifications = true
+    }
+
+    /**
+     * The prompt is being shown. It is recorded now, before the answer, so that
+     * an app killed with the prompt up does not ask a second time.
+     */
+    fun notificationPromptShown() {
+        askNotifications = false
+        DueReminders.markAsked(getApplication<Application>())
+    }
 
     // Updates.
 

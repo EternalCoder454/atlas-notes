@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.atlasnotes.Capture
 import io.github.atlasnotes.Vault
 import io.github.atlasnotes.VaultModel
 
@@ -37,6 +38,11 @@ fun NoteList(model: VaultModel) {
             TopAppBar(
                 title = { Text("Atlas Notes") },
                 actions = {
+                    // Goes through the same queue as the shortcut, so it waits
+                    // for the vault to open and saves the note on screen first.
+                    IconButton(onClick = { model.capture(Capture.today()) }) {
+                        Icon(IconToday, contentDescription = "Today")
+                    }
                     IconButton(onClick = { model.showFolder = true }) {
                         Icon(IconFolder, contentDescription = "Where your notes are")
                     }
@@ -65,18 +71,34 @@ fun NoteList(model: VaultModel) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
 
+            val tag = model.tagQuery
+
             when {
                 !model.ready -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     CircularProgressIndicator()
                 }
 
-                shown.isEmpty() -> EmptyState(searching = model.query.isNotBlank())
+                // The answer is still on its way, so an empty list is not yet
+                // "no notes tagged": saying so would flash up on every tag.
+                shown.isEmpty() && tag != null && !model.tagSearched -> Box(Modifier.fillMaxSize())
 
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(bottom = 96.dp),
-                ) {
-                    items(shown, key = { it.path }) { note ->
-                        NoteRow(note, foundByText = model.foundByText(note)) { model.open(note) }
+                shown.isEmpty() -> EmptyState(searching = model.query.isNotBlank(), tag = tag)
+
+                else -> {
+                    if (tag != null) {
+                        Text(
+                            "Tagged #$tag",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 96.dp),
+                    ) {
+                        items(shown, key = { it.path }) { note ->
+                            NoteRow(note, foundByText = model.foundByText(note)) { model.open(note) }
+                        }
                     }
                 }
             }
@@ -152,7 +174,7 @@ private fun subtitle(note: Vault.Note): String {
 }
 
 @Composable
-private fun EmptyState(searching: Boolean) {
+private fun EmptyState(searching: Boolean, tag: String?) {
     Box(Modifier.fillMaxSize().padding(32.dp), Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
@@ -163,12 +185,20 @@ private fun EmptyState(searching: Boolean) {
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                if (searching) "Nothing matches that" else "No notes yet",
+                when {
+                    tag != null -> "No notes tagged #$tag"
+                    searching -> "Nothing matches that"
+                    else -> "No notes yet"
+                },
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (searching) "Try a shorter search." else "Tap New note to start one.",
+                when {
+                    tag != null -> "Tags are written like #idea in a note."
+                    searching -> "Try a shorter search."
+                    else -> "Tap New note to start one."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -16,4 +16,15 @@
             android:targetClass="io.github.atlasnotes.MainActivity"
             android:targetPackage="io.github.atlasnotes.debug" />
     </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_today"
+        android:shortcutId="today"
+        android:shortcutLongLabel="@string/today"
+        android:shortcutShortLabel="@string/today">
+        <intent
+            android:action="io.github.atlasnotes.action.TODAY"
+            android:targetClass="io.github.atlasnotes.MainActivity"
+            android:targetPackage="io.github.atlasnotes.debug" />
+    </shortcut>
 </shortcuts>

@@ -3,6 +3,8 @@
     <!-- One name for the shortcut, the quick-settings tile and the widget, so
          the three of them read the same. -->
     <string name="new_note">New note</string>
+    <!-- The launcher shortcut that opens the day's note. -->
+    <string name="today">Today</string>
     <string name="widget_description">Start a new note in one tap.</string>
 
     <!-- The logo's blue, as the shortcut icon and the widget button use it. -->

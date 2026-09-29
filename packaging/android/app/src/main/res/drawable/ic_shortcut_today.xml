@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Today shortcut's icon: a calendar with today marked, in white on the same
+  disc of the logo's blue as ic_shortcut_new_note, and placed the same way. The
+  calendar is drawn in a 960-unit box with its origin at the bottom left, like
+  the Material Symbols, and see ui/Icons.kt (IconToday) for the shape.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <path
+        android:fillColor="@color/capture_accent"
+        android:pathData="M480,0 A480,480 0 1,1 480,960 A480,480 0 1,1 480,0 Z" />
+    <group
+        android:translateX="144"
+        android:translateY="816"
+        android:scaleX="0.7"
+        android:scaleY="0.7">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M144,-768 H816 V-144 H144 Z M216,-616 V-216 H744 V-616 Z M552,-380 a60,60 0 1,1 120,0 a60,60 0 1,1 -120,0 Z M288,-840 H360 V-696 H288 Z M600,-840 H672 V-696 H600 Z" />
+    </group>
+</vector>
