@@ -203,12 +203,14 @@ func DeleteNote(rel string) error {
 }
 
 // RenameNote moves a note, which is how it is renamed: the name is the file.
+// Links to it in other notes are rewritten to follow.
 func RenameNote(oldRel, newRel string) error {
 	s, err := vault()
 	if err != nil {
 		return err
 	}
-	return s.RenameNote(oldRel, newRel)
+	_, err = s.RenameNoteAndLinks(oldRel, newRel)
+	return err
 }
 
 // Password protection. The password is never stored, never logged, and never

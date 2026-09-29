@@ -118,6 +118,13 @@ type Tree struct {
 	OnExport func(rel string)
 	// OnMoved is invoked after a note is dragged into another folder.
 	OnMoved func(oldRel, newRel string)
+	// OnBeforeRename fires before a rename or a move, so the app can save the
+	// open note: renaming rewrites links in other notes' files, and the open
+	// one may be among them.
+	OnBeforeRename func()
+	// OnLinksChanged fires after a rename or a move, when other notes' links
+	// may have been rewritten on disk, so the app can reload the open note.
+	OnLinksChanged func()
 	// OnChanged is invoked after the vault's contents change, so the rest of the
 	// app (the home screen's recent list) can refresh.
 	OnChanged func()
@@ -749,12 +756,20 @@ func (t *Tree) moveInto(srcRel, folderRel string) bool {
 	if newRel == srcRel {
 		return false // already in this folder
 	}
-	if err := t.store.RenameNote(srcRel, newRel); err != nil {
+	if t.OnBeforeRename != nil {
+		t.OnBeforeRename()
+	}
+	if _, err := t.store.RenameNoteAndLinks(srcRel, newRel); err != nil {
 		log.Printf("atlas-notes: move note: %v", err)
-		return false
+		if !t.store.NoteExists(newRel) {
+			return false
+		}
 	}
 	if t.OnMoved != nil {
 		t.OnMoved(srcRel, newRel)
+	}
+	if t.OnLinksChanged != nil {
+		t.OnLinksChanged()
 	}
 	t.ForceRefresh()
 	return true

@@ -329,9 +329,11 @@ func (a *App) onTitleActivate() {
 		return
 	}
 	a.flushDirty()
-	if err := a.store.RenameNote(a.currentNote, newRel); err != nil {
+	if _, err := a.store.RenameNoteAndLinks(a.currentNote, newRel); err != nil {
 		log.Printf("atlas-notes: rename via title: %v", err)
-		return
+		if !a.store.NoteExists(newRel) {
+			return
+		}
 	}
 	a.currentNote = newRel
 	a.cfg.LastNote = newRel

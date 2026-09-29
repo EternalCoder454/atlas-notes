@@ -128,6 +128,11 @@ type Config struct {
 	// discover what the editor understands. Someone who does can turn it off.
 	ShowFormatBar bool `json:"show_format_bar"`
 
+	// DueReminders sends a desktop notification about checklist items that
+	// are due today or overdue. On by default: a due date nobody is told about
+	// is only a label.
+	DueReminders bool `json:"due_reminders"`
+
 	// Favourites are a preference rather than vault content: they live here
 	// rather than in the vault, so they follow the person rather than a copy
 	// of the notes. A vault synced to another machine does not carry them.
@@ -189,6 +194,7 @@ func DefaultConfig() Config {
 		UpdateChannel: ChannelRelease,
 		CheckUpdates:  true,
 		ShowFormatBar: true,
+		DueReminders:  true,
 		SystemPrompt:  DefaultSystemPrompt,
 		Actions:       defaultActions(),
 	}

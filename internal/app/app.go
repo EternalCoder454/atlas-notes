@@ -3,7 +3,10 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
+	"path/filepath"
 	"sync"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
@@ -151,6 +154,9 @@ func (a *App) activate() {
 		if !devRun() {
 			store.Trash = trashFile
 		}
+		// Earlier versions of notes are kept on this machine, outside the
+		// vault, so they never sync. Each vault gets its own folder.
+		store.HistoryDir = historyDir(store.VaultPath)
 		mark("store-open")
 		// The index is a cache of what is on disk. When it already has content
 		// the window can be built from it immediately and the vault scan runs
@@ -270,4 +276,12 @@ func (a *App) loadCSS() {
 	if display := gdk.DisplayGetDefault(); display != nil {
 		gtk.StyleContextAddProviderForDisplay(display, provider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 	}
+}
+
+// historyDir is where a vault's earlier note versions are kept: in the data
+// directory, under a name taken from the vault's path, so two vaults opened on
+// the same machine never share one.
+func historyDir(vault string) string {
+	sum := sha256.Sum256([]byte(vault))
+	return filepath.Join(storage.DataDir(), "history", hex.EncodeToString(sum[:])[:12])
 }

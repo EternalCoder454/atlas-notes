@@ -340,6 +340,19 @@ func (s *Store) noteTaken(rel string) bool {
 	return s.IsNoteLocked(rel)
 }
 
+// NoteExists reports whether a note of that name exists, in any form.
+func (s *Store) NoteExists(rel string) bool { return s.noteTaken(normalizeRel(rel)) }
+
+// FolderExists reports whether a folder of that name exists in the vault.
+func (s *Store) FolderExists(rel string) bool {
+	abs, err := s.resolveFolder(rel)
+	if err != nil || abs == s.VaultPath {
+		return false
+	}
+	info, err := os.Stat(abs)
+	return err == nil && info.IsDir()
+}
+
 // NoteFileName is the file a note is stored in, relative to the vault, as it is
 // now: "Work/Todo.md", or with the extension of whatever format it is in.
 func (s *Store) NoteFileName(rel string) string {

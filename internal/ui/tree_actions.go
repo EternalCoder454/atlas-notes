@@ -132,15 +132,31 @@ func (t *Tree) promptRename(n *node) {
 	}
 	t.promptText("Rename", "Rename", n.name, func(newName string) {
 		newRel := joinRel(parentFolder(n.rel), newName)
+		// Renaming also rewrites the links in other notes that named what
+		// moved. The open note is saved first (OnBeforeRename), because its
+		// file may be one of those rewritten, and reloaded after (OnLinksChanged).
+		if t.OnBeforeRename != nil {
+			t.OnBeforeRename()
+		}
 		var err error
 		if n.isFolder {
-			err = t.store.RenameFolder(n.rel, newRel)
+			_, err = t.store.RenameFolderAndLinks(n.rel, newRel)
 		} else {
-			err = t.store.RenameNote(n.rel, newRel)
+			_, err = t.store.RenameNoteAndLinks(n.rel, newRel)
 		}
 		if err != nil {
 			log.Printf("atlas-notes: rename: %v", err)
-			return
+			// A rename that went through but could not rewrite every link
+			// is still a rename; only a failed rename stops here.
+			if (n.isFolder && !t.store.FolderExists(newRel)) || (!n.isFolder && !t.store.NoteExists(newRel)) {
+				return
+			}
+		}
+		if n.isFolder && t.OnMoved != nil && strings.HasPrefix(t.currentRel, n.rel+"/") {
+			t.OnMoved(t.currentRel, newRel+strings.TrimPrefix(t.currentRel, n.rel))
+		}
+		if t.OnLinksChanged != nil {
+			t.OnLinksChanged()
 		}
 		if !n.isFolder && t.currentRel == n.rel {
 			if t.OnMoved != nil {
