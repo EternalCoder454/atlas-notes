@@ -32,6 +32,12 @@ func (s *Store) ListFolders() ([]string, error) {
 		if rel == "." {
 			return nil
 		}
+		// Images live in a folder of their own, in view of other apps and sync
+		// but not of the note tree, which would otherwise list it as if it
+		// were where notes go. Only the top-level one is the app's.
+		if rel == attachmentsDir {
+			return filepath.SkipDir
+		}
 		folders = append(folders, filepath.ToSlash(rel))
 		return nil
 	})
