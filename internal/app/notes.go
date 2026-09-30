@@ -35,6 +35,9 @@ func (a *App) openNote(rel string) {
 		a.toast("Couldn't open that note: " + err.Error())
 		return
 	}
+	if a.side != nil && a.side.rel == rel {
+		a.dropSide() // saved by the flush above; one note is never open in two panes
+	}
 	a.currentNote = rel
 	a.dirty = false
 	a.cfg.LastNote = rel
@@ -56,6 +59,7 @@ func (a *App) openNote(rel string) {
 // currentNote also stops a pending autosave from re-creating the file.
 func (a *App) onDeleted(rel string, isFolder bool) {
 	a.forgetFavourite(rel, isFolder)
+	a.sideDeleted(rel, isFolder)
 	affected := a.currentNote != "" &&
 		(a.currentNote == rel || (isFolder && strings.HasPrefix(a.currentNote, rel+"/")))
 	if !affected {
@@ -241,6 +245,8 @@ func (a *App) saveCurrent() {
 	}
 	a.dirty = false
 	a.saveInFlight = true
+	a.saveSeq++
+	seq := a.saveSeq
 	a.setSaveState(saveSaving)
 
 	a.saveWG.Add(1)
@@ -261,10 +267,13 @@ func (a *App) saveCurrent() {
 				return false
 			}
 			a.setSaveState(saveSaved)
-			a.rememberSaved(rel, content)
-			if a.editor != nil {
-				a.editor.RefreshEmbeds() // a note that embeds one that was just written
+			// Only if no later write has been made: a flush that got in first
+			// wrote newer text, and recording this older text as what is on disk
+			// would let a return to it skip a write that is needed.
+			if a.saveSeq == seq {
+				a.rememberSaved(rel, content)
 			}
+			a.refreshEmbeds() // a note that embeds the one just written
 			if a.dirty { // edits arrived while the write was in flight
 				a.scheduleAutosave()
 			}
@@ -273,12 +282,22 @@ func (a *App) saveCurrent() {
 	}()
 }
 
-// flushDirty writes the open note synchronously when it has unsaved changes,
+// flushDirty writes the open notes, the side pane's as well as the main one's,
+// synchronously when they have unsaved changes,
 // returning whether a write happened. It first waits for any in-flight async
 // save to finish, so the newest content always wins on disk. Used where the save
 // must complete before the next step: switching notes, renaming, or shutting
 // down.
 func (a *App) flushDirty() bool {
+	wrote := a.flushMain()
+	if a.side != nil && a.side.flush() {
+		wrote = true
+	}
+	return wrote
+}
+
+// flushMain is flushDirty for the main pane's note.
+func (a *App) flushMain() bool {
 	if a.store == nil || a.editor == nil || a.currentNote == "" {
 		return false
 	}
@@ -291,6 +310,7 @@ func (a *App) flushDirty() bool {
 		a.dirty = false
 		return false
 	}
+	a.saveSeq++
 	if err := a.store.WriteNote(a.currentNote, content); err != nil {
 		log.Printf("atlas-notes: save %q: %v", a.currentNote, err)
 		a.setSaveState(saveUnsaved)

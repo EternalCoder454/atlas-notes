@@ -83,6 +83,8 @@ type App struct {
 	outerPaned     *gtk.Paned
 	innerPaned     *gtk.Paned
 	centerStack    *gtk.Stack
+	sidePaned      *gtk.Paned // holds the note editor, and the side pane beside it when there is one
+	side           *sidePane  // the second note, or nil (see sidepane.go)
 	formatBar      *gtk.Box
 
 	titleEntry    *gtk.Entry
@@ -122,6 +124,8 @@ type App struct {
 	savedNote       string         // note the hash below belongs to
 	savedHash       uint64         // hash of what is on disk, to skip no-op writes
 	saveInFlight    bool           // an async save is running
+	saveSeq         int            // counts the writes started, so a late completion can tell it was overtaken
+	sideSpare       *sidePane      // the side pane's editor, kept for the next time one is opened
 	saveWG          sync.WaitGroup // tracks the in-flight async save goroutine
 
 	toastOverlay  *adw.ToastOverlay

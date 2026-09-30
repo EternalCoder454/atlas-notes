@@ -27,8 +27,13 @@ import (
 // wireEditorLinks connects the editor's links, tags and suggestions to the
 // vault. The editor knows how to draw and click them; what they lead to is
 // the app's business.
-func (a *App) wireEditorLinks() {
-	e := a.editor
+func (a *App) wireEditorLinks() { a.wireEditor(a.editor) }
+
+// wireEditor gives an editor every hook the app provides, so that the main
+// editor and the side pane's are alike in what they can do. The hooks that act
+// on "the open note" (the assistant, inserting a picture) are the main
+// editor's; the side pane clears them.
+func (a *App) wireEditor(e *editor.Editor) {
 	e.OnOpenNote = a.openLinkedNote
 	e.OnOpenTag = a.showTagged
 	e.OnOpenURL = a.openURL
@@ -93,14 +98,17 @@ func (a *App) inLockedFolder(rel string) bool {
 // them has to know which note that is. It is set before the note's text goes
 // in, so the pictures load for the right one; the loads themselves run on the
 // editor's goroutines and only read rel, which this closure owns.
-func (a *App) bindImages(rel string) {
-	if a.editor == nil || a.store == nil {
+func (a *App) bindImages(rel string) { a.bindEditorImages(a.editor, rel) }
+
+// bindEditorImages is bindImages for either pane's editor.
+func (a *App) bindEditorImages(e *editor.Editor, rel string) {
+	if e == nil || a.store == nil {
 		return
 	}
 	store := a.store
-	a.editor.LoadImage = func(p string) ([]byte, error) { return store.ReadAttachment(rel, p) }
-	a.editor.SaveImage = func(data []byte) (string, error) { return store.SaveAttachment(rel, data) }
-	a.editor.OnOpenImage = func(p string) {
+	e.LoadImage = func(p string) ([]byte, error) { return store.ReadAttachment(rel, p) }
+	e.SaveImage = func(data []byte) (string, error) { return store.SaveAttachment(rel, data) }
+	e.OnOpenImage = func(p string) {
 		file, err := store.AttachmentFile(rel, p)
 		switch {
 		case errors.Is(err, storage.ErrSealedAttachment):
@@ -247,6 +255,7 @@ func (a *App) onBeforeRename() { a.flushDirty() }
 // rewritten on disk. If the open note was one of them, the editor is holding
 // the old text, so it is read again. Nothing is lost: it was saved first.
 func (a *App) onLinksChanged() {
+	a.sideLinksChanged()
 	a.refreshBacklinks()
 	if a.store == nil || a.currentNote == "" || a.dirty {
 		return
@@ -281,9 +290,7 @@ func (a *App) buildBacklinks() *gtk.Box {
 // main thread; a note opened meanwhile makes its answer stale, so it is
 // dropped.
 func (a *App) refreshBacklinks() {
-	if a.editor != nil {
-		a.editor.RefreshEmbeds() // the notes it shows may be what changed
-	}
+	a.refreshEmbeds() // the notes they show may be what changed
 	if a.backlinksBar == nil || a.store == nil {
 		return
 	}
@@ -430,6 +437,7 @@ func (a *App) linkMention(rel, from string) {
 	if a.store == nil || rel != a.currentNote {
 		return
 	}
+	a.flushDirty() // the note being linked in may be open in either pane, with edits
 	go func() {
 		done, err := a.store.LinkMention(rel, from)
 		coreglib.IdleAdd(func() bool {
@@ -444,6 +452,9 @@ func (a *App) linkMention(rel, from string) {
 				a.toast("That note no longer mentions this one")
 			default:
 				a.toast("Linked in " + path.Base(from))
+			}
+			if done && (from == a.currentNote || (a.side != nil && a.side.rel == from)) {
+				a.onLinksChanged() // it was rewritten on disk; the pane showing it reads it again
 			}
 			if rel == a.currentNote {
 				a.refreshBacklinks()

@@ -275,7 +275,10 @@ func (a *App) showTasks() {
 		return
 	}
 	a.closeFind(false)
-	a.flushDirty() // a note edited just before must be on disk before it is read
+	a.flushDirty()      // a note edited just before must be on disk before it is read
+	if !a.closeSide() { // and no editor may hold a note that ticking is about to change
+		return
+	}
 	a.backlinksGen++
 	a.currentNote = ""
 	a.dirty = false
@@ -410,7 +413,7 @@ func (a *App) completeTask(t storage.DueTask) {
 	// The page shows with no note open, so the editor holds nothing of this
 	// note. If one has been opened since, its unsaved text goes to disk first,
 	// so the tick is made on top of it and not under an autosave.
-	if a.currentNote == t.Path {
+	if a.currentNote == t.Path || (a.side != nil && a.side.rel == t.Path) {
 		a.flushDirty()
 	}
 	go func() {
@@ -424,7 +427,7 @@ func (a *App) completeTask(t storage.DueTask) {
 			switch err {
 			case nil:
 				// The open note, if it is this one, holds the old text now.
-				if a.currentNote == t.Path {
+				if a.currentNote == t.Path || (a.side != nil && a.side.rel == t.Path) {
 					a.onLinksChanged()
 				}
 			case storage.ErrLocked:

@@ -91,6 +91,10 @@ type Editor struct {
 	hoverArmed     bool      // the one hover timer is pending
 	shown          int       // the line whose markers the last render pass left showing, or -1
 
+	// side is what opening a link to the second pane and moving a selection into a
+	// new note need (see panes.go).
+	side sideHooks
+
 	// press is what a click's button-down was over, kept for its release (see
 	// installLinks); overLink is whether the pointer is currently a hand.
 	press    linkPress
@@ -231,6 +235,7 @@ func New() *Editor {
 	e.installComplete()
 	e.installImages()
 	e.installRender()
+	e.installSide()
 
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
 		if mark.Name() == "selection_bound" {

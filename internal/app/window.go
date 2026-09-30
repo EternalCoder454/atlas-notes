@@ -109,6 +109,9 @@ func (a *App) buildWindow() {
 		a.tree.OnMessage = a.toast
 		a.tree.OnExport = a.exportNote
 		a.tree.OnMoved = a.onMoved
+		a.tree.OnRenamed = a.onRenamed
+		a.tree.OnOpenSide = a.openToSide
+		a.tree.OnMerge = a.mergeInto
 		a.tree.OnBeforeRename = a.onBeforeRename
 		a.tree.OnLinksChanged = a.onLinksChanged
 		a.tree.OnChanged = a.refreshWelcome

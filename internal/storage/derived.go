@@ -473,7 +473,9 @@ func (s *Store) DueTasks(through string) ([]DueTask, error) {
 }
 
 // move is one note's path before and after a rename.
-type move struct{ from, to string }
+// heading, when set, is added to the links that name from and have none (see
+// markup.AddLinkHeading), for a merge, where the old note is now a part of one.
+type move struct{ from, to, heading string }
 
 // RenameNoteAndLinks renames a note and then rewrites the links in other notes
 // that named it, returning how many notes that changed. It is what renaming
@@ -518,7 +520,7 @@ func (s *Store) UpdateLinksAfterRename(oldRel, newRel string) (int, error) {
 	}
 	before := slices.Clone(after)
 	before[i] = oldRel
-	return s.rewriteLinks([]move{{oldRel, newRel}}, before, after)
+	return s.rewriteLinks([]move{{from: oldRel, to: newRel}}, before, after)
 }
 
 // UpdateLinksAfterFolderRename is UpdateLinksAfterRename for a folder: every
@@ -543,7 +545,7 @@ func (s *Store) UpdateLinksAfterFolderRename(oldFolder, newFolder string) (int, 
 	for i, p := range after {
 		if rest, ok := strings.CutPrefix(p, prefix); ok {
 			before[i] = oldFolder + "/" + rest
-			moves = append(moves, move{before[i], p})
+			moves = append(moves, move{from: before[i], to: p})
 		}
 	}
 	if len(moves) == 0 {
@@ -614,6 +616,9 @@ func (s *Store) rewriteLinks(moves []move, before, after []string) (int, error) 
 			// scan of every line and of the whole vault's names.
 			if !slices.ContainsFunc(linkKeysFor(m.from), func(k string) bool { return linking[p][k] }) {
 				continue
+			}
+			if m.heading != "" {
+				out, _ = markup.AddLinkHeading(out, m.from, m.heading, before)
 			}
 			out, _ = markup.RewriteLinks(out, m.from, m.to, before, after)
 		}
