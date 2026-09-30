@@ -193,3 +193,19 @@ func FuzzLine(f *testing.F) {
 		RewriteLinks(line, "a", "b", []string{"a"}, []string{"b"})
 	})
 }
+
+func TestSummarizeCountsFrontMatterTags(t *testing.T) {
+	text := "---\ntitle: T\ntags:\n  - Alpha\n  - \"#beta\"\n  - two words\n  - 2026\n---\nBody #alpha #gamma\n"
+	got := Summarize(text).Tags
+	want := []string{"alpha", "gamma", "beta"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("Tags = %v, want %v", got, want)
+	}
+	if got := Summarize("---\ntags: [x, y]\n---").Tags; strings.Join(got, ",") != "x,y" {
+		t.Errorf("flow tags = %v", got)
+	}
+	// Front matter that is not front matter gives nothing.
+	if got := Summarize("---\ntags: [x]\nstray line\n---").Tags; len(got) != 0 {
+		t.Errorf("malformed front matter gave tags %v", got)
+	}
+}

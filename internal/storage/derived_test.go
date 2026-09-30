@@ -837,3 +837,21 @@ func TestOlderBuildWritesAreReread(t *testing.T) {
 		t.Errorf("note not queued for reading")
 	}
 }
+
+// A note's front matter "tags" are its tags in the index, like "#tag" in the text.
+func TestFrontMatterTagsAreIndexed(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "FM", "---\ntags: [Project/Atlas, idea]\n---\nBody #idea")
+	saveNote(t, s, "Plain", "#idea")
+	if got := withTag(t, s, "project/atlas"); !slices.Equal(got, []string{"FM"}) {
+		t.Errorf("NotesWithTag(project/atlas) = %v, want [FM]", got)
+	}
+	tags, err := s.Tags()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []TagCount{{"idea", 2}, {"project/atlas", 1}}
+	if !slices.Equal(tags, want) {
+		t.Errorf("Tags() = %v, want %v", tags, want)
+	}
+}
