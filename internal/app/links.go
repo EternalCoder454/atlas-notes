@@ -14,6 +14,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"atlas-notes/internal/editor"
 	"atlas-notes/internal/markup"
 	"atlas-notes/internal/storage"
 )
@@ -34,6 +35,30 @@ func (a *App) wireEditorLinks() {
 	e.NoteNames = a.noteNames
 	e.TagNames = a.tagNames
 	e.OnImageError = func(err error) { a.toast(imageErrorText(err)) }
+	e.OnAssistant = a.slashAssistant
+	e.OnInsertImage = a.insertImage
+}
+
+// slashPrompts are the questions the editor's slash menu puts to the assistant,
+// worded like the assistant's own starter chips.
+var slashPrompts = map[string]string{
+	editor.AssistantSummarise: "Summarise this note",
+	editor.AssistantContinue:  "Continue writing this note from where it stops. Reply with only the new text",
+	editor.AssistantChecklist: "Turn the main points of this note into a checklist, one task per line",
+}
+
+// slashAssistant runs an assistant entry of the slash menu: it opens the
+// assistant panel, if it was hidden, and asks.
+func (a *App) slashAssistant(action string) {
+	prompt := slashPrompts[action]
+	if prompt == "" || a.sidebar == nil {
+		a.toast("The assistant is not ready yet")
+		return
+	}
+	if a.rightToggle != nil && !a.rightToggle.Active() {
+		a.rightToggle.SetActive(true)
+	}
+	a.sidebar.Ask(prompt)
 }
 
 // bindImages points the editor's pictures at the note being opened: a

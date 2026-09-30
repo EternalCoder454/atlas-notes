@@ -10,9 +10,12 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
+
+	"atlas-notes/internal/markup"
 )
 
-// This file suggests note names after "[[" and tag names after "#".
+// This file suggests note names after "[[", tag names after "#", and the
+// blocks of the slash menu after "/".
 //
 // Deciding what is being typed, ranking the candidates and working out what to
 // insert are plain functions and are tested on their own. The rest is one
@@ -28,6 +31,7 @@ const (
 	suggestNone suggestKind = iota
 	suggestNotes
 	suggestTags
+	suggestSlash
 )
 
 // rankBy keeps the items bucket accepts (it returns a negative number for the
@@ -214,6 +218,9 @@ func suggestContext(before string) (suggestKind, string) {
 	if q, ok := tagQuery(before); ok {
 		return suggestTags, q
 	}
+	if q, ok := slashQuery(before); ok {
+		return suggestSlash, q
+	}
 	return suggestNone, ""
 }
 
@@ -302,6 +309,7 @@ func completeTag(before, after, tag string) (completion, bool) {
 // every keystroke would grow memory for as long as the app ran.
 type suggestRow struct {
 	row  *gtk.ListBoxRow
+	icon *gtk.Image // only the slash menu shows one
 	name *gtk.Label
 	dir  *gtk.Label
 }
@@ -313,12 +321,14 @@ type suggester struct {
 	rows [suggestLimit]suggestRow
 
 	kind      suggestKind
-	trigger   int      // buffer offset of the "[[" or "#" the suggestions belong to
-	dismissed int      // the trigger the person closed with Escape; typing on must not reopen it
-	pool      []string // everything that can be offered, fetched when the popover opened
-	items     []string // what the visible rows stand for
-	sel       int
-	busy      bool // an insertion of ours is in progress
+	trigger   int         // buffer offset of the "[[" or "#" the suggestions belong to
+	dismissed int         // the trigger the person closed with Escape; typing on must not reopen it
+	pool      []string    // everything that can be offered, fetched when the popover opened
+	items     []string    // what is on offer; the rows show suggestLimit of them from top
+	slash     []slashItem // for the slash menu, what each of items stands for
+	sel       int         // index into items
+	top       int         // index of the first item the rows show
+	busy      bool        // an insertion of ours is in progress
 }
 
 // installComplete hooks suggestions up to the buffer and the view.
@@ -412,7 +422,12 @@ func (e *Editor) suggest(typed bool) {
 		e.closeSuggest()
 		return
 	}
-	prefix := 1 // the "#"
+	if kind == suggestSlash && e.inCodeFence(caret.Line()) {
+		s.dismissed = -1
+		e.closeSuggest()
+		return
+	}
+	prefix := 1 // the "#" or "/"
 	if kind == suggestNotes {
 		prefix = 2 // the "[["
 	}
@@ -440,9 +455,16 @@ func (e *Editor) suggest(typed bool) {
 		}
 	}
 	var items []string
-	if kind == suggestNotes {
+	var slash []slashItem
+	switch {
+	case kind == suggestSlash:
+		slash = slashMatches(query, e.OnAssistant != nil, e.OnInsertImage != nil)
+		for _, it := range slash {
+			items = append(items, it.label)
+		}
+	case kind == suggestNotes:
 		items = rankNotes(query, pool, suggestLimit)
-	} else {
+	default:
 		items = rankTags(query, pool, suggestLimit)
 		// Nothing to complete when the only candidate is what is already there.
 		if len(items) == 1 && strings.EqualFold(items[0], query) {
@@ -454,7 +476,7 @@ func (e *Editor) suggest(typed bool) {
 		return
 	}
 
-	s.kind, s.trigger, s.pool, s.items, s.sel = kind, trigger, pool, items, 0
+	s.kind, s.trigger, s.pool, s.items, s.slash, s.sel, s.top = kind, trigger, pool, items, slash, 0, 0
 	s.build(e)
 	s.fill()
 
@@ -507,6 +529,9 @@ func (s *suggester) build(e *Editor) {
 		box.SetMarginStart(6)
 		box.SetMarginEnd(6)
 
+		icon := gtk.NewImage()
+		icon.SetVisible(false)
+
 		name := gtk.NewLabel("")
 		name.SetXAlign(0)
 		name.SetEllipsize(pango.EllipsizeEnd)
@@ -519,39 +544,54 @@ func (s *suggester) build(e *Editor) {
 		dir.SetMaxWidthChars(28)
 		dir.AddCSSClass("dim-label")
 
+		box.Append(icon)
 		box.Append(name)
 		box.Append(dir)
 		row.SetChild(box)
 		list.Append(row)
-		s.rows[i] = suggestRow{row: row, name: name, dir: dir}
+		s.rows[i] = suggestRow{row: row, icon: icon, name: name, dir: dir}
 	}
 	// The handler holds the editor, not the widgets it is attached to.
-	list.ConnectRowActivated(func(row *gtk.ListBoxRow) { e.acceptSuggestion(row.Index()) })
+	list.ConnectRowActivated(func(row *gtk.ListBoxRow) { e.acceptSuggestion(s.top + row.Index()) })
 
 	pop.SetChild(list)
 	pop.SetParent(e.view)
 	s.pop, s.list = pop, list
 }
 
-// fill dresses the rows for the current suggestions and selects the first.
+// fill dresses the rows for the current suggestions and selects the chosen
+// one. The rows are a window on items: the slash menu has more entries than
+// rows, and the window follows the selection.
 func (s *suggester) fill() {
+	if s.sel < s.top {
+		s.top = s.sel
+	} else if s.sel >= s.top+len(s.rows) {
+		s.top = s.sel - len(s.rows) + 1
+	}
 	for i := range s.rows {
 		r := &s.rows[i]
-		if i >= len(s.items) {
+		n := s.top + i
+		if n >= len(s.items) {
 			r.row.SetVisible(false)
 			continue
 		}
 		r.row.SetVisible(true)
-		if s.kind == suggestTags {
-			r.name.SetText("#" + s.items[i])
+		r.icon.SetVisible(s.kind == suggestSlash)
+		switch s.kind {
+		case suggestTags:
+			r.name.SetText("#" + s.items[n])
 			r.dir.SetText("")
-			continue
+		case suggestSlash:
+			r.icon.SetFromIconName(s.slash[n].icon)
+			r.name.SetText(s.slash[n].label)
+			r.dir.SetText(s.slash[n].hint)
+		default:
+			name, dir := splitNote(s.items[n])
+			r.name.SetText(name)
+			r.dir.SetText(dir)
 		}
-		name, dir := splitNote(s.items[i])
-		r.name.SetText(name)
-		r.dir.SetText(dir)
 	}
-	s.list.SelectRow(s.rows[s.sel].row)
+	s.list.SelectRow(s.rows[s.sel-s.top].row)
 }
 
 // move steps the selection, wrapping at both ends.
@@ -561,7 +601,7 @@ func (s *suggester) move(delta int) {
 		return
 	}
 	s.sel = (s.sel + delta + n) % n
-	s.list.SelectRow(s.rows[s.sel].row)
+	s.fill()
 }
 
 // suggestKey handles a key while the popover is open and reports whether it
@@ -594,7 +634,7 @@ func (e *Editor) closeSuggest() {
 		return
 	}
 	s.kind = suggestNone
-	s.pool, s.items = nil, nil
+	s.pool, s.items, s.slash = nil, nil, nil
 	if s.pop != nil {
 		s.pop.Popdown()
 	}
@@ -607,6 +647,10 @@ func (e *Editor) acceptSuggestion(idx int) {
 		return
 	}
 	kind, item, pool := s.kind, s.items[idx], s.pool
+	var chosen slashItem
+	if kind == suggestSlash {
+		chosen = s.slash[idx]
+	}
 	e.closeSuggest()
 
 	// The edit is worked out from the buffer as it is now rather than from what
@@ -618,9 +662,12 @@ func (e *Editor) acceptSuggestion(idx int) {
 	before, after := e.lineBefore(caret), e.lineAfter(caret)
 	var c completion
 	var ok bool
-	if kind == suggestNotes {
+	switch kind {
+	case suggestSlash:
+		c, ok = completeSlash(before, chosen)
+	case suggestNotes:
 		c, ok = completeNote(before, after, item, pool)
-	} else {
+	default:
 		c, ok = completeTag(before, after, item)
 	}
 	if !ok {
@@ -644,4 +691,163 @@ func (e *Editor) acceptSuggestion(idx int) {
 	e.buffer.Insert(from, c.text)
 	e.buffer.EndUserAction()
 	e.buffer.PlaceCursor(e.buffer.IterAtOffset(base + utf8.RuneCountInString(c.text) + c.skip))
+
+	// What the block asks of the app happens once the text is settled, so an
+	// assistant answer or a file chooser never sees a half-made edit.
+	if kind != suggestSlash {
+		return
+	}
+	s.busy = false
+	switch {
+	case chosen.action != "" && e.OnAssistant != nil:
+		e.OnAssistant(chosen.action)
+	case chosen.image && e.OnInsertImage != nil:
+		e.OnInsertImage()
+	case chosen.text == "[[":
+		e.suggest(true) // the link's own suggestions take over
+	}
+}
+
+// slashItem is one entry of the slash menu. text is what replaces the "/" and
+// what was typed after it; a "\x00" in it marks where the caret goes, and
+// without one the caret ends up after the text. block says the text is a whole
+// line's worth of markup, so it starts a new line when the "/" was typed after
+// other words. An entry with an action or image asks the app for something
+// instead of, or besides, inserting text.
+type slashItem struct {
+	label, hint, icon string
+	keys              string // extra words that find it
+	text              string
+	block             bool
+	action            string // an assistant action, for OnAssistant
+	image             bool   // asks the app to insert a picture
+}
+
+// Assistant actions the slash menu hands to Editor.OnAssistant.
+const (
+	AssistantSummarise = "summarise"
+	AssistantContinue  = "continue"
+	AssistantChecklist = "checklist"
+)
+
+var slashItems = []slashItem{
+	{label: "Heading 1", hint: "#", icon: "atlasnotes-heading1-symbolic", keys: "title h1", text: "# ", block: true},
+	{label: "Heading 2", hint: "##", icon: "atlasnotes-heading2-symbolic", keys: "subtitle h2", text: "## ", block: true},
+	{label: "Bullet list", hint: "-", icon: "atlasnotes-bullet-list-symbolic", keys: "unordered points", text: "- ", block: true},
+	{label: "Task", hint: "- [ ]", icon: "atlasnotes-task-symbolic", keys: "todo checkbox", text: "- [ ] ", block: true},
+	{label: "Numbered list", hint: "1.", icon: "atlasnotes-outline-symbolic", keys: "ordered steps", text: "1. ", block: true},
+	{label: "Quote", hint: ">", icon: "atlasnotes-quote-symbolic", keys: "blockquote", text: "> ", block: true},
+	{label: "Callout", hint: "> [!note]", icon: "atlasnotes-callout-note-symbolic", keys: "note admonition", text: "> [!note] ", block: true},
+	{label: "Table", hint: "2 by 2", icon: "atlasnotes-table-symbolic", keys: "grid", text: "| Name | Value |\n| --- | --- |\n| \x00 |  |\n|  |  |", block: true},
+	{label: "Code block", hint: "```", icon: "atlasnotes-code-symbolic", keys: "fence snippet", text: "```\n\x00\n```", block: true},
+	{label: "Divider", hint: "---", icon: "atlasnotes-divider-symbolic", keys: "rule line separator", text: "---\n", block: true},
+	{label: "Image", hint: "from a file", icon: "atlasnotes-image-symbolic", keys: "picture photo", image: true},
+	{label: "Link", hint: "[[", icon: "atlasnotes-link-symbolic", keys: "note wiki", text: "[["},
+	{label: "Summarise", hint: "assistant", icon: "atlasnotes-sparkle-symbolic", keys: "summary ai", action: AssistantSummarise},
+	{label: "Continue writing", hint: "assistant", icon: "atlasnotes-sparkle-symbolic", keys: "ai carry on", action: AssistantContinue},
+	{label: "Make a checklist", hint: "assistant", icon: "atlasnotes-sparkle-symbolic", keys: "ai tasks todo", action: AssistantChecklist},
+}
+
+// slashMaxQuery is how long the text after "/" may get before the menu gives
+// up: nothing in it is that long, and a slash that far back is prose.
+const slashMaxQuery = 24
+
+// slashQuery reports whether the caret, at the end of before, is in a "/" that
+// opens the slash menu, and returns what has been typed after it. The "/" must
+// open the line or follow a space or tab, so "a/b", "and/or" and "https://x"
+// never ask. The query starts with a letter, so "a / b" and "1 /2" do not
+// either, and it holds no more than a couple of words.
+func slashQuery(before string) (string, bool) {
+	i := strings.LastIndexByte(before, '/')
+	if i < 0 {
+		return "", false
+	}
+	if i > 0 {
+		prev, _ := utf8.DecodeLastRuneInString(before[:i])
+		if prev != ' ' && prev != '\t' {
+			return "", false
+		}
+	}
+	q := before[i+1:]
+	if len(q) > slashMaxQuery || strings.ContainsAny(q, "/\t") || strings.Contains(q, "  ") {
+		return "", false
+	}
+	if q != "" {
+		if r, _ := utf8.DecodeRuneInString(q); !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return "", false
+		}
+	}
+	return q, true
+}
+
+// slashMatches is the menu for what has been typed: every entry whose name or
+// search words start with each word of query, the ones whose name does first.
+// The assistant entries are left out when the app has no assistant to hand
+// them to, and Image when it cannot choose a file.
+func slashMatches(query string, assistant, image bool) []slashItem {
+	words := strings.Fields(strings.ToLower(query))
+	var first, rest []slashItem
+	for _, it := range slashItems {
+		if (it.action != "" && !assistant) || (it.image && !image) {
+			continue
+		}
+		label := strings.ToLower(it.label)
+		hay := strings.Fields(label + " " + it.keys)
+		ok, byName := true, true
+		for _, w := range words {
+			if !anyPrefix(hay, w) {
+				ok = false
+				break
+			}
+			if !anyPrefix(strings.Fields(label), w) {
+				byName = false
+			}
+		}
+		switch {
+		case !ok:
+		case byName:
+			first = append(first, it)
+		default:
+			rest = append(rest, it)
+		}
+	}
+	return append(first, rest...)
+}
+
+func anyPrefix(words []string, p string) bool {
+	for _, w := range words {
+		if strings.HasPrefix(w, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// completeSlash works out the edit for choosing an entry: the "/" and what was
+// typed after it are replaced by its text. A block chosen after other words on
+// the line starts a line of its own.
+func completeSlash(before string, it slashItem) (completion, bool) {
+	kind, q := suggestContext(before)
+	if kind != suggestSlash {
+		return completion{}, false
+	}
+	text := it.text
+	if it.block && strings.TrimSpace(before[:len(before)-len(q)-1]) != "" {
+		text = "\n" + text
+	}
+	c := completion{before: utf8.RuneCountInString(q) + 1}
+	if i := strings.IndexByte(text, 0); i >= 0 {
+		c.text = text[:i] + text[i+1:]
+		c.skip = -utf8.RuneCountInString(text[i+1:])
+	} else {
+		c.text = text
+	}
+	return c, true
+}
+
+// inCodeFence reports whether a line of the note is inside a fenced code
+// block, where "/" is code and nothing is offered.
+func (e *Editor) inCodeFence(line int) bool {
+	fence := markup.InCodeFence(e.sourceText())
+	return line >= 0 && line < len(fence) && fence[line]
 }

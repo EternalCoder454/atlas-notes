@@ -542,6 +542,18 @@ func (s *Sidebar) FocusInput() {
 	}
 }
 
+// Ask puts a question in the prompt field and sends it, as the starter chips
+// do. When the assistant is not ready to answer the text stays in the field, so
+// nothing typed for it is lost. It always asks, whatever mode the panel is in:
+// a question is what every caller means.
+func (s *Sidebar) Ask(question string) {
+	if s.askEntry == nil {
+		return
+	}
+	s.askEntry.Buffer().SetText(question, -1)
+	s.runAsk()
+}
+
 // setSuggestionsVisible hides the starter chips once there is a real answer on
 // screen, and brings them back when the panel returns to idle.
 func (s *Sidebar) setSuggestionsVisible(v bool) {
