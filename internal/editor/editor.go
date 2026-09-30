@@ -1,6 +1,7 @@
 // Package editor implements the center WYSIWYG markdown editor: a GtkTextView
-// whose buffer is re-tagged (headings, bold, italic, code) on a 50ms debounce,
-// hiding the markdown syntax markers except on the line holding the cursor.
+// whose buffer is re-tagged (headings, bold, italic, code) on a 50ms debounce.
+// It is a live preview: the markdown syntax markers are hidden except around the
+// exact construct the caret is in, so the text stays put as the caret moves.
 // Checklist lines are converted to embedded checkbox widgets on the same pass.
 package editor
 
@@ -15,6 +16,8 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
+
+	"atlas-notes/internal/markup"
 )
 
 const reparseDebounceMs = 50
@@ -38,6 +41,23 @@ type Editor struct {
 	dirtyTo    int
 	fullDirty  bool
 	lastCursor int
+	// fence says, per line, whether it is part of a fenced code block (the fences
+	// included), as markup.InCodeFence reports it; nil when the note has no
+	// fence at all. It is worked out again only when the text has changed, which
+	// fenceStale records, and fenceLines is the number of lines it was worked out
+	// for. See refreshFence.
+	fence      []bool
+	fenceLines int
+	fenceStale bool
+	// lastKey is what the last render pass left revealed around the caret, and
+	// keyValid whether that pass got as far as knowing. A caret move that would
+	// leave the key as it is changes nothing on screen and skips the pass (see
+	// caretPassNeeded).
+	lastKey  caretKey
+	keyValid bool
+	// snapping is set while the caret is being moved out of a task's hidden
+	// metadata (see snapToMetadata), so that the move does not snap again.
+	snapping   bool
 	hasAnchors bool           // whether any checklist widget is embedded in the buffer
 	items      []anchoredItem // embedded checklist rows, by the anchor holding them
 	rowPool    []*itemRow     // rows kept for reuse instead of being rebuilt
@@ -107,7 +127,7 @@ type Editor struct {
 
 // New builds the editor component.
 func New() *Editor {
-	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1, shown: -1}
+	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1, shown: -1, fenceStale: true}
 
 	e.view = gtk.NewTextView()
 	e.view.SetWrapMode(gtk.WrapWordChar)
@@ -138,6 +158,9 @@ func New() *Editor {
 	})
 
 	e.buffer.ConnectChanged(func() {
+		// Before the loading check: a programmatic edit can open or close a fence
+		// as well as a typed one can.
+		e.fenceStale = true
 		if e.loading {
 			return
 		}
@@ -158,7 +181,14 @@ func New() *Editor {
 		if !e.loading {
 			e.revealCaret = true
 		}
-		e.scheduleReparse()
+		// A caret that has landed in a task's hidden metadata is moved out of it,
+		// and that move arrives here again for the place it lands.
+		if e.snapToMetadata() {
+			return
+		}
+		if e.loading || e.caretPassNeeded() {
+			e.scheduleReparse()
+		}
 	})
 
 	// When a selection goes away, run what was held back while it existed: the
@@ -217,6 +247,12 @@ func (e *Editor) createTags() {
 	e.newTag("italic", map[string]any{"style": pango.StyleItalic})
 	e.newTag("strike", map[string]any{"strikethrough": true})
 	e.newTag("code", map[string]any{"family": "monospace", "scale": 0.94})
+	// A line of a fenced code block. The background is a neutral gray with alpha,
+	// so it lifts the block a little from a light page and from a dark one alike.
+	e.newTag("codeblock", map[string]any{
+		"family": "monospace", "scale": 0.94,
+		"paragraph-background": "rgba(128,128,128,0.14)",
+	})
 	// Hidden markers are shrunk to nothing and drawn transparent rather than
 	// made invisible. GTK's invisible text is removed from the line's layout,
 	// and every hit-test then maps layout positions back past it; when a
@@ -397,9 +433,9 @@ func (e *Editor) reparse() {
 		return
 	}
 
-	cursorLine := -1
+	cursorLine, caretCol := -1, -1
 	if ins := e.buffer.IterAtMark(e.buffer.GetInsert()); ins != nil {
-		cursorLine = ins.Line()
+		cursorLine, caretCol = ins.Line(), ins.LineOffset()
 	}
 
 	revealLine := -1
@@ -418,13 +454,16 @@ func (e *Editor) reparse() {
 	}
 	from = clamp(from, lastLine)
 	to = clamp(to, lastLine)
+	if e.fenceStale {
+		from, to = e.refreshFence(from, to, lastLine)
+	}
 	e.lastCursor = cursorLine
 	e.clearDirty()
 
 	breadcrumb("reparse lines %d-%d of %d, caret %d", from, to, lastLine+1, cursorLine)
 	e.renderChecklists(from, to, revealLine)
 	e.reapItems()
-	e.tagRange(from, to, revealLine)
+	e.tagRange(from, to, revealLine, caretCol)
 	e.syncImages(from, to)
 
 	if e.OnReparsed != nil {
@@ -438,13 +477,101 @@ func (e *Editor) reparse() {
 	}
 }
 
-// tagRange re-applies every formatting tag for lines [from, to].
-func (e *Editor) tagRange(from, to, cursorLine int) {
+// refreshFence works out again which lines are in a fenced code block, for a
+// pass over lines from to to (of a document whose last line is lastLine). It
+// returns the range widened to what must be re-tagged: opening or closing a
+// fence changes every line after it, so when any line past the range is in a
+// different state than it was in before the edit, the range runs to the end of
+// the document.
+func (e *Editor) refreshFence(from, to, lastLine int) (int, int) {
+	old, oldLines := e.fence, e.fenceLines
+	raw := e.rawText()
+	var cur []bool
+	// Nearly every note has no fence, and finding that out is much cheaper than
+	// splitting the note into lines.
+	if strings.Contains(raw, "```") || strings.Contains(raw, "~~~") {
+		cur = markup.InCodeFence(raw)
+	}
+	e.fence, e.fenceLines, e.fenceStale = cur, lastLine+1, false
+	if fenceChanged(old, cur, oldLines, lastLine+1, to) {
+		to = lastLine
+	}
+	return from, to
+}
+
+// fenceChanged reports whether any line after line to is in a different fenced
+// state than before an edit. Lines after the edit moved with the text, so a line
+// is compared with the one that was in its place then, which is the line the
+// same number of lines from the end. A nil slice is a note with no fence.
+func fenceChanged(old, cur []bool, oldLines, curLines, to int) bool {
+	if old == nil && cur == nil {
+		return false
+	}
+	shift := curLines - oldLines
+	for j := to + 1; j < curLines; j++ {
+		k := j - shift
+		if k < 0 || k >= oldLines || inFence(cur, j) != inFence(old, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// inFence reports whether line n is in a fenced code block. Lines past the end
+// of fence (or all of them, when it is nil) are not.
+func inFence(fence []bool, n int) bool {
+	return n >= 0 && n < len(fence) && fence[n]
+}
+
+// fenceRole is what part a line plays in a fenced code block.
+type fenceRole uint8
+
+const (
+	fenceNone fenceRole = iota // an ordinary line
+	fenceEdge                  // a line that opens or closes a block
+	fenceBody                  // a line between the fences
+)
+
+// roleOf says what line n, whose text is line, is in a note whose fenced lines
+// are fence. The first line of a run is the opening fence. The last line of a run
+// is the closing fence when it starts like one (the run may also just end with
+// the note, when the fence was never closed).
+func roleOf(fence []bool, n int, line string) fenceRole {
+	if !inFence(fence, n) {
+		return fenceNone
+	}
+	if !inFence(fence, n-1) {
+		return fenceEdge
+	}
+	if !inFence(fence, n+1) {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			return fenceEdge
+		}
+	}
+	return fenceBody
+}
+
+// fenceSpans is what a line of a code block gets in place of everything else:
+// nothing is parsed inside a block, not headings, not emphasis, not links. The
+// fences are dimmed and the lines between them set in code.
+func fenceSpans(line string, role fenceRole) []span {
+	n := utf8.RuneCountInString(line)
+	if role == fenceEdge {
+		return []span{{"marker", 0, n}}
+	}
+	return []span{{"codeblock", 0, n}}
+}
+
+// tagRange re-applies every formatting tag for lines [from, to]. caret is the
+// caret's character offset in cursorLine, which is -1 when no line is showing
+// its markers.
+func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 	// Tags are about to change under a layout the pointer may be hit-tested
 	// against (see linkUnder). Every place that changes tags says so itself; the
 	// buffer's tag signals are not listened to, as they fire for each tag of each
 	// range and a render pass makes thousands of those.
 	e.markLayoutStale()
+	e.keyValid = false
 	start, ok1 := e.buffer.IterAtLine(from)
 	end, ok2 := e.buffer.IterAtLine(to)
 	if !ok1 || !ok2 {
@@ -456,31 +583,26 @@ func (e *Editor) tagRange(from, to, cursorLine int) {
 	e.buffer.RemoveAllTags(start, end)
 	text := e.buffer.Slice(start, end, true) // Slice keeps offsets aligned with TextIter
 
+	key := caretKey{line: -1}
 	lineNum := from
 	for _, line := range strings.Split(text, "\n") {
+		// The caret is only looked for on its own line, and the key says what it
+		// revealed there.
+		at, keyed := -1, (*caretKey)(nil)
+		if lineNum == cursorLine {
+			at, key = caret, caretKey{line: lineNum}
+			keyed = &key
+		}
 		// A completed task reads as done (struck through, receded). Only a
 		// line that starts with an anchor can be one, and only then is the
 		// line's length in characters needed.
 		if strings.HasPrefix(line, anchorChar) && e.anchorChecked(lineNum) {
 			e.applyTag("done", lineNum, 1, utf8.RuneCountInString(line))
 		}
-		// Spans come back within the line's bounds (enforced by the fuzz test
-		// over parseLineSpans), and an offset past the end simply fails to
-		// resolve to an iterator, so no clamping is done here: measuring the
-		// line in characters for every render pass was costing more than the
-		// parse itself.
-		for _, sp := range parseLineSpans(line, lineNum == cursorLine) {
-			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
-		}
-		// Note links, tags and web addresses go on top. A line with none of them
-		// costs a few substring searches and allocates nothing.
-		for _, sp := range linkSpans(line, lineNum == cursorLine) {
-			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
-		}
-		// A line that is a picture hides its Markdown, away from the caret, and
-		// makes room below itself for the picture. Only lines with "![" pay.
-		if e.imagesOn() && strings.Contains(line, "![") {
-			e.tagImageLine(lineNum, line, lineNum == cursorLine)
+		if role := roleOf(e.fence, lineNum, line); role != fenceNone {
+			e.tagFenceLine(lineNum, line, role)
+		} else {
+			e.tagLine(lineNum, line, at, keyed)
 		}
 		if breadcrumbsOn {
 			breadcrumb("tagged line %d: %d chars, %d bytes", lineNum,
@@ -488,6 +610,122 @@ func (e *Editor) tagRange(from, to, cursorLine int) {
 		}
 		lineNum++
 	}
+	e.lastKey, e.keyValid = key, true
+}
+
+// tagLine applies the tags of an ordinary line: the caret is at character offset
+// at in it (-1 when it is elsewhere), and key, when not nil, collects what the
+// caret reveals.
+func (e *Editor) tagLine(lineNum int, line string, at int, key *caretKey) {
+	// Spans come back within the line's bounds (enforced by the fuzz test
+	// over parseLineSpans), and an offset past the end simply fails to
+	// resolve to an iterator, so no clamping is done here: measuring the
+	// line in characters for every render pass was costing more than the
+	// parse itself.
+	for _, sp := range parseLine(line, at, key) {
+		e.applyTag(sp.tag, lineNum, sp.start, sp.end)
+	}
+	// Note links, tags and web addresses go on top. A line with none of them
+	// costs a few substring searches and allocates nothing.
+	for _, sp := range linkSpansKey(line, at, key) {
+		e.applyTag(sp.tag, lineNum, sp.start, sp.end)
+	}
+	// A line that is a picture hides its Markdown, away from the caret, and
+	// makes room below itself for the picture. Only lines with "![" pay. A
+	// picture is one thing, so the caret anywhere on its line shows it all.
+	if e.imagesOn() && strings.Contains(line, "![") {
+		e.tagImageLine(lineNum, line, at >= 0)
+	}
+}
+
+// tagFenceLine tags a line that is part of a fenced code block.
+func (e *Editor) tagFenceLine(lineNum int, line string, role fenceRole) {
+	for _, sp := range fenceSpans(line, role) {
+		if sp.end > sp.start {
+			e.applyTag(sp.tag, lineNum, sp.start, sp.end)
+			continue
+		}
+		// An empty line has no character to carry the tag, and the block's
+		// background is taken from the tags at the start of the line. The
+		// newline that ends it carries the tag instead.
+		e.tagNewline(sp.tag, lineNum)
+	}
+}
+
+// tagNewline applies a tag to the line break that ends a line. The last line has
+// none.
+func (e *Editor) tagNewline(name string, line int) {
+	tag := e.tags[name]
+	if tag == nil {
+		return
+	}
+	si, ok := e.buffer.IterAtLine(line)
+	if !ok || si == nil || !si.EndsLine() {
+		return
+	}
+	ei := si.Copy()
+	ei.ForwardChar()
+	if ei.Offset() == si.Offset() {
+		return // the end of the buffer
+	}
+	e.buffer.ApplyTag(tag, si, ei)
+}
+
+// snapToMetadata moves the caret out of a line's hidden metadata comment, when
+// that is where it has just landed (see snapCaret), and reports whether it did.
+// It leaves a selection alone, and so a drag that sweeps over the comment,
+// and it does nothing while a note is loading.
+func (e *Editor) snapToMetadata() bool {
+	if e.loading || e.snapping || e.buffer.HasSelection() {
+		return false
+	}
+	ins := e.buffer.IterAtMark(e.buffer.GetInsert())
+	if ins == nil {
+		return false
+	}
+	line, col := ins.Line(), ins.LineOffset()
+	text, ok := e.lineText(line)
+	if !ok || !strings.Contains(text, "<!--") {
+		return false
+	}
+	to := snapCaret(text, col)
+	if to == col {
+		return false
+	}
+	at, ok := e.buffer.IterAtLineOffset(line, to)
+	if !ok {
+		return false
+	}
+	e.snapping = true
+	e.buffer.PlaceCursor(at)
+	e.snapping = false
+	return true
+}
+
+// caretPassNeeded reports whether the caret's move has changed what the pass
+// draws. A move within a line changes it only when the construct the caret is in
+// changes, or it enters or leaves a heading's or quote's prefix; moving from
+// character to character inside one bold word changes nothing, and a render pass
+// is many calls into GTK. Edited text always needs a pass.
+func (e *Editor) caretPassNeeded() bool {
+	if e.fullDirty || e.dirtyFrom >= 0 || !e.keyValid {
+		return true
+	}
+	ins := e.buffer.IterAtMark(e.buffer.GetInsert())
+	if ins == nil {
+		return true
+	}
+	key := caretKey{line: ins.Line()}
+	if !inFence(e.fence, key.line) {
+		text, ok := e.lineText(key.line)
+		if !ok {
+			return true
+		}
+		col := ins.LineOffset()
+		parseLine(text, col, &key)
+		linkSpansKey(text, col, &key)
+	}
+	return key != e.lastKey
 }
 
 // breadcrumb records what the editor is about to do, for the case where GTK

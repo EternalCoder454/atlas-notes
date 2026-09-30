@@ -25,8 +25,10 @@ func FuzzParseLineSpans(f *testing.F) {
 			return // the buffer only ever holds valid UTF-8
 		}
 		n := utf8.RuneCountInString(line)
-		for _, reveal := range []bool{false, true} {
-			for _, sp := range parseLineSpans(line, reveal) {
+		base := parseLineSpans(line, -1)
+		for caret := -1; caret <= n+1; caret++ {
+			got := parseLineSpans(line, caret)
+			for _, sp := range got {
 				if sp.start < 0 || sp.end < 0 {
 					t.Fatalf("negative span %+v for %q", sp, line)
 				}
@@ -37,6 +39,37 @@ func FuzzParseLineSpans(f *testing.F) {
 					t.Fatalf("empty tag in span %+v for %q", sp, line)
 				}
 			}
+			// The caret only ever shows markers; it never changes a tag.
+			if !onlyUnhides(base, got) {
+				t.Fatalf("parseLineSpans(%q, %d) = %v, which is not %v with some markers shown",
+					line, caret, got, base)
+			}
+		}
+	})
+}
+
+// FuzzSnapCaret pins the snap: it never moves the caret forward or off the
+// line, and a caret it leaves is one it would leave again.
+func FuzzSnapCaret(f *testing.F) {
+	for _, seed := range []string{
+		"task <!-- p:high -->", "<!-- x -->", "a <!-- x --> b", "<!--", "", "é ü <!-- é -->  ",
+	} {
+		f.Add(seed, 3)
+	}
+	f.Fuzz(func(t *testing.T, line string, caret int) {
+		if !utf8.ValidString(line) {
+			return
+		}
+		n := utf8.RuneCountInString(line)
+		if caret < 0 || caret > n {
+			return
+		}
+		got := snapCaret(line, caret)
+		if got < 0 || got > caret {
+			t.Fatalf("snapCaret(%q, %d) = %d, want within 0..%d", line, caret, got, caret)
+		}
+		if again := snapCaret(line, got); again != got {
+			t.Fatalf("snapCaret(%q, %d) = %d, then %d", line, caret, got, again)
 		}
 	})
 }

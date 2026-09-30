@@ -9,13 +9,21 @@ const richLine = "The **release** notes mention *italics*, `inline code`, and a 
 
 func BenchmarkParseLineSpans(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		parseLineSpans(richLine, false)
+		parseLineSpans(richLine, -1)
+	}
+}
+
+// BenchmarkParseLineSpansCaret is the caret's own line: the caret sits inside the
+// bold, so its markers are left out and the rest are hidden.
+func BenchmarkParseLineSpansCaret(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		parseLineSpans(richLine, 10)
 	}
 }
 
 func BenchmarkParseLineSpansHeading(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		parseLineSpans("## A heading with **bold** in it", false)
+		parseLineSpans("## A heading with **bold** in it", -1)
 	}
 }
 
@@ -30,7 +38,7 @@ func BenchmarkParseDocumentSpans(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, line := range strings.Split(doc, "\n") {
-			parseLineSpans(line, false)
+			parseLineSpans(line, -1)
 		}
 	}
 }

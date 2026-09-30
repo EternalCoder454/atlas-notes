@@ -73,8 +73,9 @@ func markupSpans(line string) []markup.Span {
 	if b := strings.Index(line, "<!--"); b >= base && strings.Contains(line[b:], "-->") {
 		end = b
 	}
-	// The editor does not track fenced code blocks, so no line is known to be
-	// inside one. Inline code is still left alone by markup itself.
+	// Lines inside a fenced code block never get here: the render pass tags them
+	// as code without looking for links (see tagRange). Inline code is left alone
+	// by markup itself.
 	spans := markup.Line(line[base:end], false)
 	if base > 0 {
 		for i := range spans {
@@ -95,20 +96,42 @@ func visibleStart(line string, sp markup.Span) int {
 }
 
 // linkSpans returns the tag applications for the links on one line, in
-// character offsets. Like parseLineSpans, it leaves the brackets and the
-// address visible when reveal is set (the caret is on the line) and hides them
-// otherwise, so the line reads as a link and can still be edited.
+// character offsets. caret is the caret's character offset in the line, or -1
+// when it is elsewhere. Like parseLineSpans, it leaves a link's brackets and
+// address visible while the caret is in that link (its brackets included) and
+// hides them otherwise, so the line reads as a link and can still be edited.
+// Each link is judged on its own: the caret in one leaves the next hidden.
 //
 // Images are not handled here: an image line is picked up by tagImageLine
-// (images.go), and any other image stays plain text.
-func linkSpans(line string, reveal bool) []span {
+// (images.go), which shows its Markdown while the caret is anywhere on the
+// line, and any other image stays plain text.
+func linkSpans(line string, caret int) []span {
+	return linkSpansKey(line, caret, nil)
+}
+
+// linkSpansKey is linkSpans, and also fills in key (when it is not nil) with the
+// link the caret is in.
+func linkSpansKey(line string, caret int, key *caretKey) []span {
 	found := markupSpans(line)
 	if len(found) == 0 {
 		return nil
 	}
+	cb := caretByte(line, caret)
 	out := make([]span, 0, 2*len(found))
+	shown := false // the caret is in the link being read
+	// inside says whether the caret is in the link spanning bytes s to e, or
+	// right against either end of it.
+	inside := func(s, e int) bool {
+		if cb < s || cb > e {
+			return false
+		}
+		if key != nil {
+			key.link = [2]int{s, e}
+		}
+		return true
+	}
 	hide := func(s, e int) {
-		if reveal || e <= s {
+		if shown || e <= s {
 			return
 		}
 		// The same choice parseLineSpans makes, for the same reason.
@@ -122,6 +145,7 @@ func linkSpans(line string, reveal bool) []span {
 		switch sp.Kind {
 		case markup.KindWikiLink:
 			open := visibleStart(line, sp)
+			shown = inside(open, sp.End)
 			out = append(out, span{tagWikiLink, open, sp.End})
 			hide(open, open+2)
 			hide(sp.End-2, sp.End)
@@ -138,6 +162,7 @@ func linkSpans(line string, reveal bool) []span {
 			if line[sp.Start] == '[' && sp.Alias != "" {
 				// "[text](url)": only the text shows. An empty text would leave
 				// nothing to see or click, so that case is left as it is written.
+				shown = inside(sp.Start, sp.End)
 				textEnd := sp.Start + 1 + len(sp.Alias)
 				out = append(out, span{tagURL, sp.Start + 1, textEnd})
 				hide(sp.Start, sp.Start+1)
@@ -204,7 +229,7 @@ type linkPress struct {
 	kind     markup.Kind
 	target   string
 	heading  string
-	revealed bool // the line was showing its markers, so a plain click edits
+	revealed bool // the link was showing its markers, so a plain click edits
 	// pending is a press that came while the layout was stale, so nothing could
 	// be looked up under it; the release does that, if the layout has settled.
 	pending bool
@@ -215,8 +240,37 @@ type linkPress struct {
 func (e *Editor) pressOn(sp markup.Span, line int, x, y float64) linkPress {
 	return linkPress{
 		have: true, kind: sp.Kind, target: sp.Target, heading: sp.Heading,
-		revealed: line == e.shown, x: x, y: y,
+		revealed: e.showsMarkers(sp, line), x: x, y: y,
 	}
+}
+
+// showsMarkers reports whether the last render pass left the link sp, found on
+// line, with its brackets and address showing, which is when the caret is in it.
+// A plain click there is for editing the link, and Ctrl opens it. A link that
+// hides nothing (a tag or a web address) has no such state, so for those it is
+// the caret's line that counts, as it was before markers followed the caret.
+func (e *Editor) showsMarkers(sp markup.Span, line int) bool {
+	if line != e.shown {
+		return false
+	}
+	text, ok := e.lineText(line)
+	if !ok || !e.keyValid {
+		return true
+	}
+	r, hides := linkRange(text, sp)
+	return !hides || e.lastKey.link == r
+}
+
+// linkRange is the byte range linkSpans reveals together for a link, and
+// whether the link has markers to hide at all.
+func linkRange(line string, sp markup.Span) ([2]int, bool) {
+	switch {
+	case sp.Kind == markup.KindWikiLink:
+		return [2]int{visibleStart(line, sp), sp.End}, true
+	case sp.Kind == markup.KindURL && line[sp.Start] == '[' && sp.Alias != "":
+		return [2]int{sp.Start, sp.End}, true
+	}
+	return [2]int{}, false
 }
 
 // linkUnder finds the link at a point in the view, and the line it is on.
@@ -417,7 +471,7 @@ func (e *Editor) hoverLookup() {
 		return
 	}
 	sp, line, ok := e.linkUnder(e.hoverX, e.hoverY)
-	e.setLinkCursor(ok && e.canOpen(sp.Kind) && (e.hoverCtrl || line != e.shown))
+	e.setLinkCursor(ok && e.canOpen(sp.Kind) && (e.hoverCtrl || !e.showsMarkers(sp, line)))
 }
 
 // setLinkCursor switches the pointer between a hand over a link and the text

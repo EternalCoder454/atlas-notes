@@ -180,8 +180,10 @@ func imageLineSpan(line string) (markup.Span, bool) {
 }
 
 // tagImageLine is the render pass's part for a line that mentions "![". For an
-// image line it hides the text (unless the caret is there), restores the spacing
-// that the pass just stripped, and notes the line for syncImages.
+// image line it hides the text (unless the caret is on the line: a picture is one
+// thing, so unlike an inline construct it shows all of its Markdown or none),
+// restores the spacing that the pass just stripped, and notes the line for
+// syncImages.
 func (e *Editor) tagImageLine(lineNum int, line string, reveal bool) {
 	sp, ok := imageLineSpan(line)
 	if !ok {
