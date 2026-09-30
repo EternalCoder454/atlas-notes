@@ -408,6 +408,8 @@ jobs:
     # which warms its cache, on tags, and by hand.
     if: github.ref != 'refs/heads/beta' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # The runtime download and a cold Go build; well under this normally.
+    timeout-minutes: 45
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
       options: --privileged
