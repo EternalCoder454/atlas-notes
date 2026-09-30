@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"math"
 	"regexp"
 	"strings"
 	"testing"
@@ -262,4 +263,38 @@ func TestFreeEdgesAlwaysDrawn(t *testing.T) {
 			t.Error("zero-length step")
 		}
 	}
+}
+
+// An arrow into a box placed by hand ends on that box, with its head there,
+// however many ranks apart the automatic layout had put the two.
+func TestArrowReachesAPlacedBox(t *testing.T) {
+	src := "flowchart LR\n  a[Web app] --> b[API server] --> c(Database)\n  b -->|queue| w[Worker]\n  %% atlas:pos w 420 20\n"
+	g, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := Layout(g, nil)
+	var w *Item
+	for _, it := range g.Order {
+		if it.ID == "w" {
+			w = it
+		}
+	}
+	if w == nil {
+		t.Fatal("no worker box")
+	}
+	for _, r := range sc.Routes {
+		if r.Edge.to != w {
+			continue
+		}
+		end := r.Pts[len(r.Pts)-1]
+		onLeft := math.Abs(end.X-w.X) < 1 && end.Y >= w.Y-1 && end.Y <= w.Y+w.H+1
+		onTop := math.Abs(end.Y-w.Y) < 1 && end.X >= w.X-1 && end.X <= w.X+w.W+1
+		onBottom := math.Abs(end.Y-(w.Y+w.H)) < 1 && end.X >= w.X-1 && end.X <= w.X+w.W+1
+		if !onLeft && !onTop && !onBottom {
+			t.Errorf("the arrow ends at %v, not on the worker box %v", end, w)
+		}
+		return
+	}
+	t.Error("no arrow into the worker box")
 }

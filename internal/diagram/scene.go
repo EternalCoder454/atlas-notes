@@ -519,7 +519,11 @@ func xmlEscape(s string) string {
 // so that it does not cross the boxes between. It returns nil for the arrows
 // that need no such way. The last point it returns is the target's border.
 func (sc *Scene) detour(e *Edge, ss, ts int, a, b Pt) []Pt {
-	if e.span > -2 && e.span < 2 {
+	// The detour runs through the gaps between rank rows. An arrow to or from
+	// a box the person placed by hand has no rows to follow: its span still
+	// counts the ranks of the automatic layout, and a path through those gaps
+	// ended short of the placed box. It takes the direct elbow instead.
+	if e.free || (e.span > -2 && e.span < 2) {
 		return nil
 	}
 	vert := vertical(e.lca.Dir)
