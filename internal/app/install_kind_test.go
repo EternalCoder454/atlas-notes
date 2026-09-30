@@ -95,8 +95,8 @@ func TestWhere(t *testing.T) {
 	}{
 		{Install{Kind: FromSource, Source: "/s"}, "built from /s"},
 		{Install{Kind: FromPackage, Manager: "pacman", Binary: "/usr/bin/atlas-notes"}, "installed by pacman: /usr/bin/atlas-notes"},
-		{Install{Kind: Standalone, Binary: "/opt/atlas-notes"}, "/opt/atlas-notes"},
-		{Install{Kind: Standalone}, "unknown"},
+		{Install{Kind: Standalone, Binary: "/opt/atlas-notes"}, "on its own (no installer or package manager owns it)"},
+		{Install{Kind: Flatpak}, "Flatpak (io.github.atlasnotes)"},
 	} {
 		if got := c.in.Where(); got != c.want {
 			t.Errorf("Where() = %q, want %q", got, c.want)

@@ -74,10 +74,9 @@ func (in Install) Where() string {
 	case FromPackage:
 		return "installed by " + in.Manager + ": " + in.Binary
 	default:
-		if in.Binary == "" {
-			return "unknown"
-		}
-		return in.Binary
+		// The path is already on the line above ("Installed at"); what this
+		// line adds is that nothing owns the copy.
+		return "on its own (no installer or package manager owns it)"
 	}
 }
 
