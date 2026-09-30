@@ -347,11 +347,22 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
 
     fun open(note: Vault.Note) = viewModelScope.launch { load(note.path) }
 
-    private suspend fun load(path: String) {
+    /**
+     * Opens [path]. [index] is set when moving through the history, which then
+     * only moves the cursor; opening a note any other way adds it to the
+     * history, dropping whatever was ahead of the cursor as a browser does.
+     */
+    private suspend fun load(path: String, index: Int? = null) {
         focusEditor = false
         try {
             body = Vault.read(path)
             openPath = path
+            if (index != null) {
+                cursor = index
+            } else if (history.getOrNull(cursor) != path) {
+                history = history.take(cursor + 1) + path
+                cursor = history.lastIndex
+            }
             openLocked = notes.find { it.path == path }?.locked ?: false
             tasks = Vault.tasks(body)
         } catch (e: Vault.Locked) {
@@ -364,6 +375,51 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             error = e.message ?: "That note would not open"
         }
     }
+
+    // Back and forward through the notes that have been open.
+
+    /** The notes opened so far, oldest first, and which of them is on screen. */
+    private var history by mutableStateOf<List<String>>(emptyList())
+    private var cursor by mutableStateOf(-1)
+
+    /**
+     * Back is there from a note, where it goes to the one before or else the
+     * list, and from the list once a note has been open, where it returns to
+     * the last one.
+     */
+    val canGoBack: Boolean get() = openPath != null || cursor in history.indices
+    val canGoForward: Boolean get() = openPath != null && cursor < history.lastIndex
+
+    /** Also what the system back gesture does, so that the two never disagree. */
+    fun goBack() = viewModelScope.launch {
+        val open = openPath
+        when {
+            open == null -> history.getOrNull(cursor)?.let { load(it, cursor) }
+            cursor > 0 -> step(cursor - 1)
+            else -> close().join()
+        }
+    }
+
+    fun goForward() = viewModelScope.launch {
+        if (openPath != null && cursor < history.lastIndex) step(cursor + 1)
+    }
+
+    /** Saves the open note, then shows the history entry at [index]. */
+    private suspend fun step(index: Int) {
+        saveJob?.cancel()
+        save()
+        load(history[index], index)
+    }
+
+    /** Asked for by the bar's search button: the list, with the search box focused. */
+    var focusSearch by mutableStateOf(false); private set
+
+    fun search() = viewModelScope.launch {
+        if (openPath != null) close().join()
+        focusSearch = true
+    }
+
+    fun searchFocused() { focusSearch = false }
 
     fun edit(text: String) {
         body = text
@@ -575,6 +631,7 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
             save()
             Vault.rename(from, target)
             openPath = target
+            history = history.map { if (it == from) target else it }
             // Links to the note are rewritten as it is renamed, and that
             // includes any in the note itself, so the text on screen may be out
             // of date. It was saved just before, so nothing typed is lost by
@@ -593,6 +650,10 @@ class VaultModel(app: Application) : AndroidViewModel(app) {
         saveJob?.cancel()
         attempt {
             Vault.delete(path)
+            // A deleted note is nowhere to go back to.
+            val gone = history.withIndex().filter { it.value == path }.map { it.index }
+            cursor -= gone.count { it <= cursor }
+            history = history.filter { it != path }
             openPath = null
             body = ""
             tasks = emptyList()
