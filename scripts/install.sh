@@ -393,7 +393,12 @@ fetch_source() {
 		git -C "$SRC_DIR" fetch --prune origin
 		if [ -z "$BRANCH" ]; then
 			BRANCH="$(git -C "$SRC_DIR" rev-parse --abbrev-ref HEAD)"
-			[ "$BRANCH" != "HEAD" ] || BRANCH="main"
+			if [ "$BRANCH" = "HEAD" ]; then
+				# Detached: follow the remote's default branch.
+				BRANCH="$(git -C "$SRC_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+				BRANCH="${BRANCH#origin/}"
+				[ -n "$BRANCH" ] || BRANCH="main"
+			fi
 		fi
 		git -C "$SRC_DIR" checkout "$BRANCH"
 		# Fast-forward when possible. The checkout is this script's own, never
