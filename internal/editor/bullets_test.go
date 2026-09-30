@@ -182,7 +182,7 @@ func TestGlyphColAndRestoreMarker(t *testing.T) {
 		back string
 	}{
 		{"• a", 0, "- a"},
-		{"  • a", 2, "-   a"[:0] + "  - a"},
+		{"  • a", 2, "  - a"},
 		{"\t• a", 1, "\t- a"},
 		{"•a", -1, "•a"},
 		{"x • a", -1, "x • a"},
