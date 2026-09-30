@@ -65,6 +65,7 @@ var paletteActions = []paletteAction{
 	{"export", "Export the open note", "pdf html save as", true},
 	{"history", "Version history", "restore earlier", true},
 	{"insert-image", "Insert an image", "picture photo", true},
+	{"edit-diagram", "Edit diagram", "flowchart mermaid chart boxes arrows", true},
 	{"move-selection", "Move selection to a new note", "split extract cut out", true},
 	{"merge-into", "Merge this note into another", "combine join append", true},
 	{"open-side", "Open a note to the side", "split pane beside second compare", true},

@@ -37,6 +37,7 @@ func (a *App) registerActions() {
 		{"export", []string{"<Control><Shift>e"}, a.mainOnly(a.exportCurrent)},
 		{"history", []string{"<Control><Shift>h"}, a.mainOnly(a.showHistory)},
 		{"insert-image", []string{"<Control><Shift>i"}, a.mainOnly(a.insertImage)},
+		{"edit-diagram", nil, a.mainOnly(a.actionEditDiagram)},
 		{"move-selection", []string{"<Control><Shift>m"}, a.actionSplitNote},
 		{"merge-into", []string{"<Control><Alt>m"}, a.actionMerge},
 		{"open-side", []string{"<Control>backslash"}, a.actionOpenSide},
@@ -186,6 +187,17 @@ func (a *App) actionFind() {
 		return
 	}
 	a.openFind(false)
+}
+
+// actionEditDiagram opens the flowchart editor on the diagram the caret is in.
+func (a *App) actionEditDiagram() {
+	if !a.noteOpen() {
+		a.toast("Open a note to edit a diagram in it")
+		return
+	}
+	if a.editor == nil || !a.editor.EditDiagramAtCaret() {
+		a.toast("Put the caret in a Mermaid flowchart to edit it")
+	}
 }
 
 // actionFindReplace opens the find bar with its replace row showing.

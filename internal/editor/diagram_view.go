@@ -41,7 +41,10 @@ type diagramHit struct {
 // diagramBox is the widget for one diagram, kept for reuse.
 type diagramBox struct {
 	serial int
+	root   *gtk.Overlay // the scroll window and the edit button over it
 	scroll *gtk.ScrolledWindow
+	edit   *gtk.Button
+	flow   bool // a flowchart, which the editor can edit
 	area   *gtk.DrawingArea
 	font   *diagramFont
 	src    string // what scene was laid out from
@@ -233,7 +236,7 @@ func (e *Editor) syncDiagrams(from, to int) {
 func (e *Editor) dropDiagram(it *diagramItem) {
 	if it.box != nil {
 		if it.shown {
-			e.view.Remove(it.box.scroll)
+			e.view.Remove(it.box.root)
 		}
 		if len(e.dia.pool) < maxPooledDiagrams {
 			it.box.scene, it.box.src, it.box.avail = nil, "", 0
@@ -316,6 +319,26 @@ func (e *Editor) takeDiagramBox() *diagramBox {
 	b.scroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyNever)
 	b.scroll.SetChild(b.area)
 	b.scroll.AddCSSClass("atlas-diagram-scroll")
+	b.root = gtk.NewOverlay()
+	b.root.SetChild(b.scroll)
+	// A flowchart has a button over it, shown while the pointer is on it.
+	b.edit = gtk.NewButtonFromIconName("atlasnotes-edit-symbolic")
+	b.edit.AddCSSClass("circular")
+	b.edit.AddCSSClass("osd")
+	b.edit.SetHAlign(gtk.AlignEnd)
+	b.edit.SetVAlign(gtk.AlignStart)
+	b.edit.SetMarginTop(6)
+	b.edit.SetMarginEnd(6)
+	b.edit.SetTooltipText("Edit diagram")
+	b.edit.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyLabel}, []coreglib.Value{*coreglib.NewValue("Edit diagram")})
+	b.edit.SetVisible(false)
+	b.root.AddOverlay(b.edit)
+	hover := gtk.NewEventControllerMotion()
+	hover.ConnectEnter(func(_, _ float64) { b.edit.SetVisible(b.flow) })
+	hover.ConnectLeave(func() { b.edit.SetVisible(false) })
+	b.root.AddController(hover)
+	editSerial := b.serial
+	b.edit.ConnectClicked(func() { e.editDiagramSerial(editSerial) })
 	b.area.SetDrawFunc(func(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
 		if b.scene == nil {
 			return
@@ -334,6 +357,19 @@ func (e *Editor) takeDiagramBox() *diagramBox {
 	})
 	b.area.AddController(click)
 	return b
+}
+
+// editDiagramSerial opens the flowchart editor on the diagram with a widget
+// number.
+func (e *Editor) editDiagramSerial(serial int) {
+	for _, it := range e.dia.items {
+		if it.box != nil && it.box.serial == serial {
+			if line := e.markLine(it.mark); line >= 0 {
+				e.EditDiagramAt(line)
+			}
+			return
+		}
+	}
 }
 
 func (e *Editor) editDiagram(serial int) {
@@ -359,7 +395,7 @@ func (it *diagramItem) widget() gtk.Widgetter {
 	if it.box == nil {
 		return nil
 	}
-	return it.box.scroll
+	return it.box.root
 }
 
 func (it *diagramItem) ready(avail int) bool { return avail > 0 }
@@ -383,7 +419,7 @@ func (it *diagramItem) wantPad(e *Editor, line, avail int) string {
 func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 	b := it.box
 	if !it.shown {
-		e.view.AddOverlay(b.scroll, 0, tableParkY)
+		e.view.AddOverlay(b.root, 0, tableParkY)
 		it.shown, it.x, it.y = true, 0, tableParkY
 	}
 	if b.scene == nil || b.src != it.src || b.avail != avail {
@@ -396,6 +432,12 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 			b.font = newDiagramFont(pango.NewLayout(pc), pc.FontDescription().Family())
 		}
 		b.scene, b.src, b.avail = doc.Scene(b.font.measure, float64(avail)), it.src, avail
+		b.flow = diagram.Kind(it.src) == "flowchart"
+		if b.flow {
+			b.area.SetTooltipText("")
+		} else {
+			b.area.SetTooltipText("Gantt charts and sequence diagrams are edited as text: click to edit it")
+		}
 		b.area.QueueDraw()
 		b.area.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyLabel, gtk.AccessiblePropertyDescription},
 			[]coreglib.Value{*coreglib.NewValue(b.scene.Label), *coreglib.NewValue(b.scene.Desc)})
@@ -413,7 +455,7 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 	if cw > avail {
 		h += 12 // room for the scroll bar
 	}
-	gtk.BaseWidget(b.scroll).SetSizeRequest(w, h)
+	gtk.BaseWidget(b.root).SetSizeRequest(w, h)
 	return w, h
 }
 
