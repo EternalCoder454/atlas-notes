@@ -121,7 +121,7 @@ func (a *App) buildWindow() {
 	foot, _ := navList(struct {
 		icon, label, tooltip string
 		activate             func()
-	}{iconName("atlasnotes-settings-symbolic", "emblem-system-symbolic"), "Settings", "Settings (Ctrl+,)", a.showSettings})
+	}{iconName("atlasnotes-settings-symbolic", "atlasnotes-menu-symbolic"), "Settings", "Settings (Ctrl+,)", a.showSettings})
 	foot.AddCSSClass("atlas-nav-footer")
 	a.left.Append(foot)
 

@@ -82,7 +82,7 @@ func (a *App) actionNewFromTemplate() {
 		// With nothing to choose from, the dialog is the place to learn what a
 		// template is, and to make the folder that holds them.
 		empty := adw.NewStatusPage()
-		empty.SetIconName(iconName("atlasnotes-note-symbolic", "text-x-generic-symbolic"))
+		empty.SetIconName(iconName("atlasnotes-note-symbolic", "atlasnotes-folder-symbolic"))
 		empty.SetDescription("Any note in a folder called Templates can start a new note. " +
 			"Placeholders such as {{date}}, {{time}} and {{title}} are filled in.")
 		create := gtk.NewButtonWithLabel("Create Templates Folder")

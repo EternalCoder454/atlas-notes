@@ -15,6 +15,16 @@
  * the floor is set for the light scheme, not the dark one: the same alpha is
  * not symmetric between them, since dimming white on a dark background stays
  * legible far longer than dimming black on a light one.
+ *
+ * Icons follow the same discipline: a size for where they sit, and one of two
+ * strengths. Sizes: 16px in the title bar, the vault's rows and header, the
+ * formatting toolbar and the assistant, 18px in the navigation, 20px on the
+ * home screen's cards. Strengths: full for the primary icons, the title bar's
+ * and the navigation's, which are what you steer by, and 0.7 for the secondary
+ * ones, the vault's rows and header and the formatting toolbar, which mark or
+ * offer something beside the text and should not outshout it. No icon takes
+ * an opacity of its own beyond those two, or two icons of a kind end up two
+ * different greys.
  */
 
 /* ---- Identity ---- */
@@ -44,6 +54,13 @@ toolbarview.atlas-frame > .top-bar:backdrop {
 	background-color: transparent;
 	box-shadow: none;
 	border-bottom: none;
+}
+
+/* Primary: the buttons are the way around the app, so they are drawn at full
+   strength. */
+.atlas-titlebar button image {
+	-gtk-icon-size: 16px;
+	opacity: 1;
 }
 
 .atlas-brand {
@@ -127,9 +144,11 @@ list.atlas-nav > row {
 	margin: 0 0 2px 0;
 }
 
+/* Primary, as the title bar's are. This wins over the vault rows' rule below,
+   since the navigation is a navigation-sidebar list too. */
 list.atlas-nav > row image {
 	-gtk-icon-size: 18px;
-	opacity: 0.85;
+	opacity: 1;
 }
 
 list.atlas-nav > row.activatable:hover {
@@ -170,6 +189,7 @@ list.atlas-nav-footer {
 	opacity: 0.6;
 }
 
+/* Secondary: the quiet strength, 0.7, until the pointer is over one. */
 .vault-header button.flat {
 	min-width: 26px;
 	min-height: 26px;
@@ -181,6 +201,10 @@ list.atlas-nav-footer {
 	opacity: 1;
 }
 
+.vault-header button.flat image {
+	-gtk-icon-size: 16px;
+}
+
 .vault-search {
 	border-radius: 8px;
 	min-height: 30px;
@@ -189,6 +213,10 @@ list.atlas-nav-footer {
 
 .vault-empty {
 	padding: 24px 18px;
+}
+
+.vault-empty image {
+	opacity: 0.7;
 }
 
 .vault-empty-title {
@@ -231,7 +259,11 @@ list.atlas-nav-footer {
 	color: @window_fg_color;
 }
 
+/* Secondary, at the same strength as the rest of the quiet icons. The badges
+   at the end of a row (a star, a padlock) are images too, so they get the size
+   and the strength from here rather than from rules of their own. */
 .navigation-sidebar image {
+	-gtk-icon-size: 16px;
 	opacity: 0.7;
 }
 
@@ -306,12 +338,18 @@ list.atlas-nav-footer {
 	border-bottom: 1px solid alpha(@window_fg_color, 0.10);
 }
 
+/* Secondary: the quiet strength until the pointer is over one. The find bar
+   is a format-bar too, and its buttons take the size but not the dimming. */
 .format-button {
 	min-width: 28px;
 	min-height: 28px;
 	padding: 2px;
-	opacity: 0.78;
+	opacity: 0.7;
 	border-radius: 6px;
+}
+
+.format-bar button image {
+	-gtk-icon-size: 16px;
 }
 
 .format-button:hover {
@@ -439,9 +477,13 @@ list.atlas-nav-footer {
 	opacity: 0.68;
 }
 
+/* The cards' icons are the home screen's way in, so they are full strength and
+   a little larger than the rest. The size holds only while the image has no
+   pixel size of its own set in code, which GTK prefers to this. */
 .welcome-card-icon {
 	color: @accent_color;
-	opacity: 0.9;
+	opacity: 1;
+	-gtk-icon-size: 20px;
 }
 
 .keycap {
@@ -479,6 +521,11 @@ list.atlas-nav-footer {
 	background-color: alpha(@window_fg_color, 0.07);
 }
 
+/* Secondary, at the quiet strength rather than dim-label's own. */
+.welcome-recent image {
+	opacity: 0.7;
+}
+
 .welcome-recent-title {
 	font-weight: 600;
 }
@@ -499,6 +546,12 @@ list.atlas-nav-footer {
 .welcome-footer {
 	margin-top: 22px;
 	opacity: 0.55;
+}
+
+/* The footer as a whole is dimmed already, and dim-label on its icon would
+   dim it a second time. */
+.welcome-footer image {
+	opacity: 1;
 }
 
 .welcome-footer-text {
@@ -601,6 +654,12 @@ list.atlas-nav-footer {
 	min-width: 32px;
 	min-height: 32px;
 	padding: 0;
+}
+
+/* Every button in the assistant: the actions menu, edit mode, send and the
+   copy button. */
+.ai-sidebar button image {
+	-gtk-icon-size: 16px;
 }
 
 /* Ollama status dot — intentional semantic colors. */
@@ -725,14 +784,10 @@ list.atlas-nav-footer {
 }
 
 /* Row badges: a star for a favourite, a padlock for something encrypted. Both
-   are recessive — they mark a row, they do not compete with its name. */
-.row-badge {
-	opacity: 0.6;
-}
-
+   are recessive (they mark a row, they do not compete with its name), which
+   the panel's icon rule above already makes them. */
 .row-star {
 	color: #f5c211; /* amber, the one place in the panel that carries colour */
-	opacity: 0.85;
 }
 
 /* ---- Cards ----

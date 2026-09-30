@@ -8,9 +8,11 @@ to the third-party material named here.
 Material Symbols
 --------------------------------------------------------------------------------
 
-The symbolic icons in internal/app/icons/atlas-*-symbolic.svg are derived from
-Material Symbols by Google, used under the Apache License, Version 2.0. The
-unmodified exports they are built from are kept in assets/icons-src/.
+The symbolic icons in internal/app/icons/atlasnotes-*-symbolic.svg are derived
+from Material Symbols by Google, used under the Apache License, Version 2.0. The
+unmodified exports they are built from are kept in assets/icons-src/. All of
+them are one style: Outlined, weight 400, grade 0, optical size 20, the "_20px"
+file of each icon's "materialsymbolsoutlined" folder in the repository below.
 
     https://fonts.google.com/icons
     https://github.com/google/material-design-icons
@@ -31,8 +33,8 @@ unmodified exports they are built from are kept in assets/icons-src/.
 
 Changes made to the exports, by scripts/import-icons.sh:
 
-  * Renamed to "atlas-<name>-symbolic.svg". GTK looks an icon up in the current
-    theme first and falls back to hicolor last, so an icon sharing a name with
-    the desktop theme's own would never be reached.
+  * Renamed to "atlasnotes-<name>-symbolic.svg". GTK looks an icon up in the
+    current theme first and falls back to hicolor last, so an icon sharing a
+    name with the desktop theme's own would never be reached.
   * The preview colour the export carries was replaced with black, and a
     nominal 16x16 size was set. The artwork and its viewBox are untouched.

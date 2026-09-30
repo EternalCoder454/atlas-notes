@@ -69,7 +69,7 @@ func (a *App) buildWelcome() *gtk.Widget {
 		{"atlasnotes-checklist-symbolic", "New checklist", "A note that starts with tasks", "Ctrl+T", a.actionNewChecklist},
 		// The action is registered with the others; going through it keeps one
 		// place that knows what "today's note" means.
-		{"atlasnotes-recent-symbolic", "Today's note", "Jot down today's plans", "Ctrl+D", func() { a.adw.ActivateAction("today", nil) }},
+		{"atlasnotes-today-symbolic", "Today's note", "Jot down today's plans", "Ctrl+D", func() { a.adw.ActivateAction("today", nil) }},
 		{"atlasnotes-search-symbolic", "Find a note", "Search titles across the vault", "Ctrl+K", a.actionFocusSearch},
 		{"atlasnotes-info-symbolic", "Read the guide", "Markdown, tasks and the assistant", "", a.openGuide},
 	}
