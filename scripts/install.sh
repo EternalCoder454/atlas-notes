@@ -657,10 +657,10 @@ overlaps_vault() {
 # REMOVED collects what remove_path actually deleted, so the summary never
 # claims more than was done.
 REMOVED=()
-remove_path() {
+remove_path() { # path, [notes]: the second word allows deleting the vault itself
 	local t="$1"
 	[ -e "$t" ] || [ -L "$t" ] || return 0
-	if overlaps_vault "$t"; then
+	if [ "${2:-}" != notes ] && overlaps_vault "$t"; then
 		warn "Keeping $t: your notes are in it, or it is inside them."
 		return 0
 	fi
@@ -761,7 +761,7 @@ purge_profile() { # label, data dir, config dir
 	fi
 	if confirm "To permanently delete $([ "$delete_vault" = 1 ] && echo "your notes and their history" || echo "their history"), type exactly: delete my notes" "delete my notes"; then
 		REMOVED=()
-		[ "$delete_vault" = 0 ] || remove_path "$vault"
+		[ "$delete_vault" = 0 ] || remove_path "$vault" notes
 		remove_path "$data/history"
 		rmdir "$data" 2>/dev/null || true
 		print_removed
