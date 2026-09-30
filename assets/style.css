@@ -677,16 +677,6 @@ list.atlas-nav-footer {
 	background-color: #e01b24; /* red: not running */
 }
 
-/* ---- Settings dialog ---- */
-
-.settings-group,
-.ai-action {
-	background-color: @card_bg_color;
-	border: 1px solid alpha(@window_fg_color, 0.07);
-	border-radius: 7px;
-	padding: 14px;
-}
-
 /* ---- Checklist items ---- */
 
 /*
@@ -828,7 +818,7 @@ list.boxed-list-separate > row,
 	border-radius: 7px;
 }
 
-/* ---- Transparency (Settings, General, Window transparency) ----
+/* ---- Transparency (Settings, Appearance, Window transparency) ----
  *
  * True translucency, not a blur: the frame and the page let the desktop show
  * through, and what is drawn on them (the note's text, the tree, the cards)
@@ -958,8 +948,6 @@ window.atlas-glass dialog-host > dialog sheet list.boxed-list {
  * picker's circles, the way back from a chosen theme, and the prompt shortcut
  * cards. The circles' colours are not here; they are generated from the theme
  * table (internal/theme, SwatchCSS) so a new theme cannot leave one unpainted.
- * The old .settings-group and .ai-action rules above belong to the three-page
- * dialog and nothing uses them now.
  */
 
 /* The list of sections at the left. Rows a little taller than the sidebar

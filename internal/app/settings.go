@@ -1296,35 +1296,3 @@ func textViewText(tv *gtk.TextView) string {
 	start, end := b.Bounds()
 	return b.Text(start, end, true)
 }
-
-// The three below are what update.go's buildAppPage still builds with. Nothing
-// calls that any more: the Updates and About sections above replace it. They go
-// when it does.
-
-func sectionBox() *gtk.Box {
-	box := gtk.NewBox(gtk.OrientationVertical, 12)
-	box.SetMarginTop(16)
-	box.SetMarginBottom(16)
-	box.SetMarginStart(16)
-	box.SetMarginEnd(16)
-	return box
-}
-
-// wrappingCheck is a check button whose label wraps. The stock one's label
-// does not, so a sentence long enough to explain the setting sets a minimum
-// width for the whole page.
-func wrappingCheck(text string) *gtk.CheckButton {
-	check := gtk.NewCheckButton()
-	label := gtk.NewLabel(text)
-	label.SetWrap(true)
-	label.SetXAlign(0)
-	check.SetChild(label)
-	return check
-}
-
-func fieldLabel(text string) *gtk.Label {
-	l := gtk.NewLabel(text)
-	l.SetXAlign(0)
-	l.AddCSSClass("heading")
-	return l
-}

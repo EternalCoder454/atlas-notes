@@ -2,15 +2,12 @@ package app
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
-	"github.com/diamondburned/gotk4/pkg/gtk/v4"
-	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"atlas-notes/internal/storage"
 )
@@ -60,102 +57,6 @@ func installedBinary() (string, error) {
 		return resolved, nil
 	}
 	return exe, nil
-}
-
-// buildAppPage builds the settings "App" section: an update channel selector
-// (Release = main, Beta = beta) and a one-click update + restart.
-func (a *App) buildAppPage() gtk.Widgetter {
-	box := sectionBox()
-
-	box.Append(fieldLabel("Updates"))
-	desc := gtk.NewLabel("Automatically check and install updates from GitHub.")
-	desc.SetXAlign(0)
-	desc.SetWrap(true)
-	desc.AddCSSClass("dim-label")
-	box.Append(desc)
-
-	chanLabel := gtk.NewLabel("Update channel")
-	chanLabel.SetXAlign(0)
-	chanLabel.SetMarginTop(8)
-	chanLabel.AddCSSClass("heading")
-	box.Append(chanLabel)
-
-	channel := gtk.NewDropDownFromStrings([]string{
-		"Release (main branch, stable)",
-		"Beta (beta branch, newest and may be unstable)",
-	})
-	channel.SetHAlign(gtk.AlignStart)
-	if a.cfg.UpdateChannel == storage.ChannelBeta {
-		channel.SetSelected(1)
-	}
-	channel.NotifyProperty("selected", func() {
-		a.cfg.UpdateChannel = channelFromIndex(channel.Selected())
-		if err := storage.SaveConfig(a.cfg); err != nil {
-			log.Printf("atlas-notes: save update channel: %v", err)
-		}
-	})
-	box.Append(channel)
-
-	check := wrappingCheck("Check for updates when Atlas Notes starts")
-	check.SetActive(a.cfg.CheckUpdates)
-	check.SetTooltipText("Asks GitHub whether a newer version has been published. " +
-		"Nothing about you or your notes is sent.")
-	check.SetMarginTop(8)
-	check.ConnectToggled(func() {
-		a.cfg.CheckUpdates = check.Active()
-		if err := storage.SaveConfig(a.cfg); err != nil {
-			log.Printf("atlas-notes: save update setting: %v", err)
-		}
-	})
-	box.Append(check)
-
-	updateBtn := gtk.NewButtonWithLabel("Update & Restart")
-	updateBtn.AddCSSClass("suggested-action")
-	updateBtn.SetHAlign(gtk.AlignStart)
-	updateBtn.SetMarginTop(12)
-	box.Append(updateBtn)
-
-	status := gtk.NewLabel("")
-	status.SetXAlign(0)
-	status.SetWrap(true)
-	box.Append(status)
-
-	updateBtn.ConnectClicked(func() {
-		a.cfg.UpdateChannel = channelFromIndex(channel.Selected())
-		if err := storage.SaveConfig(a.cfg); err != nil {
-			log.Printf("atlas-notes: save update channel: %v", err)
-		}
-		updateBtn.SetSensitive(false)
-		a.installUpdate(channelBranch(a.cfg.UpdateChannel), func(text string, done bool) {
-			status.SetText(text)
-			if done {
-				updateBtn.SetSensitive(true)
-			}
-		})
-	})
-
-	box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
-	box.Append(fieldLabel("Password protection"))
-	lockDesc := gtk.NewLabel("Right-click a note or folder in the vault panel to protect it. " +
-		"One password covers everything you protect.")
-	lockDesc.SetXAlign(0)
-	lockDesc.SetWrap(true)
-	lockDesc.AddCSSClass("dim-label")
-	box.Append(lockDesc)
-
-	changeBtn := gtk.NewButtonWithLabel("Change Password…")
-	changeBtn.SetHAlign(gtk.AlignStart)
-	changeBtn.SetMarginTop(8)
-	changeBtn.SetSensitive(a.store != nil && a.store.HasPassword())
-	if !changeBtn.Sensitive() {
-		changeBtn.SetTooltipText("No password has been set yet.")
-	}
-	changeBtn.ConnectClicked(a.promptChangePassword)
-	box.Append(changeBtn)
-
-	box.Append(systemInfo())
-
-	return pageScroll(box)
 }
 
 // installUpdate fetches the branch from GitHub into the managed clone,
@@ -223,29 +124,6 @@ git -C %[1]q fetch --prune origin
 git -C %[1]q checkout %[3]q
 git -C %[1]q reset --hard origin/%[3]q
 make -C %[1]q install`, src, repoURL, branch, parent)
-}
-
-// systemInfo is the version line, with the install paths folded away behind it.
-// The version is what someone reporting a problem is asked for; the paths are
-// for the rare occasion when something needs to be found on disk, and putting
-// them on the page meant every visit to Settings showed a block of somebody's
-// home directory.
-func systemInfo() *gtk.Expander {
-	exp := gtk.NewExpander("System info for Atlas Notes v" + version)
-	exp.SetMarginTop(8)
-
-	detail := gtk.NewLabel(buildInfo())
-	detail.SetXAlign(0)
-	detail.SetWrap(true)
-	detail.SetWrapMode(pango.WrapWordChar) // a long path has nowhere to break
-	detail.SetSelectable(true)             // so it can be copied into a bug report
-	detail.AddCSSClass("dim-label")
-	detail.AddCSSClass("caption")
-	detail.SetMarginTop(6)
-	detail.SetMarginStart(12)
-
-	exp.SetChild(detail)
-	return exp
 }
 
 // buildInfo reports where this binary lives and was built, and where updates
