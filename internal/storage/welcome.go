@@ -30,6 +30,7 @@ The counter above the note tracks how many are done.
 ## Finding things
 
 - **Ctrl+K** searches your whole vault by name.
+- **Ctrl+P** opens the command box: notes, commands, settings and tags in one field.
 - **Ctrl+N** starts a note, **Ctrl+T** starts a checklist, **F2** renames one.
 - **Ctrl+H** returns to the home screen; **Ctrl+?** lists every shortcut.
 

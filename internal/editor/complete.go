@@ -2,6 +2,7 @@ package editor
 
 import (
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -773,7 +774,7 @@ func slashQuery(before string) (string, bool) {
 		return "", false
 	}
 	if q != "" {
-		if r, _ := utf8.DecodeRuneInString(q); !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+		if r, _ := utf8.DecodeRuneInString(q); !unicode.IsLetter(r) {
 			return "", false
 		}
 	}
@@ -832,7 +833,7 @@ func completeSlash(before string, it slashItem) (completion, bool) {
 		return completion{}, false
 	}
 	text := it.text
-	if it.block && strings.TrimSpace(before[:len(before)-len(q)-1]) != "" {
+	if it.block && !blankBeforeSlash(before[:len(before)-len(q)-1]) {
 		text = "\n" + text
 	}
 	c := completion{before: utf8.RuneCountInString(q) + 1}
@@ -844,6 +845,16 @@ func completeSlash(before string, it slashItem) (completion, bool) {
 	}
 	return c, true
 }
+
+// lineMarker is what may stand before a block on a line without the line
+// counting as having words on it: indentation, quote marks, a list marker, a
+// task box.
+var lineMarker = regexp.MustCompile(`^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?(?:\[[ xX]\]\s+)?$`)
+
+// blankBeforeSlash says nothing but a marker stands before the "/", so a block
+// chosen there needs no line of its own: starting one would leave the marker's
+// item empty above it.
+func blankBeforeSlash(prefix string) bool { return lineMarker.MatchString(prefix) }
 
 // inCodeFence reports whether a line of the note is inside a fenced code
 // block, where "/" is code and nothing is offered.

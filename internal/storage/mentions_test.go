@@ -1,10 +1,21 @@
 package storage
 
 import (
+	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
+
+// unlinked asks the way the app does: with the backlinks already in hand.
+func unlinked(s *Store, rel string, limit int) ([]string, error) {
+	linked, err := s.Backlinks(rel)
+	if err != nil {
+		return nil, err
+	}
+	return s.UnlinkedMentions(context.Background(), rel, limit, linked)
+}
 
 func TestFindMention(t *testing.T) {
 	cases := []struct {
@@ -24,6 +35,15 @@ func TestFindMention(t *testing.T) {
 		{"Plan", "In `code` then the Plan", "Plan"},
 		{"Road Map", "The road map is late", "road map"},
 		{"C++", "I like C++ a lot", "C++"},
+		{"Plan", "---\ntitle: the plan\n---\nbody", ""},
+		{"Plan", "---\nnot front matter, the plan", "plan"},
+		{"Plan", "    the plan indented\n\tthe plan tabbed", ""},
+		{"Plan", "<!-- the plan -->\n<!--\nthe plan\n-->\nthe Plan", "Plan"},
+		{"Plan", "[plan]: https://example.com/x\n", ""},
+		{"Plan", "a [Plan] and [Plan][1]", ""},
+		{"Plan", "foo/Plan and Plan.md and foo.Plan", ""},
+		{"Plan", "Finished the Plan. Next", "Plan"},
+		{"Cafe", "Cafe\u0301 opens", ""},
 	}
 	for _, c := range cases {
 		a, b, ok := FindMention(c.text, c.name)
@@ -59,19 +79,19 @@ func TestUnlinkedMentions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.UnlinkedMentions("Work/Roadmap", 10)
+	got, err := unlinked(s, "Work/Roadmap", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"Another/Deep", "Plain"}; !slices.Equal(got, want) {
 		t.Errorf("UnlinkedMentions = %v, want %v", got, want)
 	}
-	if got, _ := s.UnlinkedMentions("Work/Roadmap", 1); len(got) != 1 {
+	if got, _ := unlinked(s, "Work/Roadmap", 1); len(got) != 1 {
 		t.Errorf("limit 1 gave %v", got)
 	}
 	// Too short a name to look for.
 	saveNote(t, s, "Go", "Go is a language\n")
-	if got, _ := s.UnlinkedMentions("Go", 10); len(got) != 0 {
+	if got, _ := unlinked(s, "Go", 10); len(got) != 0 {
 		t.Errorf("a two-letter name has mentions: %v", got)
 	}
 }
@@ -94,7 +114,7 @@ func TestLinkMention(t *testing.T) {
 		t.Errorf("Backlinks after linking = %v", got)
 	}
 	// It is no longer an unlinked mention, and only the first was changed.
-	if got, _ := s.UnlinkedMentions("Work/Roadmap", 10); !slices.Equal(got, []string{"Shouty"}) {
+	if got, _ := unlinked(s, "Work/Roadmap", 10); !slices.Equal(got, []string{"Shouty"}) {
 		t.Errorf("UnlinkedMentions after linking = %v", got)
 	}
 
@@ -116,5 +136,67 @@ func TestLinkMention(t *testing.T) {
 	}
 	if got := readBack(t, s, "Third"); got != "the [[Work/Roadmap|roadmap]]\n" {
 		t.Errorf("Third = %q", got)
+	}
+}
+
+func TestLinkMentionEdgeCases(t *testing.T) {
+	s := testStore(t)
+	s.HistoryDir = filepath.Join(t.TempDir(), "history")
+	saveNote(t, s, "Roadmap", "# Roadmap\n")
+	saveNote(t, s, "Table", "| a | b |\n| - | - |\n| the roadmap | x |\n")
+	saveNote(t, s, "Both", "The [[Roadmap]] and, later, the roadmap.\n")
+	saveNote(t, s, "Solo", "the roadmap here\n")
+
+	// A pipe inside a table row must not split the cell.
+	if ok, err := s.LinkMention("Roadmap", "Table"); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	if got := readBack(t, s, "Table"); !strings.Contains(got, `[[Roadmap\|roadmap]]`) {
+		t.Errorf("Table = %q", got)
+	}
+
+	// A note that already links is left alone.
+	if ok, err := s.LinkMention("Roadmap", "Both"); ok || err != nil {
+		t.Errorf("already linked: %v, %v", ok, err)
+	}
+	if got := readBack(t, s, "Both"); !strings.HasSuffix(got, "the roadmap.\n") {
+		t.Errorf("Both changed: %q", got)
+	}
+
+	// The text before the change is kept as a version.
+	if ok, err := s.LinkMention("Roadmap", "Solo"); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	found := false
+	vs, _ := s.History("Solo")
+	for _, v := range vs {
+		if text, err := s.ReadVersion("Solo", v.ID); err == nil && text == "the roadmap here\n" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the pre-link text was not kept in history")
+	}
+
+	// A note that is gone is not brought back.
+	if err := s.DeleteNote("Solo"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.LinkMention("Roadmap", "Solo"); ok || err != nil {
+		t.Errorf("deleted note: %v, %v", ok, err)
+	}
+	if s.NoteExists("Solo") {
+		t.Error("LinkMention resurrected a deleted note")
+	}
+}
+
+func TestUnlinkedMentionsStopsWhenCancelled(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "Roadmap", "# Roadmap\n")
+	saveNote(t, s, "A", "the roadmap\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.UnlinkedMentions(ctx, "Roadmap", 10, nil); err == nil {
+		t.Error("a cancelled search carried on")
 	}
 }

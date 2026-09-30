@@ -259,9 +259,20 @@ func (a *App) refreshBacklinks() {
 	}
 	a.backlinksGen++
 	gen := a.backlinksGen
+	// Opening another note makes the mention search for this one pointless, and
+	// on a big vault it reads many notes, so it is told to stop.
+	if a.backlinksCancel != nil {
+		a.backlinksCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.backlinksCancel = cancel
 	go func() {
 		links, err := a.store.Backlinks(rel)
-		mentions, merr := a.store.UnlinkedMentions(rel, mentionsCap)
+		var mentions []string
+		var merr error
+		if err == nil {
+			mentions, merr = a.store.UnlinkedMentions(ctx, rel, mentionsCap, links)
+		}
 		coreglib.IdleAdd(func() bool {
 			if gen != a.backlinksGen || a.closing {
 				return false
@@ -270,7 +281,7 @@ func (a *App) refreshBacklinks() {
 				log.Printf("atlas-notes: backlinks: %v", err)
 			}
 			a.showBacklinks(links)
-			if merr != nil {
+			if merr != nil && ctx.Err() == nil {
 				log.Printf("atlas-notes: unlinked mentions: %v", merr)
 			}
 			a.showMentions(rel, mentions)
@@ -365,7 +376,10 @@ func (a *App) showMentions(rel string, notes []string) {
 		btn.AddCSSClass("flat")
 		btn.AddCSSClass("caption")
 		btn.SetTooltipText("Link the mention in " + path.Base(from))
-		btn.ConnectClicked(func() { a.linkMention(rel, from) })
+		btn.ConnectClicked(func() {
+			btn.SetSensitive(false) // a second click must not link a second mention
+			a.linkMention(rel, from)
+		})
 		bar.Append(btn)
 	}
 	bar.SetVisible(true)
@@ -373,23 +387,34 @@ func (a *App) showMentions(rel string, notes []string) {
 
 // linkMention turns the mention in another note into a link to the open one.
 // The write goes through the store, so it is saved, indexed and kept in
-// history like any edit; the bars are then filled again, where the note now
-// counts under "Linked from".
+// history like any edit. It runs off the main thread, since it reads and
+// writes a file under the store's lock; the bars are then filled again, where
+// the note now counts under "Linked from".
 func (a *App) linkMention(rel, from string) {
 	if a.store == nil || rel != a.currentNote {
 		return
 	}
-	done, err := a.store.LinkMention(rel, from)
-	switch {
-	case err != nil:
-		log.Printf("atlas-notes: link mention: %v", err)
-		a.toast("Couldn't link that note: " + err.Error())
-	case !done:
-		a.toast("That note no longer mentions this one")
-	default:
-		a.toast("Linked in " + path.Base(from))
-	}
-	a.refreshBacklinks()
+	go func() {
+		done, err := a.store.LinkMention(rel, from)
+		coreglib.IdleAdd(func() bool {
+			if a.closing {
+				return false
+			}
+			switch {
+			case err != nil:
+				log.Printf("atlas-notes: link mention: %v", err)
+				a.toast("Couldn't link that note: " + err.Error())
+			case !done:
+				a.toast("That note no longer mentions this one")
+			default:
+				a.toast("Linked in " + path.Base(from))
+			}
+			if rel == a.currentNote {
+				a.refreshBacklinks()
+			}
+			return false
+		})
+	}()
 }
 
 // changeNoteFormat switches the vault to another note format and converts
