@@ -11,7 +11,7 @@ import (
 func FuzzParseLine(f *testing.F) {
 	for _, seed := range []string{
 		"- [ ] task", "- [x] done <!-- priority:high due:2026-01-01 order:2 -->",
-		"-[ ]x", "- [", "- [ ", "- [ ]", "  \t- [X]\tx", "- [ ] \xff\xfe",
+		"-[ ]x", "- [", "- [ ] a ⏫ 📅 2026-07-01", "- [ ] `⏫` 📅 2026-02-30", "- [ ] 📅 🔼\uFE0F", "- [ ", "- [ ]", "  \t- [X]\tx", "- [ ] \xff\xfe",
 		"- [ ] a <!-- --> b <!--", "", "-", "--", "- [ ] " + strings.Repeat("x", 500),
 	} {
 		f.Add(seed)
@@ -32,7 +32,7 @@ func FuzzParseLine(f *testing.F) {
 		if !ok2 {
 			t.Fatalf("Marshal of %+v (from %q) did not parse back: %q", it, line, it.Marshal())
 		}
-		if again.Checked != it.Checked || again.Priority != it.Priority || again.DueDate != it.DueDate {
+		if again.Checked != it.Checked || again.Priority != it.Priority || again.DueDate != it.DueDate || again.Order != it.Order || again.BlockID != it.BlockID {
 			t.Fatalf("round trip changed the item: %+v -> %+v (line %q)", it, again, line)
 		}
 	})

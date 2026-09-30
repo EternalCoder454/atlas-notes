@@ -465,3 +465,26 @@ func TestPlainLinesAllocateNothing(t *testing.T) {
 		}
 	}
 }
+
+// The Obsidian emoji form of a task's metadata is hidden on a rendered task
+// line, and shown on a raw one being edited.
+func TestEmojiMetadataHiddenOnRenderedTask(t *testing.T) {
+	line := anchorChar + "buy milk ⏫ 📅 2026-01-02"
+	var hidden []span
+	for _, sp := range parseLineSpans(line, -1) {
+		if sp.tag == "invisible" {
+			hidden = append(hidden, sp)
+		}
+	}
+	// Character offsets: the anchor and "buy milk" are 9, then " ⏫" and
+	// " 📅 2026-01-02" follow.
+	want := []span{{"invisible", 9, 11}, {"invisible", 11, 24}}
+	if len(hidden) != 2 || hidden[0] != want[0] || hidden[1] != want[1] {
+		t.Errorf("hidden = %+v, want %+v", hidden, want)
+	}
+	for _, sp := range parseLineSpans("- [ ] buy milk ⏫", -1) {
+		if sp.tag == "invisible" {
+			t.Errorf("a raw task line hid %+v", sp)
+		}
+	}
+}

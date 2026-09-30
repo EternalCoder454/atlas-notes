@@ -747,14 +747,17 @@ list.atlas-nav-footer {
 	color: alpha(@window_fg_color, 0.7);
 }
 
+/* The theme's own warning and error colours, which libadwaita lightens on a
+   dark scheme, so the chips read on either. The Tasks page's priority pills use
+   the same tints. */
 .due-chip.due-today {
-	background-color: alpha(#f5c211, 0.22);
-	color: #b58500;
+	background-color: alpha(@warning_color, 0.2);
+	color: @warning_color;
 }
 
 .due-chip.due-overdue {
-	background-color: alpha(#e01b24, 0.18);
-	color: #e01b24;
+	background-color: alpha(@error_color, 0.16);
+	color: @error_color;
 }
 
 /* The update dialog's list of what a new version brings. Plain language, a
@@ -1035,4 +1038,85 @@ row.combo listview.inline {
    because it holds a whole field. The radius is the app's 7px, from .card. */
 .atlas-shortcut {
 	padding: 10px;
+}
+
+/* The Tasks page: every open task, grouped by when it is due. */
+.tasks-content {
+	padding: 28px 24px 32px 24px;
+}
+
+.tasks-title {
+	font-size: 1.9em;
+	font-weight: 800;
+}
+
+.tasks-subtitle {
+	opacity: 0.6;
+	margin-bottom: 4px;
+}
+
+.tasks-group {
+	margin-top: 4px;
+}
+
+.tasks-heading-overdue {
+	color: @error_color;
+	opacity: 0.9;
+}
+
+.tasks-heading-today {
+	color: @warning_color;
+	opacity: 0.9;
+}
+
+.tasks-open {
+	padding: 7px 12px;
+}
+
+.tasks-note {
+	font-size: 0.8em;
+	font-weight: normal; /* the row is a button, and buttons are bold */
+	opacity: 0.55;
+}
+
+.tasks-priority {
+	font-size: 0.75em;
+	padding: 1px 7px;
+	border-radius: 9999px;
+	background-color: alpha(@window_fg_color, 0.08);
+}
+
+.tasks-priority.priority-high {
+	background-color: alpha(@error_color, 0.16);
+	color: @error_color;
+}
+
+.tasks-priority.priority-medium {
+	background-color: alpha(@warning_color, 0.2);
+	color: @warning_color;
+}
+
+.tasks-priority.priority-low {
+	background-color: alpha(@success_color, 0.18);
+	color: @success_color;
+}
+
+.tasks-empty {
+	margin-top: 64px;
+	margin-bottom: 64px;
+	min-width: 280px;
+}
+
+.tasks-empty-icon {
+	-gtk-icon-size: 48px;
+	opacity: 0.4;
+}
+
+.tasks-empty-title {
+	font-weight: 700;
+	font-size: 1.15em;
+}
+
+window.atlas-glass .atlas-page .tasks-open {
+	background-color: alpha(@card_bg_color, 0.85);
 }

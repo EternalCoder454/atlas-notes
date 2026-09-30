@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -682,5 +684,156 @@ func TestUpdateLinksWithNothingToDo(t *testing.T) {
 	}
 	if n, err := s.UpdateLinksAfterFolderRename("Nowhere", "Elsewhere"); err != nil || n != 0 {
 		t.Errorf("a folder with nothing in it = %d, %v", n, err)
+	}
+}
+
+// The due index reads the Obsidian emoji form as well as the comment form.
+func TestDueIndexReadsEmojiForm(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "Plan", "- [ ] emoji ⏫ 📅 2026-03-01\n- [ ] comment <!-- due:2026-03-02 -->\n- [ ] bad 📅 2026-13-01\n")
+	due, err := s.DueTasks("2099-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DueTask{
+		{Path: "Plan", Line: 0, Text: "emoji", Due: "2026-03-01", Priority: "high"},
+		{Path: "Plan", Line: 1, Text: "comment", Due: "2026-03-02"},
+	}
+	if !slices.Equal(due, want) {
+		t.Errorf("due = %+v, want %+v", due, want)
+	}
+}
+
+func TestOpenTasksAndCompleteTask(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "Plan", "# Plan\n- [ ] dated ⏫ 📅 2026-03-01\n- [ ] someday\n- [ ] urgent someday ⏫\n- [x] done\n```\n- [ ] in code\n```\n~~~\n```\n- [ ] still in code\n~~~\n- [ ] dup\n- [ ] dup\n")
+	got, err := s.OpenTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DueTask{
+		{Path: "Plan", Line: 1, Text: "dated", Due: "2026-03-01", Priority: "high"},
+		{Path: "Plan", Line: 3, Text: "urgent someday", Priority: "high"},
+		{Path: "Plan", Line: 2, Text: "someday"},
+		{Path: "Plan", Line: 12, Text: "dup"},
+		{Path: "Plan", Line: 13, Text: "dup"},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("open tasks = %+v, want %+v", got, want)
+	}
+
+	// Ticking touches only the box; the emoji and everything else stay.
+	if err := s.CompleteTask("Plan", want[0]); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := s.ReadNote("Plan")
+	if !strings.Contains(body, "- [x] dated ⏫ 📅 2026-03-01\n") {
+		t.Errorf("body after ticking: %q", body)
+	}
+	// A stale line number finds the task by what it says.
+	saveNote(t, s, "Plan", "new first line\n"+body)
+	if err := s.CompleteTask("Plan", want[2]); err != nil {
+		t.Fatal(err)
+	}
+	// A task of the same words with another date, or priority, is another task.
+	saveNote(t, s, "Other", "- [ ] same 📅 2026-05-01\n")
+	if err := s.CompleteTask("Other", DueTask{Line: 0, Text: "same", Due: "2026-06-01"}); err != ErrTaskMoved {
+		t.Errorf("different date: %v", err)
+	}
+	if err := s.CompleteTask("Other", DueTask{Line: 0, Text: "same", Due: "2026-05-01", Priority: "low"}); err != ErrTaskMoved {
+		t.Errorf("different priority: %v", err)
+	}
+	// Nothing to tick, two of them, or one inside a code block: left alone.
+	if err := s.CompleteTask("Plan", DueTask{Text: "gone"}); err != ErrTaskMoved {
+		t.Errorf("missing task: %v", err)
+	}
+	if err := s.CompleteTask("Plan", DueTask{Line: 0, Text: "dup"}); err != ErrTaskMoved {
+		t.Errorf("ambiguous task: %v", err)
+	}
+	if err := s.CompleteTask("Plan", DueTask{Line: 0, Text: "in code"}); err != ErrTaskMoved {
+		t.Errorf("task in a code block: %v", err)
+	}
+	if after, _ := s.ReadNote("Plan"); strings.Count(after, "- [x]") != 3 || strings.Contains(after, "[x] in code") {
+		t.Errorf("body after refusals: %q", after)
+	}
+}
+
+// Ticks made at the same time in one note all land.
+func TestCompleteTaskConcurrently(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "N", "- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n")
+	var wg sync.WaitGroup
+	for i, name := range []string{"a", "b", "c", "d"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.CompleteTask("N", DueTask{Line: i, Text: name}); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if body, _ := s.ReadNote("N"); strings.Count(body, "[x]") != 4 {
+		t.Errorf("ticks were lost: %q", body)
+	}
+}
+
+// Fences: a longer or different fence is not closed by a shorter one, and a
+// one-line ```span``` opens nothing.
+func TestFenceRules(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "F", "```x```\n- [ ] real\n````\n```\n- [ ] code\n````\n- [ ] real two\n")
+	got, err := s.OpenTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Text != "real" || got[1].Text != "real two" {
+		t.Errorf("open tasks = %+v", got)
+	}
+}
+
+// An index made before note_undated held its lock trigger without the new
+// table; locking a note must still clear the note's undated rows.
+func TestLockTriggerClearsUndated(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "L", "- [ ] secret\n")
+	if got, _ := s.OpenTasks(); len(got) != 1 {
+		t.Fatalf("open tasks = %+v", got)
+	}
+	s.db.Exec(`DROP TRIGGER derived_lock`)
+	s.db.Exec(`CREATE TRIGGER derived_lock AFTER UPDATE OF locked ON notes WHEN new.locked = 1 BEGIN DELETE FROM note_links WHERE note_id = new.id; END`)
+	if err := s.migrateDerived(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE notes SET locked = 1 WHERE path = 'L'`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT count(*) FROM note_undated`).Scan(&n)
+	if n != 0 {
+		t.Errorf("%d undated rows left for a locked note", n)
+	}
+}
+
+// A note an older build wrote is read again at the next start.
+func TestOlderBuildWritesAreReread(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "O", "- [ ] one\n")
+	// An older build's write: it changes the note's text and marks it read,
+	// without touching note_undated.
+	s.db.Exec(`UPDATE notes SET indexed = 0 WHERE path = 'O'`)
+	s.db.Exec(`UPDATE notes SET indexed = 1 WHERE path = 'O'`)
+	var stale int
+	s.db.QueryRow(`SELECT count(*) FROM undated_stale`).Scan(&stale)
+	if stale != 1 {
+		t.Fatalf("stale marks = %d", stale)
+	}
+	if err := s.migrateDerived(); err != nil {
+		t.Fatal(err)
+	}
+	var indexed int
+	s.db.QueryRow(`SELECT indexed FROM notes WHERE path = 'O'`).Scan(&indexed)
+	if indexed != 0 {
+		t.Errorf("note not queued for reading")
 	}
 }

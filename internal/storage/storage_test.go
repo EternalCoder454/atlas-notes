@@ -498,6 +498,7 @@ func TestHasTasksBackfillsOnUpgrade(t *testing.T) {
 	if _, err := s.db.Exec(`
 		DROP TRIGGER notes_fts_delete; DROP TRIGGER notes_fts_lock;
 		DROP TRIGGER notes_fts_unlock; DROP TRIGGER notes_fts_stale;
+		DROP TRIGGER undated_stale_mark;
 		DROP TABLE notes_fts;
 		ALTER TABLE notes DROP COLUMN indexed;
 		ALTER TABLE notes DROP COLUMN has_tasks;`); err != nil {

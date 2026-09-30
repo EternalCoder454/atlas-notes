@@ -117,7 +117,7 @@ func Walk(text string, fn func(n int, line string, spans []Span)) {
 	for n, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if fence != "" {
-			if strings.HasPrefix(trimmed, fence) {
+			if closesFence(trimmed, fence) {
 				fence = ""
 			}
 			fn(n, line, nil)
@@ -143,7 +143,7 @@ func InCodeFence(text string) []bool {
 		trimmed := strings.TrimSpace(line)
 		if fence != "" {
 			out[n] = true
-			if strings.HasPrefix(trimmed, fence) {
+			if closesFence(trimmed, fence) {
 				fence = ""
 			}
 			continue
@@ -155,13 +155,40 @@ func InCodeFence(text string) []bool {
 	return out
 }
 
+// openFence returns the fence a line opens: its whole run of ` or ~ (three or
+// more), which is what has to be matched to close it, or "" when the line opens
+// none. A backtick fence cannot have a backtick in the rest of its line, so
+// "```x```" is an inline code span and not the start of a block.
 func openFence(trimmed string) string {
-	for _, f := range []string{"```", "~~~"} {
-		if strings.HasPrefix(trimmed, f) {
-			return f
+	if trimmed == "" || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return ""
+	}
+	c := trimmed[0]
+	n := 0
+	for n < len(trimmed) && trimmed[n] == c {
+		n++
+	}
+	if n < 3 {
+		return ""
+	}
+	if c == '`' && strings.IndexByte(trimmed[n:], '`') >= 0 {
+		return ""
+	}
+	return trimmed[:n]
+}
+
+// closesFence says whether a line ends the block opened by fence: the same
+// character, at least as many of them, and nothing else on the line.
+func closesFence(trimmed, fence string) bool {
+	if len(trimmed) < len(fence) {
+		return false
+	}
+	for i := 0; i < len(trimmed); i++ {
+		if trimmed[i] != fence[0] {
+			return false
 		}
 	}
-	return ""
+	return true
 }
 
 // Summary is what the index keeps about a note.
@@ -448,7 +475,7 @@ func RewriteLinks(text, oldRel, newRel string, before, after []string) (string, 
 	for n, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if fence != "" {
-			if strings.HasPrefix(trimmed, fence) {
+			if closesFence(trimmed, fence) {
 				fence = ""
 			}
 			continue

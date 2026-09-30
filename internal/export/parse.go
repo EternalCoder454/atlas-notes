@@ -221,7 +221,7 @@ func indentDepth(line string) int {
 }
 
 // taskDetail is a checklist item's priority and due date, written out: the
-// note keeps them in a comment the editor hides, and a document has nowhere
+// note keeps them as emoji or in a comment the editor hides, and a document has nowhere
 // to hide them, so they become words.
 func taskDetail(it checklist.Item) string {
 	var parts []string

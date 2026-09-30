@@ -68,3 +68,17 @@ func TestSummarizeOpeningEmpty(t *testing.T) {
 		}
 	}
 }
+
+// The Obsidian emoji form of the same metadata must not show in a preview
+// either.
+func TestSummarizeOpeningHidesEmojiMetadata(t *testing.T) {
+	got := summarizeOpening("# Trip\n\n- [ ] Renew the travel insurance ⏫ 📅 2026-10-05\n")
+	for _, bad := range []string{"⏫", "📅", "2026-10-05"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("preview leaks %q: %q", bad, got)
+		}
+	}
+	if !strings.Contains(got, "Renew the travel insurance") {
+		t.Errorf("preview lost the task text: %q", got)
+	}
+}
