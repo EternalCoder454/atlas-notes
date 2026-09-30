@@ -2,14 +2,16 @@ package editor
 
 import (
 	"errors"
-	"html"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
+	"atlas-notes/internal/checklist"
 	"atlas-notes/internal/markup"
 )
 
@@ -45,43 +47,6 @@ func clipRunes(s string, n int) string {
 		n--
 	}
 	return s[:n]
-}
-
-// embedTable draws the rows of a table as aligned text, which is all an embed
-// has room for: the delimiter row goes, and each column is padded to its widest
-// cell.
-func embedTable(rows []string) string {
-	var cells [][]string
-	var widths []int
-	for _, r := range rows {
-		if _, ok := parseDelimiter(r); ok {
-			continue
-		}
-		c := splitRow(r)
-		for i := range c {
-			c[i] = cleanText(c[i])
-			if i >= len(widths) {
-				widths = append(widths, 0)
-			}
-			widths[i] = max(widths[i], utf8.RuneCountInString(c[i]))
-		}
-		cells = append(cells, c)
-	}
-	var b strings.Builder
-	for n, c := range cells {
-		var row strings.Builder
-		for i, cell := range c {
-			row.WriteString(cell)
-			if i < len(c)-1 {
-				row.WriteString(strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)+3))
-			}
-		}
-		if n > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString("<tt>" + html.EscapeString(row.String()) + "</tt>")
-	}
-	return b.String()
 }
 
 // embedRef is what an embed line names.
@@ -134,51 +99,153 @@ func sectionOf(text, heading string) (string, bool) {
 	return "", false
 }
 
-// embedMarkup turns the text of a note (or section) into what an embed shows, as
-// Pango markup: headings bold, inline emphasis kept, at most maxEmbedLines lines.
-// A line that is itself an embed is shown as a link, which is what stops an embed
-// from containing embeds. more says text was left out.
-func embedMarkup(text string) (out string, more bool) {
-	var b strings.Builder
-	n := 0
+// embedKind is what one block of an embed's body is.
+type embedKind uint8
+
+const (
+	ekText  embedKind = iota // a paragraph, or a list item
+	ekHead                   // a heading
+	ekQuote                  // a quoted line
+	ekTask                   // a task: a checkbox, its text and, if it has one, its due date
+	ekCode                   // a fenced block, without its fences
+	ekTable                  // a table
+)
+
+// embedBlock is one thing an embed shows.
+type embedBlock struct {
+	kind    embedKind
+	level   int    // a heading's level
+	indent  int    // pixels of indent, for a nested list item
+	markup  string // Pango markup for a text, heading, quote or task
+	checked bool
+	due     string // a task's due date, "" for none
+	code    string
+	rows    [][]string // a table's rows, the header first
+	align   []tableAlign
+}
+
+// embedBlocks reads the text of a note (or section) into what an embed shows:
+// headings, lists, quotes, tasks (with their metadata read out of the line rather
+// than shown), code without its fences, and tables as rows and columns. At most
+// maxEmbedLines lines are taken. A line that is itself an embed is shown as a
+// link, which is what stops an embed from containing embeds. more says text was
+// left out.
+func embedBlocks(text string) (out []embedBlock, more bool) {
+	n, chars := 0, 0
 	lines := strings.Split(strings.TrimSpace(clipRunes(text, maxEmbedBytes)), "\n")
 	for i := 0; i < len(lines); i++ {
 		l := clipRunes(lines[i], maxEmbedLine)
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if n >= maxEmbedLines || chars >= maxEmbedChars {
+			return out, true
+		}
+		if isFenceLine(l) {
+			// A code block: the lines up to the closing fence, as they are.
+			var code []string
+			for i++; i < len(lines) && !isFenceLine(lines[i]); i++ {
+				if n >= maxEmbedLines || chars >= maxEmbedChars {
+					more = true
+					break
+				}
+				c := clipRunes(lines[i], maxEmbedLine)
+				code = append(code, c)
+				n++
+				chars += len(c)
+			}
+			for i < len(lines) && !isFenceLine(lines[i]) {
+				i++ // the rest of a block cut short is not read
+			}
+			if len(code) > 0 {
+				out = append(out, embedBlock{kind: ekCode, code: strings.Join(code, "\n")})
+			}
+			if more {
+				return out, true
+			}
+			continue
+		}
 		if strings.HasPrefix(strings.TrimSpace(l), "![[") {
 			l = strings.Replace(l, "![[", "[[", 1)
 		}
-		if strings.TrimSpace(l) == "" && b.Len() == 0 {
+		if strings.HasPrefix(strings.TrimSpace(l), "<!--") {
 			continue
 		}
-		if n >= maxEmbedLines || b.Len() >= maxEmbedChars {
-			return strings.TrimRight(b.String(), "\n"), true
-		}
-		switch {
-		case isTableRow(l) && i+1 < len(lines) && isTableDelimiter(lines[i+1]):
-			// A table: the run of rows it has, as aligned text.
+		n++
+		chars += len(l)
+		if isTableRow(l) && i+1 < len(lines) && isTableDelimiter(lines[i+1]) {
+			// A table: the run of rows it has.
 			j := i
 			for j+1 < len(lines) && isTableRow(lines[j+1]) {
 				j++
 			}
-			rows := lines[i : j+1]
-			b.WriteString(embedTable(rows))
-			n += len(rows)
-			i = j
-		case headingLevel(l) > 0:
-			b.WriteString("<b>" + cellMarkup(l[headingLevel(l)+1:]) + "</b>")
-			n++
-		case strings.HasPrefix(l, "> "):
-			b.WriteString(cellMarkup(l[2:]))
-			n++
-		case isFenceLine(l) || strings.HasPrefix(strings.TrimSpace(l), "<!--"):
-			continue
-		default:
-			b.WriteString(cellMarkup(l))
-			n++
+			if t, ok := parseTable(lines[i : j+1]); ok {
+				if room := max(maxEmbedLines-(n-1), 1); len(t.rows) > room {
+					t.rows, more = t.rows[:room], true
+				}
+				n += len(t.rows)
+				chars += len(strings.Join(lines[i:j+1], ""))
+				out = append(out, embedBlock{kind: ekTable, rows: t.rows, align: t.align})
+				i += t.lines - 1
+				if more {
+					return out, true
+				}
+				continue
+			}
 		}
-		b.WriteByte('\n')
+		out = append(out, embedLine(l))
 	}
-	return strings.TrimRight(b.String(), "\n"), false
+	return out, more
+}
+
+// embedLine reads one line that is not part of a code block or a table.
+func embedLine(l string) embedBlock {
+	body := strings.TrimLeft(l, " \t")
+	width := 0
+	for _, c := range l[:len(l)-len(body)] {
+		if c == '\t' {
+			width += 4
+		} else {
+			width++
+		}
+	}
+	indent := min(width*4, 48)
+	if it, ok := checklist.ParseLine(body); ok {
+		m := linkedMarkup(it.Text)
+		if it.Checked {
+			m = "<s>" + m + "</s>"
+		}
+		return embedBlock{kind: ekTask, indent: indent, markup: m, checked: it.Checked, due: it.DueDate}
+	}
+	body = stripComments(body)
+	switch lvl := headingLevel(body); {
+	case lvl > 0:
+		return embedBlock{kind: ekHead, level: lvl, markup: linkedMarkup(body[lvl+1:])}
+	case strings.HasPrefix(body, ">"):
+		return embedBlock{kind: ekQuote, markup: linkedMarkup(strings.TrimLeft(body[1:], " "))}
+	}
+	if m := bulletPrefix(body); m > 0 {
+		return embedBlock{kind: ekText, indent: indent, markup: "•  " + linkedMarkup(body[m:])}
+	}
+	if m := numberPrefix(body); m > 0 {
+		return embedBlock{kind: ekText, indent: indent, markup: escapeMarkup(body[:m]) + linkedMarkup(body[m:])}
+	}
+	return embedBlock{kind: ekText, markup: linkedMarkup(body)}
+}
+
+// stripComments takes HTML comments, where a task keeps its metadata, out of a line.
+func stripComments(s string) string {
+	for {
+		a := strings.Index(s, "<!--")
+		if a < 0 {
+			return s
+		}
+		b := strings.Index(s[a:], "-->")
+		if b < 0 {
+			return s[:a]
+		}
+		s = strings.TrimRight(s[:a], " \t") + s[a+b+len("-->"):]
+	}
 }
 
 // isTableDelimiter reports whether a line is a table's "|---|---|" row.
@@ -199,22 +266,54 @@ type embedItem struct {
 	overlay
 	ref  embedRef
 	box  *embedBox
-	body string // the markup the body was last dressed with
+	body string // what the body was last dressed with, as text
 }
 
 // embedBox is the widget for one embed, kept for reuse (see imageBox).
 type embedBox struct {
 	box   *gtk.Box
 	title *gtk.Label
-	body  *gtk.Label
-	ref   embedRef // what a click on the title opens
+	parts []*embedPart // the body: one widget per block, under the title
+	ref   embedRef     // what a click on the title opens
+}
+
+// embedPart is the widget of one block of an embed's body, kept for reuse (see
+// imageBox). Only the widget for its kind is set.
+type embedPart struct {
+	kind  embedKind
+	label *gtk.Label // text, heading, quote, code
+	class string     // the label's style class for its kind
+	task  *embedTask
+	grid  *embedGrid
+}
+
+// embedTask is a task's row: a checkbox nobody can click, the text, and the due
+// date after it.
+type embedTask struct {
+	box  *gtk.Box
+	cb   *gtk.CheckButton
+	text *gtk.Label
+	chip *gtk.Label
+}
+
+// embedGrid is a table's grid, drawn as the editor's own tables are but with no
+// click on it.
+type embedGrid struct {
+	grid  *gtk.Grid
+	cells []*gtk.Label
 }
 
 type embedState struct {
-	items []*embedItem
-	hits  []embedHit
-	pool  []*embedBox
+	items  []*embedItem
+	hits   []embedHit
+	pool   []*embedBox
+	labels []*embedPart // parts kept for reuse, by the widget they hold
+	tasks  []*embedPart
+	grids  []*embedPart
 }
+
+// maxPooledParts caps each list of parts kept for reuse.
+const maxPooledParts = 256
 
 // clearEmbeds forgets every embed. Opening another note replaces the text.
 func (e *Editor) clearEmbeds() {
@@ -305,6 +404,7 @@ func (e *Editor) dropEmbed(it *embedItem) {
 		if it.shown {
 			e.view.Remove(it.box.box)
 		}
+		e.emptyEmbedBox(it.box)
 		if len(e.emb.pool) < maxPooledBoxes {
 			e.emb.pool = append(e.emb.pool, it.box)
 		}
@@ -336,15 +436,179 @@ func (e *Editor) takeEmbedBox() *embedBox {
 		}
 	})
 	b.title.AddController(click)
-	b.body = gtk.NewLabel("")
-	b.body.SetXAlign(0)
-	b.body.SetWrap(true)
-	b.body.SetWrapMode(pango.WrapWordChar)
-	b.body.SetUseMarkup(true)
-	b.body.AddCSSClass("atlas-embed-body")
 	b.box.Append(b.title)
-	b.box.Append(b.body)
 	return b
+}
+
+// ---- The body's widgets ----------------------------------------------------
+
+// emptyEmbedBox takes the body out of an embed's widget, into the pools.
+func (e *Editor) emptyEmbedBox(b *embedBox) {
+	s := &e.emb
+	for i, p := range b.parts {
+		var list *[]*embedPart
+		switch {
+		case p.task != nil:
+			b.box.Remove(p.task.box)
+			list = &s.tasks
+		case p.grid != nil:
+			b.box.Remove(p.grid.grid)
+			e.emptyEmbedGrid(p.grid)
+			list = &s.grids
+		default:
+			b.box.Remove(p.label)
+			p.label.SetText("")
+			list = &s.labels
+		}
+		if len(*list) < maxPooledParts {
+			*list = append(*list, p)
+		}
+		b.parts[i] = nil
+	}
+	b.parts = b.parts[:0]
+}
+
+// emptyEmbedGrid takes the cells out of a grid, into the tables' pool of labels.
+func (e *Editor) emptyEmbedGrid(g *embedGrid) {
+	for i, l := range g.cells {
+		g.grid.Remove(l)
+		l.SetText("")
+		if len(e.tbl.labels) < maxPooledLabels {
+			e.tbl.labels = append(e.tbl.labels, l)
+		}
+		g.cells[i] = nil
+	}
+	g.cells = g.cells[:0]
+}
+
+// embedClasses are the style classes a text block's label takes for its kind.
+var embedClasses = map[embedKind]string{
+	ekQuote: "atlas-embed-quote",
+	ekCode:  "atlas-embed-code",
+}
+
+// takePart hands out the widget for a block, from the pool when it holds one.
+func (e *Editor) takePart(k embedKind) *embedPart {
+	s := &e.emb
+	list := &s.labels
+	switch k {
+	case ekTask:
+		list = &s.tasks
+	case ekTable:
+		list = &s.grids
+	}
+	var p *embedPart
+	if n := len(*list); n > 0 {
+		p = (*list)[n-1]
+		(*list)[n-1] = nil
+		*list = (*list)[:n-1]
+	} else {
+		p = &embedPart{}
+		switch k {
+		case ekTask:
+			t := &embedTask{}
+			t.box = gtk.NewBox(gtk.OrientationHorizontal, 6)
+			t.box.AddCSSClass("atlas-embed-task")
+			t.cb = gtk.NewCheckButton()
+			t.cb.SetVAlign(gtk.AlignStart)
+			// The box is a picture of the task's state: nothing can be clicked or
+			// focused, so an embedded task is never changed from here.
+			t.cb.SetCanTarget(false)
+			t.cb.SetFocusable(false)
+			t.text = newEmbedLabel()
+			t.chip = gtk.NewLabel("")
+			t.chip.AddCSSClass("due-chip")
+			t.chip.SetVAlign(gtk.AlignStart)
+			t.box.Append(t.cb)
+			t.box.Append(t.text)
+			t.box.Append(t.chip)
+			p.task = t
+		case ekTable:
+			g := &embedGrid{grid: gtk.NewGrid()}
+			g.grid.AddCSSClass("md-table")
+			g.grid.SetRowSpacing(0)
+			g.grid.SetColumnSpacing(0)
+			g.grid.SetHAlign(gtk.AlignStart)
+			p.grid = g
+		default:
+			p.label = newEmbedLabel()
+		}
+	}
+	p.kind = k
+	return p
+}
+
+func newEmbedLabel() *gtk.Label {
+	l := gtk.NewLabel("")
+	l.SetXAlign(0)
+	l.SetWrap(true)
+	l.SetWrapMode(pango.WrapWordChar)
+	l.SetUseMarkup(true)
+	l.AddCSSClass("atlas-embed-body")
+	return l
+}
+
+// dressEmbedLabel sets a text label to show a block.
+func dressEmbedLabel(l *gtk.Label, p *embedPart, blk embedBlock) {
+	class := embedClasses[blk.kind]
+	if blk.kind == ekHead {
+		class = "atlas-embed-h" + strconv.Itoa(min(blk.level, 3))
+	}
+	if class != p.class {
+		if p.class != "" {
+			l.RemoveCSSClass(p.class)
+		}
+		if class != "" {
+			l.AddCSSClass(class)
+		}
+		p.class = class
+	}
+	l.SetMarginStart(blk.indent)
+	if blk.kind == ekCode {
+		l.SetUseMarkup(false)
+		l.SetText(blk.code)
+		return
+	}
+	l.SetUseMarkup(true)
+	l.SetMarkup(blk.markup)
+}
+
+// setEmbedBody fills an embed's widget with its blocks.
+func (e *Editor) setEmbedBody(b *embedBox, blocks []embedBlock) {
+	e.emptyEmbedBox(b)
+	for _, blk := range blocks {
+		p := e.takePart(blk.kind)
+		switch {
+		case p.task != nil:
+			t := p.task
+			t.box.SetMarginStart(blk.indent)
+			t.cb.SetActive(blk.checked)
+			t.text.SetMarkup(blk.markup)
+			if blk.checked {
+				t.text.AddCSSClass("atlas-embed-done")
+			} else {
+				t.text.RemoveCSSClass("atlas-embed-done")
+			}
+			dressDueChip(t.chip, blk.due)
+			t.chip.SetVisible(blk.due != "")
+			b.box.Append(t.box)
+		case p.grid != nil:
+			g := p.grid
+			for r, row := range blk.rows {
+				for c, cell := range row {
+					l := e.takeLabel()
+					dressCell(l, cell, blk.align[c], r == 0)
+					g.grid.Attach(l, c, r, 1, 1)
+					g.cells = append(g.cells, l)
+				}
+			}
+			b.box.Append(g.grid)
+		default:
+			dressEmbedLabel(p.label, p, blk)
+			b.box.Append(p.label)
+		}
+		b.parts = append(b.parts, p)
+	}
 }
 
 // RefreshEmbeds reads the embedded notes again, for when the notes they show may
@@ -382,26 +646,30 @@ func (e *Editor) dressEmbed(it *embedItem) {
 	if e.ReadNote != nil {
 		text, err = e.ReadNote(it.ref.target)
 	}
-	body, more := "", false
+	var blocks []embedBlock
+	more := false
+	note := func(msg string) { blocks = []embedBlock{{kind: ekText, markup: "<i>" + msg + "</i>"}} }
 	switch sec, ok := sectionOf(text, it.ref.heading); {
 	case errors.Is(err, ErrProtected):
-		body = "<i>Protected note</i>"
+		note("Protected note")
 	case err != nil || e.ReadNote == nil:
-		body = "<i>Note not found</i>"
+		note("Note not found")
 	case !ok:
-		body = "<i>Section not found</i>"
+		note("Section not found")
 	default:
-		body, more = embedMarkup(sec)
-		if strings.TrimSpace(body) == "" {
-			body = "<i>Empty</i>"
+		blocks, more = embedBlocks(sec)
+		if len(blocks) == 0 {
+			note("Empty")
 		}
 	}
 	if more {
-		body += "\n…"
+		blocks = append(blocks, embedBlock{kind: ekText, markup: "…"})
 	}
-	if body != it.body || b.body.Text() == "" {
+	// What is drawn is compared as text, so that an embed whose note has not changed
+	// is not rebuilt.
+	if body := fmt.Sprintf("%#v", blocks); body != it.body || len(b.parts) == 0 {
 		it.body = body
-		b.body.SetMarkup(body)
+		e.setEmbedBody(b, blocks)
 	}
 }
 

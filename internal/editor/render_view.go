@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"strings"
+
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
@@ -159,6 +161,9 @@ func (d *deco) dress() {
 		// A long language name is cut short, so it cannot push the copy button out
 		// of the block.
 		lang := []rune(b.lang)
+		if strings.EqualFold(b.lang, "mermaid") {
+			lang = []rune("Mermaid diagram") // there is no renderer, so say what it is
+		}
 		if len(lang) > 16 {
 			lang = append(lang[:15], '…')
 		}
@@ -213,6 +218,22 @@ func (e *Editor) putPart(p *part, x, y, w, h int) {
 	p.setVisible(true)
 }
 
+// nearLines is the range of lines in or near the viewport.
+func (e *Editor) nearLines() (l0, l1 int) {
+	adj := e.scroll.VAdjustment()
+	vTop := int(adj.Value())
+	vEnd := vTop + int(adj.PageSize())
+	near := 800
+	l0, l1 = 0, e.buffer.LineCount()
+	if it, _ := e.view.IterAtLocation(0, max(vTop-near, 0)); it != nil {
+		l0 = it.Line()
+	}
+	if it, _ := e.view.IterAtLocation(0, vEnd+near); it != nil {
+		l1 = it.Line()
+	}
+	return l0, l1
+}
+
 // placeDecor puts every block's widgets where the text has put the block. It
 // reports whether the layout was not ready, so that the pass is tried again.
 func (e *Editor) placeDecor() (unsettled bool) {
@@ -227,17 +248,7 @@ func (e *Editor) placeDecor() (unsettled bool) {
 	// Only blocks near the viewport are put in place: laying out a long note's
 	// every callout on each pass is work for widgets nobody is looking at. A
 	// scroll places the ones that have come near (see installRender).
-	adj := e.scroll.VAdjustment()
-	vTop := int(adj.Value())
-	vEnd := vTop + int(adj.PageSize())
-	near := 800
-	l0, l1 := 0, e.buffer.LineCount()
-	if it, _ := e.view.IterAtLocation(0, max(vTop-near, 0)); it != nil {
-		l0 = it.Line()
-	}
-	if it, _ := e.view.IterAtLocation(0, vEnd+near); it != nil {
-		l1 = it.Line()
-	}
+	l0, l1 := e.nearLines()
 	for _, d := range s.active {
 		if d.hidden || (d.kind == kindCode && d.reveal) {
 			d.setVisible(false)
@@ -327,13 +338,14 @@ func (c *chevron) hide() {
 func (e *Editor) installRender() {
 	s := &e.rich
 	e.scroll.VAdjustment().NotifyProperty("value", func() {
-		if len(s.active) == 0 || s.decoQueued {
+		if (len(s.active) == 0 && len(e.items) == 0) || s.decoQueued {
 			return
 		}
 		s.decoQueued = true
 		coreglib.IdleAdd(func() bool {
 			s.decoQueued = false
 			e.placeDecor()
+			e.placeChips()
 			return false
 		})
 	})

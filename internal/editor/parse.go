@@ -139,6 +139,13 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		// "[^1]: text" is a footnote's text: drawn small and quiet.
 		add("footdef", 0, n)
 		body = isFootnoteDef(line)
+		// Away from the caret the "[^" and "]:" go, and the label reads as a raised
+		// number before the text.
+		id := strings.Index(line, "]:")
+		shown := inside(0, body)
+		add("footnum", 2, id)
+		hide(0, 2, shown)
+		hide(id, id+2, shown)
 	default:
 		if m := bulletPrefix(line); m > 0 {
 			add("listitem", 0, n)
@@ -171,7 +178,7 @@ func parseLine(line string, caret int, key *caretKey) []span {
 	// Prose is the common case: a line with no inline marker at all needs no
 	// character-by-character scan. IndexAny is a vectorized search, so this is
 	// far cheaper than running the state machine over the line.
-	if !strings.ContainsAny(line[body:n], "*`~=[") {
+	if !strings.ContainsAny(line[body:n], "*`~=[$") {
 		return charSpans(line, spans)
 	}
 
@@ -195,6 +202,33 @@ func parseLine(line string, caret int, key *caretKey) []span {
 				hide(i, i+2, shown)
 				hide(j, j+2, shown)
 				i = j + 2
+				continue
+			}
+		case line[i] == '$':
+			// $$display$$ and $inline$ math. There is no TeX engine, so the markers
+			// go and the formula is set in a serif italic; a display formula that is
+			// the whole line is centred as well.
+			if i+1 < n && line[i+1] == '$' {
+				if j := indexDouble(line, '$', i+2, n); j > i+2 {
+					shown := inside(i, j+2)
+					add("mathblock", i+2, j)
+					if strings.TrimSpace(line[:i]) == "" && strings.TrimSpace(line[j+2:]) == "" {
+						add("mathline", 0, n)
+					}
+					hide(i, i+2, shown)
+					hide(j, j+2, shown)
+					i = j + 2
+					continue
+				}
+				i += 2
+				continue
+			}
+			if j := mathClose(line, i, n); j > 0 {
+				shown := inside(i, j+1)
+				add("math", i+1, j)
+				hide(i, i+1, shown)
+				hide(j, j+1, shown)
+				i = j + 1
 				continue
 			}
 		case line[i] == '[' && i+2 < n && line[i+1] == '^':
@@ -239,6 +273,35 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		i++
 	}
 	return charSpans(line, spans)
+}
+
+// mathClose returns the index of the "$" that closes the inline formula opened
+// at line[open], or -1. It follows Obsidian, so that prices are not math: no
+// space right after the opening "$" or before the closing one, and the closing
+// one is not followed by a digit. Only the next "$" is tried, so "$5 and $10"
+// has no formula, and a backslash escapes a "$".
+func mathClose(line string, open, n int) int {
+	if open > 0 && line[open-1] == '\\' {
+		return -1
+	}
+	if open+1 >= n || line[open+1] == ' ' || line[open+1] == '\t' {
+		return -1
+	}
+	for k := open + 1; k < n; k++ {
+		switch line[k] {
+		case '\\':
+			k++
+		case '$':
+			if k == open+1 || line[k-1] == ' ' || line[k-1] == '\t' {
+				return -1
+			}
+			if k+1 < n && line[k+1] >= '0' && line[k+1] <= '9' {
+				return -1
+			}
+			return k
+		}
+	}
+	return -1
 }
 
 // quotePrefix is the length of a quote line's ">" and the space after it, when

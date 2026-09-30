@@ -232,25 +232,6 @@ func TestSectionOf(t *testing.T) {
 	}
 }
 
-func TestEmbedMarkupIsCappedAndFlat(t *testing.T) {
-	got, more := embedMarkup("# Head\nsome **bold**\n![[Other]]\n")
-	if more || !strings.Contains(got, "<b>Head</b>") || !strings.Contains(got, "<b>bold</b>") {
-		t.Errorf("markup %q", got)
-	}
-	// An embed in an embedded note comes out as a link, not as another embed.
-	if strings.Contains(got, "![[") || !strings.Contains(got, "Other") {
-		t.Errorf("nested embed came out as %q", got)
-	}
-	long := strings.Repeat("line\n", 100)
-	got, more = embedMarkup(long)
-	if !more || strings.Count(got, "\n")+1 != maxEmbedLines {
-		t.Errorf("long note: %d lines, more=%v", strings.Count(got, "\n")+1, more)
-	}
-	if n := utf8.RuneCountInString(got); n > maxEmbedChars+100 {
-		t.Errorf("markup is %d characters", n)
-	}
-}
-
 func TestFenceTagsDoNotResizeHiddenFences(t *testing.T) {
 	// The fence tags are made after "invisible", so a size on them would win and
 	// leave the hidden fence line at full height, a blank line by each block.
@@ -289,23 +270,85 @@ func TestEditTouchesRich(t *testing.T) {
 	}
 }
 
-func TestEmbedTableIsAlignedText(t *testing.T) {
-	got, _ := embedMarkup("| A | Longer |\n|:--|--:|\n| xx | y |\nafter")
-	if !strings.Contains(got, "<tt>A    ") || strings.Contains(got, "---") || !strings.HasSuffix(got, "after") {
-		t.Errorf("table came out as %q", got)
+func TestMathAndFootnoteDefinitions(t *testing.T) {
+	has := func(l string, caret int, tag string) bool {
+		for _, s := range parseLineSpans(l, caret) {
+			if s.tag == tag {
+				return true
+			}
+		}
+		return false
 	}
-	rows := strings.Split(got, "\n")
-	if len(rows) != 3 || strings.Index(rows[0], "Longer") != strings.Index(rows[1], "y</tt>")-0 && len(rows[0]) == 0 {
-		t.Errorf("rows %q", rows)
+	if h := hiddenText("$$E = mc^2$$", parseLineSpans("$$E = mc^2$$", -1)); !reflect.DeepEqual(h, []string{"$$", "$$"}) {
+		t.Errorf("display math hides %q", h)
+	}
+	if !has("$$E = mc^2$$", -1, "mathline") || has("x $$E$$ y", -1, "mathline") {
+		t.Error("only a display formula alone on its line is centred")
+	}
+	if h := hiddenText("see $x^2$ now", parseLineSpans("see $x^2$ now", -1)); !reflect.DeepEqual(h, []string{"$", "$"}) {
+		t.Errorf("inline math hides %q", h)
+	}
+	if h := hiddenText("see $x^2$ now", parseLineSpans("see $x^2$ now", 6)); len(h) != 0 {
+		t.Errorf("caret in math still hides %q", h)
+	}
+	for _, l := range []string{"costs $5 and $10", "$ 5$", "$5 $", "a $5$10 b", `\$x$`, "just $"} {
+		if has(l, -1, "math") || has(l, -1, "mathblock") {
+			t.Errorf("%q was taken for math", l)
+		}
+	}
+	const def = "[^1]: the text"
+	if h := hiddenText(def, parseLineSpans(def, -1)); !reflect.DeepEqual(h, []string{"[^", "]:"}) {
+		t.Errorf("footnote definition hides %q", h)
+	}
+	if h := hiddenText(def, parseLineSpans(def, 1)); len(h) != 0 {
+		t.Errorf("caret in the label still hides %q", h)
+	}
+}
+
+func TestEmbedBlocksAreCappedAndFlat(t *testing.T) {
+	got, more := embedBlocks("# Head\nsome **bold**\n![[Other]]\n")
+	if more || len(got) != 3 || got[0].kind != ekHead || !strings.Contains(got[1].markup, "<b>bold</b>") {
+		t.Fatalf("blocks %+v", got)
+	}
+	// An embed in an embedded note comes out as a link, not as another embed.
+	if strings.Contains(got[2].markup, "![[") || !strings.Contains(got[2].markup, "Other") {
+		t.Errorf("nested embed came out as %q", got[2].markup)
+	}
+	got, more = embedBlocks(strings.Repeat("line\n", 100))
+	if !more || len(got) != maxEmbedLines {
+		t.Errorf("long note: %d blocks, more=%v", len(got), more)
+	}
+}
+
+func TestEmbedTasksAndCode(t *testing.T) {
+	got, _ := embedBlocks("- [ ] Ship <!-- due:2026-07-01 priority:high -->\n- [x] Done \u23eb \U0001F4C5 2026-08-02\n```go\nfunc main() {}\n```\nafter")
+	if len(got) != 4 {
+		t.Fatalf("blocks %+v", got)
+	}
+	if got[0].kind != ekTask || got[0].due != "2026-07-01" || strings.Contains(got[0].markup, "<!--") || got[0].checked {
+		t.Errorf("task %+v", got[0])
+	}
+	if !got[1].checked || got[1].due != "2026-08-02" || strings.Contains(got[1].markup, "\u23eb") {
+		t.Errorf("done task %+v", got[1])
+	}
+	if got[2].kind != ekCode || got[2].code != "func main() {}" || got[3].markup != "after" {
+		t.Errorf("code %+v, after %+v", got[2], got[3])
+	}
+}
+
+func TestEmbedTableIsAGrid(t *testing.T) {
+	got, _ := embedBlocks("| A | Longer |\n|:--|--:|\n| xx | **y** |\nafter")
+	if len(got) != 2 || got[0].kind != ekTable || len(got[0].rows) != 2 || got[0].align[1] != alignRight || got[1].markup != "after" {
+		t.Errorf("table came out as %+v", got)
 	}
 }
 
 func TestEmbedLineAndTextAreClipped(t *testing.T) {
-	got, _ := embedMarkup(strings.Repeat("é", maxEmbedLine*3))
-	if utf8.RuneCountInString(got) > maxEmbedLine {
-		t.Errorf("a %d-character line came out %d long", maxEmbedLine*3, utf8.RuneCountInString(got))
+	got, _ := embedBlocks(strings.Repeat("\u00e9", maxEmbedLine*3))
+	if len(got) != 1 || utf8.RuneCountInString(got[0].markup) > maxEmbedLine {
+		t.Errorf("a %d-character line came out wrong", maxEmbedLine*3)
 	}
-	if !utf8.ValidString(clipRunes("héllo", 2)) {
+	if !utf8.ValidString(clipRunes("h\u00e9llo", 2)) {
 		t.Error("clipRunes split a character")
 	}
 }
