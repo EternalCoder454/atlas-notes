@@ -9,7 +9,7 @@ is not in this branch's copy of the file).
 
 | # | Change | File | Before | After | Status |
 |---|--------|------|--------|-------|--------|
-| 1 | `paths-ignore` for `**.md`, `LICENSE`, `NOTICE` on the push trigger (b4acf30) | `.github/workflows/release.yml` (the `on:` block only) | a doc-only push to beta runs Android, 1.4 to 1.7 min (measured) | a doc-only push runs nothing, 0 min (inference) | **unverified** |
+| 1 | `paths-ignore` for `**.md`, `LICENSE`, `NOTICE` on the push trigger (b4acf30) | `.github/workflows/release.yml` (the `on:` block only) | a doc-only push to beta runs Android, 1.4 to 1.7 min (measured) | a doc-only push runs nothing, 0 min | **verified** after merging to beta: the CHANGELOG-only push of 2026-09-30 22:50 started no run of either workflow, and did not cancel the runs in progress (measured, `gh run list --branch beta`) |
 
 Why unverified (evidence): the workflow triggers on pushes to `main` and
 `beta` only, so pushing `ci-speedup` runs nothing, and `workflow_dispatch`
