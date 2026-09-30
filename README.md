@@ -22,10 +22,13 @@ packages are installed.
   fully offline — the only request it ever makes is the update check described
   under [Updating](#updating), which sends nothing about you or your notes and
   can be switched off.
-- **WYSIWYG Markdown.** Headings, **bold**, *italic*, `code`, ~~strikethrough~~,
-  bullets, quotes and dividers render as you type; the syntax markers hide except
-  on the line you're editing. A formatting toolbar and shortcuts (Ctrl+B, Ctrl+I,
-  Ctrl+1…) do the same without typing the markers.
+- **Live preview Markdown.** Headings, **bold**, *italic*, `code`,
+  ~~strikethrough~~, links, bullets, numbered lists, quotes, code blocks, tables
+  and dividers render as you type, and a symbol shows only while the caret is in
+  what it marks: the `**` of the word you are editing, the brackets of that one
+  link. Enter continues a list. A formatting toolbar and shortcuts (Ctrl+B,
+  Ctrl+I, Ctrl+1…) do the same without typing the markers, and the file stays
+  plain Markdown.
 - **Real checklists.** `- [ ]` lines become live checkboxes with priority colors
   and per-item due dates (set from a right-click menu, shown as a badge on the
   item). The header tracks how many are done.
@@ -60,9 +63,11 @@ packages are installed.
 - **Snappy & stable.** Instant **Ctrl + S** plus background autosave, an indexed
   vault (embedded SQLite) for fast browsing, and atomic writes so a note is never
   half-saved.
-- **Three-panel layout** — vault · editor · AI assistant — each panel
-  drag-resizable and collapsible from the header bar, with a home screen that
-  puts new notes, search and your recent work one click away.
+- **A Windows 11 look.** The vault, the note and the assistant, each panel
+  drag-resizable and collapsible, in one frame with the note on a page of its
+  own; Home and Settings in the vault panel; optional window transparency; and
+  a home screen that puts new notes, what is due and your recent work one click
+  away.
 
 ## Your notes on your phone
 
@@ -494,7 +499,7 @@ atlas-notes/
     │   ├── updatecheck.go  # the launch-time check and its dialog
     │   ├── icons/          # every icon the app draws (Material Symbols)
     │   └── bench.go        # the measurement harness (see above)
-    ├── editor/   # GtkTextView WYSIWYG, checklist rows and their menu
+    ├── editor/   # live preview GtkTextView: checklists, links, pictures, tables, find
     ├── storage/  # vault I/O, note formats, history, attachments, SQLite index, config
     ├── markup/   # what counts as a [[link]], a #tag or an ![image] (shared)
     ├── imagefit/ # pasted images: sized, stripped of metadata, compressed
