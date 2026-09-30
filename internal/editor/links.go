@@ -421,6 +421,9 @@ func (e *Editor) installLinks() {
 			}
 			p = e.pressOn(sp, line, p.x, p.y)
 		}
+		if e.openLinkSide(p, click.CurrentEventState()) {
+			return
+		}
 		// On a line that shows its markers a plain click is for editing; Ctrl
 		// opens the link anyway.
 		if p.revealed && click.CurrentEventState()&gdk.ControlMask == 0 {
