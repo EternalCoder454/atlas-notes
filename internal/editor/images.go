@@ -592,7 +592,7 @@ func (it *imageItem) resize(_ *Editor, avail int) {
 // makes the line positions below trustworthy. Asking twice is one pass.
 func (e *Editor) queuePlace() {
 	s := &e.img
-	if s.queued || (len(s.items) == 0 && len(e.tbl.items) == 0) {
+	if s.queued || (len(s.items) == 0 && len(e.tbl.items) == 0 && len(e.emb.items) == 0 && len(e.rich.active) == 0) {
 		return
 	}
 	s.queued = true
@@ -610,14 +610,18 @@ func (e *Editor) queuePlace() {
 // the scroll range's change triggers and which is also queued here to be safe.
 func (e *Editor) placeBlocks() {
 	s := &e.img
-	blocks := make([]block, 0, len(s.items)+len(e.tbl.items))
+	blocks := make([]block, 0, len(s.items)+len(e.tbl.items)+len(e.emb.items))
 	for _, it := range s.items {
 		blocks = append(blocks, it)
 	}
 	for _, it := range e.tbl.items {
 		blocks = append(blocks, it)
 	}
+	for _, it := range e.emb.items {
+		blocks = append(blocks, it)
+	}
 	if len(blocks) == 0 {
+		e.retryPlace(e.placeDecor())
 		return
 	}
 	avail := e.view.Width() - e.view.LeftMargin() - e.view.RightMargin()
@@ -644,7 +648,11 @@ func (e *Editor) placeBlocks() {
 		if line < 0 {
 			continue
 		}
-		if want := b.wantPad(e, line, avail); want != o.pad {
+		want := b.wantPad(e, line, avail)
+		if e.rich.foldedAt(line) {
+			want = "" // folded away: no space for it either
+		}
+		if want != o.pad {
 			e.applyPad(o, line, want)
 			changed = true
 		}
@@ -664,6 +672,10 @@ func (e *Editor) placeBlocks() {
 		o := b.over()
 		line := e.markLine(o.mark)
 		if line < 0 {
+			continue
+		}
+		if e.rich.foldedAt(line) {
+			gtk.BaseWidget(w).SetVisible(false)
 			continue
 		}
 		if !b.ready(avail) {
@@ -705,6 +717,14 @@ func (e *Editor) placeBlocks() {
 		}
 	}
 
+	decor := e.placeDecor()
+	e.retryPlace(unsettled || decor)
+}
+
+// retryPlace tries the placement pass again in a moment when the text layout was
+// not ready for it, a few times over.
+func (e *Editor) retryPlace(unsettled bool) {
+	s := &e.img
 	if !unsettled {
 		s.retry = 0
 		return

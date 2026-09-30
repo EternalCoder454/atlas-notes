@@ -104,6 +104,14 @@ type Editor struct {
 	// table needs; it is worked out with the fence (see refreshFence).
 	tbl     tableState
 	hasPipe bool
+	// rich is the state of the quotes, callouts, code blocks and folds (see
+	// render.go).
+	rich richState
+	// forceReparse lets the next render pass run with text selected (see
+	// unfoldAtCaret).
+	forceReparse bool
+	// emb is the state of the embedded notes (see embeds.go).
+	emb embedState
 
 	// OnOpenNote, OnOpenTag and OnOpenURL are called when a link is clicked: a
 	// note link with its target and heading (either may be a bare name or a
@@ -122,6 +130,12 @@ type Editor struct {
 	// complete.go). Without them those entries are not offered.
 	OnAssistant   func(action string)
 	OnInsertImage func()
+
+	// ReadNote returns the text of the note that "![[Target]]" names, given the
+	// target as written (a name or a path). It runs on the main thread and reads
+	// a file, so it is only asked for when an embed is drawn. Without it embeds
+	// stay plain text.
+	ReadNote func(target string) (string, error)
 
 	// LoadImage returns the bytes of the picture a note's "![](path)" names, given
 	// the path as written in the note. It runs on a goroutine, never on the main
@@ -216,8 +230,13 @@ func New() *Editor {
 	e.installLinks()
 	e.installComplete()
 	e.installImages()
+	e.installRender()
 
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
+		if mark.Name() == "selection_bound" {
+			e.unfoldAtCaret() // a selection's far end may be in folded text
+			return
+		}
 		if mark.Name() != "insert" {
 			return
 		}
@@ -229,6 +248,7 @@ func New() *Editor {
 		if e.snapToMetadata() {
 			return
 		}
+		e.unfoldAtCaret()
 		if e.loading || e.caretPassNeeded() {
 			e.scheduleReparse()
 		}
@@ -312,6 +332,7 @@ func (e *Editor) createTags() {
 		"left-margin": 26, "style": pango.StyleItalic, "foreground": "#9a9a9a",
 	})
 	e.newTag("divider", map[string]any{"foreground": "#9a9a9a", "scale": 0.8})
+	e.createRichTags()
 	e.createBulletTags()
 	// A finished task reads as done: struck through and receded.
 	e.newTag("done", map[string]any{"strikethrough": true, "foreground": "#9a9a9a"})
@@ -336,6 +357,8 @@ func (e *Editor) SetContent(s string) {
 	e.clearItems()  // the old note's checkboxes go with its text
 	e.clearImages() // and so do its pictures
 	e.clearTables() // and its tables
+	e.clearRich()   // and its folds
+	e.clearEmbeds() // and its embedded notes
 	e.closeSuggest()
 	e.sg.dismissed = -1 // an Escape in the last note says nothing about this one
 
@@ -474,7 +497,9 @@ func (e *Editor) reparse() {
 	// held for it then runs 50 ms later, in the middle of the drag, before a
 	// new selection exists to hold it back. The button being down is what a
 	// drag is, so that is what is checked.
-	if e.handsBusy() {
+	force := e.forceReparse
+	e.forceReparse = false
+	if !force && e.handsBusy() {
 		e.reparseDeferred = true
 		e.whenHandsFree()
 		return
@@ -506,6 +531,7 @@ func (e *Editor) reparse() {
 	}
 	// A table is drawn or shown whole, so a pass that touches one covers it.
 	from, to = e.widenForTables(from, to, lastLine)
+	from, to = e.widenForRich(from, to, lastLine)
 	e.lastCursor = cursorLine
 	e.clearDirty()
 
@@ -516,6 +542,9 @@ func (e *Editor) reparse() {
 	e.tagRange(from, to, revealLine, caretCol)
 	e.syncImages(from, to)
 	e.syncTables(from, to)
+	e.syncEmbeds(from, to)
+	e.syncRich(revealLine)
+	e.hideFoldedRows()
 
 	if e.OnReparsed != nil {
 		e.OnReparsed()
@@ -546,6 +575,9 @@ func (e *Editor) refreshFence(from, to, lastLine int) (int, int) {
 	e.fence, e.fenceLines, e.fenceStale = cur, lastLine+1, false
 	// The same text is at hand for finding out whether a table is possible.
 	e.hasPipe = strings.IndexByte(raw, '|') >= 0
+	if e.scanRich(raw, from, to, lastLine+1) {
+		from, to = 0, lastLine
+	}
 	if fenceChanged(old, cur, oldLines, lastLine+1, to) {
 		to = lastLine
 	}
@@ -672,8 +704,12 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 		for nextTable < len(tables) && lineNum >= tables[nextTable].line+tables[nextTable].lines {
 			nextTable++
 		}
-		if role := roleOf(e.fence, lineNum, parse); role != fenceNone {
-			e.tagFenceLine(lineNum, parse, role)
+		if e.rich.hiddenAt(lineNum) {
+			e.tagFolded(lineNum, parse)
+		} else if role := roleOf(e.fence, lineNum, parse); role != fenceNone {
+			e.tagFenceLine(lineNum, parse, role, revealed(e.rich.blockAt(lineNum), cursorLine))
+		} else if blk := e.rich.blockAt(lineNum); blk != nil && blk.kind == kindCallout {
+			e.tagCalloutLine(lineNum, parse, blk, revealed(blk, cursorLine), at, keyed)
 		} else if nextTable < len(tables) && lineNum >= tables[nextTable].line {
 			tb := &tables[nextTable]
 			e.tagTableLine(lineNum, parse, tb, cursorLine >= tb.line && cursorLine < tb.line+tb.lines)
@@ -685,6 +721,9 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 			}
 		} else {
 			e.tagLine(lineNum, parse, at, keyed)
+			if e.rich.heads[lineNum] {
+				e.applyTag("foldhead", lineNum, 0, utf8.RuneCountInString(parse))
+			}
 		}
 		if marker != 0 {
 			if it, ok := e.buffer.IterAtLineOffset(lineNum, glyphCol(line)); ok {
@@ -723,10 +762,27 @@ func (e *Editor) tagLine(lineNum int, line string, at int, key *caretKey) {
 	if e.imagesOn() && strings.Contains(line, "![") {
 		e.tagImageLine(lineNum, line, at >= 0)
 	}
+	// "![[Note]]" on a line of its own shows the note's text under it.
+	if e.ReadNote != nil && strings.Contains(line, "![[") {
+		e.tagEmbedLine(lineNum, line, at >= 0)
+	}
 }
 
 // tagFenceLine tags a line that is part of a fenced code block.
-func (e *Editor) tagFenceLine(lineNum int, line string, role fenceRole) {
+func (e *Editor) tagFenceLine(lineNum int, line string, role fenceRole, reveal bool) {
+	// A fence is hidden (its language is what the block's label says) unless the
+	// caret is in the block, and then it is the plain dim line it was. The opening
+	// one leaves a band above the code for the label and the copy button.
+	if role == fenceEdge && !reveal {
+		n := utf8.RuneCountInString(line)
+		e.applyTag(markerTag(), lineNum, 0, n)
+		if !inFence(e.fence, lineNum-1) {
+			e.applyTag("fencetop", lineNum, 0, n)
+		} else {
+			e.applyTag("fenceend", lineNum, 0, n)
+		}
+		return
+	}
 	for _, sp := range fenceSpans(line, role) {
 		if sp.end > sp.start {
 			e.applyTag(sp.tag, lineNum, sp.start, sp.end)

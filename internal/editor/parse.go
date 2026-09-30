@@ -79,8 +79,7 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		add("marker", s, e)
 	}
 	// dim leaves a marker visible but recessive. It is used for list bullets, where
-	// hiding the character would change the text's shape. A shown quote bar needs
-	// no dimming: the quote's own gray already covers it.
+	// hiding the character would change the text's shape.
 	dim := func(s, e int) { add("marker", s, e) }
 	// inside says whether the caret is in the inline construct spanning bytes s to
 	// e, or right against either end of it.
@@ -128,14 +127,18 @@ func parseLine(line string, caret int, key *caretKey) []span {
 	case isDivider(line):
 		add("divider", 0, n)
 		return charSpans(line, spans)
-	case strings.HasPrefix(line, "> "):
+	case strings.HasPrefix(line, ">"):
 		add("quote", 0, n)
-		// The ">" stays, dimmed, as the quote's bar: hidden, a quote would be
-		// only grey italics with nothing to say it is a quote.
-		if !inPrefix(2) {
-			dim(0, 1)
-		}
-		body = 2
+		// The "> " is hidden like a heading's "#", and the quote's bar is a widget
+		// drawn beside the whole block (see render.go). It used to be the ">"
+		// itself, dimmed, which left the raw syntax on screen in every quote.
+		p := quotePrefix(line)
+		hide(0, p, inPrefix(p))
+		body = p
+	case isFootnoteDef(line) > 0:
+		// "[^1]: text" is a footnote's text: drawn small and quiet.
+		add("footdef", 0, n)
+		body = isFootnoteDef(line)
 	default:
 		if m := bulletPrefix(line); m > 0 {
 			add("listitem", 0, n)
@@ -168,7 +171,7 @@ func parseLine(line string, caret int, key *caretKey) []span {
 	// Prose is the common case: a line with no inline marker at all needs no
 	// character-by-character scan. IndexAny is a vectorized search, so this is
 	// far cheaper than running the state machine over the line.
-	if !strings.ContainsAny(line[body:n], "*`~") {
+	if !strings.ContainsAny(line[body:n], "*`~=[") {
 		return charSpans(line, spans)
 	}
 
@@ -180,6 +183,27 @@ func parseLine(line string, caret int, key *caretKey) []span {
 				shown := inside(i, j+1)
 				add("code", i+1, j)
 				hide(i, i+1, shown)
+				hide(j, j+1, shown)
+				i = j + 1
+				continue
+			}
+		case line[i] == '=' && i+2 < n && line[i+1] == '=' && line[i+2] != ' ' && line[i+2] != '=':
+			// ==highlight==: the closing pair must follow a non-space, as in Obsidian.
+			if j := indexDouble(line, '=', i+2, n); j > i+2 && line[j-1] != ' ' {
+				shown := inside(i, j+2)
+				add("highlight", i+2, j)
+				hide(i, i+2, shown)
+				hide(j, j+2, shown)
+				i = j + 2
+				continue
+			}
+		case line[i] == '[' && i+2 < n && line[i+1] == '^':
+			// [^1] is a reference to a footnote: the bracket and caret go, the label
+			// is drawn small and raised.
+			if j := indexByteFrom(line, ']', i+2, n); j > i+2 && !strings.ContainsAny(line[i+2:j], " \t[") {
+				shown := inside(i, j+1)
+				add("footref", i+2, j)
+				hide(i, i+2, shown)
 				hide(j, j+1, shown)
 				i = j + 1
 				continue
@@ -215,6 +239,32 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		i++
 	}
 	return charSpans(line, spans)
+}
+
+// quotePrefix is the length of a quote line's ">" and the space after it, when
+// there is one.
+func quotePrefix(line string) int {
+	if len(line) > 1 && line[1] == ' ' {
+		return 2
+	}
+	return 1
+}
+
+// isFootnoteDef returns the byte offset just past the "[^id]:" (and the space
+// after it) that starts a footnote's text, or 0 when the line is not one.
+func isFootnoteDef(line string) int {
+	if !strings.HasPrefix(line, "[^") {
+		return 0
+	}
+	j := strings.Index(line, "]:")
+	if j < 3 || strings.ContainsAny(line[2:j], " \t") {
+		return 0
+	}
+	j += 2
+	if j < len(line) && line[j] == ' ' {
+		j++
+	}
+	return j
 }
 
 // caretByte converts the caret's character offset in line to a byte offset. A

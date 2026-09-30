@@ -393,6 +393,79 @@ list.atlas-nav-footer {
 	background-color: @view_bg_color;
 }
 
+/* ---- Editor blocks: quotes, callouts, code, folds ---- */
+
+/* The bar beside a quote. */
+.atlas-quote-bar {
+	background-color: alpha(@window_fg_color, 0.28);
+	border-radius: 2px;
+}
+
+/* A callout is a tinted card behind its lines, with a header the icon and a
+   chevron sit in. Each type's class picks a named colour, so a theme's palette
+   reaches them, and the tint is an alpha so it suits light and dark alike. */
+.atlas-callout {
+	border-radius: 8px;
+	border-left: 3px solid transparent;
+}
+.atlas-callout-head { border-radius: 8px; }
+.atlas-callout-icon, .atlas-callout-chevron { opacity: 0.9; }
+.atlas-callout-title { font-weight: 700; }
+.atlas-callout-head:hover .atlas-callout-chevron { opacity: 1; }
+.atlas-callout.callout-note { background-color: alpha(@accent_color, 0.11); border-left-color: alpha(@accent_color, 0.85); }
+.atlas-callout-head.callout-note .atlas-callout-icon,
+.atlas-callout-head.callout-note .atlas-callout-title { color: @accent_color; }
+.atlas-callout.callout-info { background-color: alpha(@blue_3, 0.11); border-left-color: alpha(@blue_3, 0.85); }
+.atlas-callout-head.callout-info .atlas-callout-icon,
+.atlas-callout-head.callout-info .atlas-callout-title { color: @blue_3; }
+.atlas-callout.callout-tip { background-color: alpha(@green_4, 0.11); border-left-color: alpha(@green_4, 0.85); }
+.atlas-callout-head.callout-tip .atlas-callout-icon,
+.atlas-callout-head.callout-tip .atlas-callout-title { color: @green_4; }
+.atlas-callout.callout-success { background-color: alpha(@success_color, 0.11); border-left-color: alpha(@success_color, 0.85); }
+.atlas-callout-head.callout-success .atlas-callout-icon,
+.atlas-callout-head.callout-success .atlas-callout-title { color: @success_color; }
+.atlas-callout.callout-warning { background-color: alpha(@warning_color, 0.11); border-left-color: alpha(@warning_color, 0.85); }
+.atlas-callout-head.callout-warning .atlas-callout-icon,
+.atlas-callout-head.callout-warning .atlas-callout-title { color: @warning_color; }
+.atlas-callout.callout-danger { background-color: alpha(@error_color, 0.11); border-left-color: alpha(@error_color, 0.85); }
+.atlas-callout-head.callout-danger .atlas-callout-icon,
+.atlas-callout-head.callout-danger .atlas-callout-title { color: @error_color; }
+.atlas-callout.callout-question { background-color: alpha(@orange_3, 0.11); border-left-color: alpha(@orange_3, 0.85); }
+.atlas-callout-head.callout-question .atlas-callout-icon,
+.atlas-callout-head.callout-question .atlas-callout-title { color: @orange_3; }
+.atlas-callout.callout-example { background-color: alpha(@purple_3, 0.11); border-left-color: alpha(@purple_3, 0.85); }
+.atlas-callout-head.callout-example .atlas-callout-icon,
+.atlas-callout-head.callout-example .atlas-callout-title { color: @purple_3; }
+.atlas-callout.callout-quote { background-color: alpha(alpha(@window_fg_color, 0.55), 0.11); border-left-color: alpha(alpha(@window_fg_color, 0.55), 0.85); }
+.atlas-callout-head.callout-quote .atlas-callout-icon,
+.atlas-callout-head.callout-quote .atlas-callout-title { color: alpha(@window_fg_color, 0.55); }
+.atlas-callout.callout-todo { background-color: alpha(@accent_color, 0.11); border-left-color: alpha(@accent_color, 0.85); }
+.atlas-callout-head.callout-todo .atlas-callout-icon,
+.atlas-callout-head.callout-todo .atlas-callout-title { color: @accent_color; }
+
+/* A code block's language and copy button, at its top right. */
+.atlas-code-tools { padding: 0 2px; }
+.atlas-code-lang {
+	font-size: 0.8em;
+	color: alpha(@window_fg_color, 0.55);
+}
+.atlas-code-copy {
+	min-width: 22px;
+	min-height: 22px;
+	padding: 0;
+	opacity: 0.6;
+}
+.atlas-code-copy:hover { opacity: 1; }
+
+/* The chevron in the margin beside a heading. */
+.atlas-fold-chevron {
+	min-width: 18px;
+	min-height: 22px;
+	padding: 0;
+	opacity: 0.55;
+}
+.atlas-fold-chevron:hover { opacity: 1; }
+
 /* ---- Status bar ---- */
 
 .status-bar {
@@ -1120,3 +1193,19 @@ row.combo listview.inline {
 window.atlas-glass .atlas-page .tasks-open {
 	background-color: alpha(@card_bg_color, 0.85);
 }
+
+/* ---- An embedded note ---- */
+
+.atlas-embed {
+	padding: 8px 14px 10px 14px;
+	border-radius: 8px;
+	border: 1px solid alpha(@window_fg_color, 0.14);
+	border-left: 3px solid alpha(@accent_color, 0.7);
+	background-color: alpha(@window_fg_color, 0.035);
+}
+.atlas-embed-title {
+	font-size: 0.85em;
+	font-weight: 700;
+	color: alpha(@window_fg_color, 0.6);
+}
+.atlas-embed-title:hover { color: @accent_color; }
