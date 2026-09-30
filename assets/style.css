@@ -23,40 +23,145 @@
 	--atlas-purple: #9a57e3;
 }
 
-/* ---- Panels ---- */
+/* ---- The frame ----
+ *
+ * Laid out the way Windows 11 draws its apps, and the way Atlas Monitor draws
+ * itself: the title bar and the two side panels are one surface, and the note
+ * sits on a page of its own above it, its top corners rounded where they meet
+ * the frame and a hairline along the edges that face it. Every colour is the
+ * theme's own (@sidebar_bg_color for the frame, @view_bg_color for the page),
+ * so light and dark keep their palettes and gain the layering.
+ */
 
-.left-panel {
+toolbarview.atlas-frame > .top-bar,
+toolbarview.atlas-frame > .top-bar:backdrop {
 	background-color: @sidebar_bg_color;
-	border-right: 1px solid alpha(@window_fg_color, 0.14);
+	box-shadow: none;
 }
 
-.center-panel {
-	background-color: @view_bg_color;
+.atlas-titlebar,
+.atlas-titlebar:backdrop {
+	background-color: transparent;
+	box-shadow: none;
+	border-bottom: none;
 }
 
+.atlas-brand {
+	margin-left: 4px;
+	margin-right: 6px;
+}
+
+.atlas-brand-name {
+	font-size: 0.92em;
+}
+
+.atlas-brand-version {
+	font-size: 0.8em;
+	color: alpha(currentColor, 0.5);
+}
+
+/* The panes' own background is the frame's; the page draws over it. */
+paned.atlas-shell,
+paned.atlas-inner {
+	background-color: @sidebar_bg_color;
+}
+
+/* The drag handles between panes stay grabbable but draw nothing: the page's
+   edge is what divides them now. */
+paned.atlas-shell > separator,
+paned.atlas-inner > separator {
+	background: none;
+	box-shadow: none;
+	min-width: 6px;
+}
+
+.left-panel,
 .right-panel {
-	background-color: @sidebar_bg_color;
-	border-left: 1px solid alpha(@window_fg_color, 0.14);
+	background-color: transparent;
+}
+
+/* One colour on every side, with width only where the page faces the frame: a
+   border whose sides differ in colour is drawn by GTK's software renderer as a
+   gradient mesh, the slowest thing it draws. atlas-page-left and -right are set
+   while the panel on that side is showing (syncPageCorners); where the page
+   reaches the window's edge it stays square. */
+.atlas-page {
+	background-color: @view_bg_color;
+	border-style: solid;
+	border-color: alpha(@window_fg_color, 0.08);
+	border-width: 1px 0 0 0;
+}
+
+.atlas-page.atlas-page-left {
+	border-left-width: 1px;
+	border-top-left-radius: 10px;
+}
+
+.atlas-page.atlas-page-right {
+	border-right-width: 1px;
+	border-top-right-radius: 10px;
 }
 
 .atlas-header {
 	box-shadow: none;
-	border-bottom: 1px solid alpha(@window_fg_color, 0.10);
+}
+
+/* ---- Navigation ----
+ *
+ * Task Manager's: 38px rows with a small radius, a faint fill on hover, and on
+ * the current row a faint fill and a short upright bar in the accent colour at
+ * its left edge, the pill that says where you are. It is a background image
+ * rather than a widget, and sized rather than stretched, so it stays a pill:
+ * 3 by 16 pixels, centred on the row.
+ */
+
+list.atlas-nav {
+	padding: 6px 6px 2px 6px;
+}
+
+list.atlas-nav > row {
+	min-height: 38px;
+	padding: 0 12px;
+	border-radius: 5px;
+	margin: 0 0 2px 0;
+}
+
+list.atlas-nav > row image {
+	-gtk-icon-size: 18px;
+	opacity: 0.85;
+}
+
+list.atlas-nav > row.activatable:hover {
+	background-color: alpha(currentColor, 0.05);
+}
+
+list.atlas-nav > row.atlas-current,
+list.atlas-nav > row.atlas-current:hover {
+	background-color: alpha(currentColor, 0.08);
+	background-image: linear-gradient(@accent_color, @accent_color);
+	background-size: 3px 16px;
+	background-position: left center;
+	background-repeat: no-repeat;
+}
+
+list.atlas-nav-footer {
+	padding: 4px 6px 8px 6px;
 }
 
 /* ---- Vault panel ---- */
 
 .vault-header {
 	padding: 10px 10px 8px 10px;
-	border-bottom: 1px solid alpha(@window_fg_color, 0.10);
 }
 
+/* A group of pages in the sidebar: small capitals, tracked, quiet, as Task
+   Manager and Atlas Monitor mark theirs. */
 .vault-title {
 	font-weight: 700;
-	font-size: 0.95em;
-	letter-spacing: 0.04em;
+	font-size: 0.74em;
+	letter-spacing: 0.07em;
 	text-transform: uppercase;
-	opacity: 0.85;
+	color: alpha(currentColor, 0.55);
 }
 
 .vault-count {
@@ -101,18 +206,28 @@
 	background: transparent;
 }
 
+/* The vault's rows take the navigation's shape at a tighter height: a vault
+   can hold thousands of notes, and 38px rows would show a screenful of a
+   dozen. The selected note gets the same faint fill and accent pill. */
 .navigation-sidebar > row {
-	border-radius: 7px;
+	border-radius: 5px;
 	margin: 1px 0;
-	min-height: 30px;
+	min-height: 32px;
 	padding: 2px 6px;
 }
 
-.navigation-sidebar > row:selected {
-	background-color: alpha(@accent_bg_color, 0.26);
+.navigation-sidebar > row:hover {
+	background-color: alpha(currentColor, 0.05);
+}
+
+.navigation-sidebar > row:selected,
+.navigation-sidebar > row:selected:hover {
+	background-color: alpha(currentColor, 0.08);
+	background-image: linear-gradient(@accent_color, @accent_color);
+	background-size: 3px 16px;
+	background-position: left center;
+	background-repeat: no-repeat;
 	color: @window_fg_color;
-	font-weight: 600;
-	box-shadow: inset 3px 0 0 @accent_bg_color;
 }
 
 .navigation-sidebar image {
@@ -137,9 +252,11 @@
 	margin-bottom: -2px;
 }
 
+/* Titles in a light weight, as Windows 11 sets them: large enough to find at a
+   glance, thin enough not to shout over the note itself. */
 .note-title {
-	font-weight: 700;
-	font-size: 1.45em;
+	font-weight: 300;
+	font-size: 1.75em;
 	background: none;
 	padding: 0;
 	min-height: 34px;
@@ -275,7 +392,7 @@
 /* ---- Welcome screen ---- */
 
 .welcome-page {
-	background-color: @view_bg_color;
+	background-color: transparent;
 }
 
 .welcome-content {
@@ -283,8 +400,8 @@
 }
 
 .welcome-title {
-	font-size: 1.9em;
-	font-weight: 800;
+	font-size: 2.3em;
+	font-weight: 300;
 	margin-top: 4px;
 }
 
@@ -300,7 +417,7 @@
 
 .welcome-card {
 	padding: 12px 14px;
-	border-radius: 12px;
+	border-radius: 7px;
 	background-color: @card_bg_color;
 	border: 1px solid alpha(@window_fg_color, 0.08);
 	min-width: 236px;
@@ -351,7 +468,7 @@
 
 .welcome-recent {
 	padding: 9px 12px;
-	border-radius: 10px;
+	border-radius: 7px;
 	background-color: alpha(@window_fg_color, 0.03);
 	border: 1px solid alpha(@window_fg_color, 0.06);
 	box-shadow: none;
@@ -401,7 +518,7 @@
 .shortcut-card {
 	background-color: @card_bg_color;
 	border: 1px solid alpha(@window_fg_color, 0.07);
-	border-radius: 12px;
+	border-radius: 7px;
 }
 
 .shortcut-row {
@@ -444,7 +561,7 @@
 .ai-setup-card {
 	background-color: @card_bg_color;
 	border: 1px solid alpha(@window_fg_color, 0.10);
-	border-radius: 12px;
+	border-radius: 7px;
 	padding: 12px;
 }
 
@@ -506,7 +623,7 @@
 .ai-action {
 	background-color: @card_bg_color;
 	border: 1px solid alpha(@window_fg_color, 0.07);
-	border-radius: 12px;
+	border-radius: 7px;
 	padding: 14px;
 }
 
@@ -615,4 +732,136 @@
 .row-star {
 	color: #f5c211; /* amber, the one place in the panel that carries colour */
 	opacity: 0.85;
+}
+
+/* ---- Cards ----
+ *
+ * One radius across the app, a Windows 11 card's 7px, dialogs included.
+ * libadwaita rounds a boxed list in several rules (the list, its first and
+ * last rows, and an expander row's header or nested list at either end), and
+ * a radius changed in some and not the rest leaves a 12px corner poking out of
+ * a 7px card, so each of its rules is repeated here at 7px (after Atlas
+ * Monitor's, taken from libadwaita 1.9's stylesheet).
+ */
+
+list.boxed-list > row:first-child,
+list.content > row:first-child,
+list.boxed-list > row:first-child.expander row.header,
+list.content > row:first-child.expander row.header {
+	border-top-left-radius: 7px;
+	border-top-right-radius: 7px;
+}
+
+list.boxed-list > row:last-child,
+list.content > row:last-child,
+list.boxed-list > row:last-child.expander:not(:checked),
+list.boxed-list > row:last-child.expander:not(:checked) row.header,
+list.content > row:last-child.expander:not(:checked) row.header,
+list.boxed-list > row:last-child.expander:checked list.nested,
+list.content > row:last-child.expander:checked list.nested,
+list.boxed-list > row:last-child.expander:checked list.nested > row:last-child,
+list.content > row:last-child.expander:checked list.nested > row:last-child {
+	border-bottom-left-radius: 7px;
+	border-bottom-right-radius: 7px;
+}
+
+list.boxed-list,
+list.content,
+list.boxed-list-separate > row,
+.card {
+	border-radius: 7px;
+}
+
+/* ---- Transparency (Settings, General, Window transparency) ----
+ *
+ * True translucency, not a blur: the frame and the page let the desktop show
+ * through, and what is drawn on them (the note's text, the tree, the cards)
+ * stays solid. The window's own background goes; the frame and the page take
+ * its place at partial opacity. The page sits on the frame, so its opacity
+ * compounds with the frame's and it ends up the more solid of the two, which is
+ * where the note is. Dialogs follow, below; menus and popovers stay solid.
+ * Only set where the display composites and not on Windows; see
+ * TransparencyAvailable.
+ */
+
+window.atlas-glass,
+window.atlas-glass.background {
+	background-color: transparent;
+}
+
+window.atlas-glass-subtle toolbarview.atlas-frame > .top-bar,
+window.atlas-glass-subtle paned.atlas-shell,
+window.atlas-glass-subtle paned.atlas-inner {
+	background-color: alpha(@sidebar_bg_color, 0.90);
+}
+
+window.atlas-glass-subtle .atlas-page {
+	background-color: alpha(@view_bg_color, 0.60);
+}
+
+window.atlas-glass-medium toolbarview.atlas-frame > .top-bar,
+window.atlas-glass-medium paned.atlas-shell,
+window.atlas-glass-medium paned.atlas-inner {
+	background-color: alpha(@sidebar_bg_color, 0.78);
+}
+
+window.atlas-glass-medium .atlas-page {
+	background-color: alpha(@view_bg_color, 0.50);
+}
+
+window.atlas-glass-strong toolbarview.atlas-frame > .top-bar,
+window.atlas-glass-strong paned.atlas-shell,
+window.atlas-glass-strong paned.atlas-inner {
+	background-color: alpha(@sidebar_bg_color, 0.62);
+}
+
+window.atlas-glass-strong .atlas-page {
+	background-color: alpha(@view_bg_color, 0.42);
+}
+
+/* The inner pane sits inside the outer one; drawn at the same alpha on top of
+   it the frame would be twice as solid behind the assistant as behind the
+   vault. It adds nothing of its own. */
+window.atlas-glass paned.atlas-inner {
+	background-color: transparent;
+}
+
+/* The note's text area paints its own background, which would leave a solid
+   block in a see-through page; under glass it takes the page's instead. */
+window.atlas-glass .atlas-editor,
+window.atlas-glass .atlas-editor text {
+	background-color: transparent;
+}
+
+/* Cards on the page keep more of their colour: they hold text. */
+window.atlas-glass .atlas-page .welcome-card,
+window.atlas-glass .atlas-page .welcome-recent {
+	background-color: alpha(@card_bg_color, 0.85);
+}
+
+/* Dialogs take the glass too. libadwaita darkens the window behind a dialog,
+   and with that in place a see-through dialog showed only a dim, solid page,
+   so under glass the page behind is not darkened. The cards holding a
+   dialog's text get a nearly solid window-coloured ground: a dark theme's card
+   colour is itself a translucent white, and made more opaque it still let the
+   page's text ghost through under the dialog's own. */
+window.atlas-glass floating-sheet > dimming {
+	background-color: transparent;
+}
+
+window.atlas-glass-subtle dialog-host > dialog sheet {
+	background-color: alpha(@window_bg_color, 0.90);
+}
+
+window.atlas-glass-medium dialog-host > dialog sheet {
+	background-color: alpha(@window_bg_color, 0.76);
+}
+
+window.atlas-glass-strong dialog-host > dialog sheet {
+	background-color: alpha(@window_bg_color, 0.62);
+}
+
+window.atlas-glass dialog-host > dialog sheet list.boxed-list {
+	background-color: alpha(@window_bg_color, 0.94);
+	background-image: linear-gradient(@card_bg_color, @card_bg_color);
 }

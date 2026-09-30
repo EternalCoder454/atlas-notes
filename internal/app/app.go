@@ -58,8 +58,9 @@ type App struct {
 	editor  *editor.Editor
 	sidebar *ui.Sidebar
 
-	windowTitle *adw.WindowTitle
-	leftToggle  *gtk.ToggleButton
+	homeNav      navRow // the Home entry, current while the home screen shows
+	appliedGlass string // the transparency class on the window, "" for none
+	leftToggle   *gtk.ToggleButton
 
 	// backlinksBar lists the notes that link to the open one; backlinksGen
 	// drops an answer that arrives after another note was opened.

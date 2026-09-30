@@ -57,6 +57,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`[[links]]` in exports** read as their text, and tags survive.
 
 ### Changed
+- **A new look, after Windows 11 and Atlas Monitor 0.12.** The title bar and
+  the side panels are one surface, with the app's name at the start of the
+  title bar, and the note sits on a page of its own above them, rounded where
+  they meet. Home is the first entry in the vault panel and Settings the last,
+  in Task Manager's rows with an accent pill on the current one; the vault's
+  notes take the same shape. Titles are set in a light weight, and every card
+  and dialog list shares one 7px radius.
+- **Window transparency** (Settings, General): off, subtle, medium or strong.
+  True translucency rather than a blur: the frame and the page let the desktop
+  through, text stays solid, and dialogs follow. Only where the desktop
+  composites, and not on Windows; elsewhere the setting says why.
 - **Notes are plain Markdown files by default.** The format is a setting of the
   vault (`.atlas-vault.json`, so every synced device agrees): plain `.md`,
   Zstandard `.md.zst`, Gzip `.md.gz` or XZ `.md.xz`. Every form is read whatever

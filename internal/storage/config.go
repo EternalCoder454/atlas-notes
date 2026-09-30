@@ -128,6 +128,11 @@ type Config struct {
 	// discover what the editor understands. Someone who does can turn it off.
 	ShowFormatBar bool `json:"show_format_bar"`
 
+	// WindowTransparency lets the desktop show through the window's frame and
+	// page: off, subtle, medium or strong. Only where the display composites;
+	// see TransparencyLevels.
+	WindowTransparency string `json:"window_transparency"`
+
 	// DueReminders sends a desktop notification about checklist items that
 	// are due today or overdue. On by default: a due date nobody is told about
 	// is only a label.
@@ -181,6 +186,29 @@ func isDefaultVault(path string) bool {
 
 // DefaultDBPath is ~/.local/share/atlas-notes/index.db.
 func DefaultDBPath() string { return filepath.Join(dataDir(), "index.db") }
+
+// The window transparency levels, in the order Settings lists them.
+const (
+	TransparencyOff    = "off"
+	TransparencySubtle = "subtle"
+	TransparencyMedium = "medium"
+	TransparencyStrong = "strong"
+)
+
+// TransparencyLevels are the stored values, in order.
+var TransparencyLevels = []string{TransparencyOff, TransparencySubtle, TransparencyMedium, TransparencyStrong}
+
+// NormalizeTransparency maps a stored level to a known one; anything else is
+// off, so a config from a newer version with a level this one lacks opens
+// opaque rather than half-applied.
+func NormalizeTransparency(level string) string {
+	for _, l := range TransparencyLevels {
+		if level == l {
+			return l
+		}
+	}
+	return TransparencyOff
+}
 
 // DefaultConfig returns a Config populated with sensible defaults.
 func DefaultConfig() Config {

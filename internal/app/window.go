@@ -39,26 +39,30 @@ func (a *App) buildWindow() {
 	a.registerActions()
 	mark("actions")
 
+	// The title bar the way Windows 11 draws its apps: the name at the start
+	// rather than a title in the middle, on the same surface as the side
+	// panels, so the three read as one frame around the page. The note's name
+	// is already at the top of the page, and the window title still carries it
+	// for the taskbar (setWindowSubtitle).
 	header := adw.NewHeaderBar()
 	header.AddCSSClass("atlas-header")
-	a.windowTitle = adw.NewWindowTitle("Atlas Notes", "")
-	header.SetTitleWidget(a.windowTitle)
+	header.AddCSSClass("atlas-titlebar")
+	header.SetTitleWidget(gtk.NewBox(gtk.OrientationHorizontal, 0))
+	if hasIcon(appIconName) {
+		a.win.SetIconName(appIconName) // what the title bar shows where it asks for one
+	}
 
 	a.leftToggle = gtk.NewToggleButton()
 	a.leftToggle.SetIconName("atlasnotes-panel-left-symbolic")
 	a.leftToggle.SetActive(true)
 	a.leftToggle.SetTooltipText("Show or hide the vault (F9)")
 	header.PackStart(a.leftToggle)
+	header.PackStart(brandBox())
 
 	newBtn := gtk.NewButtonFromIconName("atlasnotes-note-new-symbolic")
 	newBtn.SetTooltipText("New note (Ctrl+N)")
 	newBtn.ConnectClicked(a.actionNewNote)
 	header.PackStart(newBtn)
-
-	homeBtn := gtk.NewButtonFromIconName("atlasnotes-home-symbolic")
-	homeBtn.SetTooltipText("Home screen (Ctrl+H)")
-	homeBtn.ConnectClicked(a.showWelcome)
-	header.PackStart(homeBtn)
 
 	menuBtn := gtk.NewMenuButton()
 	menuBtn.SetIconName("atlasnotes-menu-symbolic")
@@ -67,17 +71,9 @@ func (a *App) buildWindow() {
 	menuBtn.SetMenuModel(a.buildMainMenu())
 	header.PackEnd(menuBtn)
 
-	// Settings is in the menu as well, but it is the one thing in there people
-	// go looking for repeatedly, and two clicks behind a hamburger is not where
-	// it belongs. The interface overhaul in 0.5.0 dropped this button and the
-	// documentation went on describing it for five releases.
-	//
-	// The app's own gear is preferred when it is there; the system one is the
-	// fallback, and it ships inside the Windows bundle's Adwaita theme.
-	settingsBtn := gtk.NewButtonFromIconName(iconName("atlasnotes-settings-symbolic", "emblem-system-symbolic"))
-	settingsBtn.SetTooltipText("Settings (Ctrl+,)")
-	settingsBtn.ConnectClicked(a.showSettings)
-	header.PackEnd(settingsBtn)
+	// Settings is the last entry in the vault panel, where Windows 11 apps keep
+	// it, rather than a gear up here. With the panel hidden it is still in the
+	// menu and on Ctrl+,.
 
 	a.rightToggle = gtk.NewToggleButton()
 	// The assistant's own mark rather than a second sidebar arrow: the button
@@ -87,9 +83,16 @@ func (a *App) buildWindow() {
 	a.rightToggle.SetTooltipText("Show or hide the assistant (F10)")
 	header.PackEnd(a.rightToggle)
 
-	// Left panel: the vault browser.
+	// Left panel: Home at the top, the vault browser, and Settings at the
+	// foot, as a Windows 11 app lays out its navigation.
 	a.left = newPanel("left-panel")
 	a.left.SetSizeRequest(leftMinWidth, -1)
+	top, topRows := navList(struct {
+		icon, label, tooltip string
+		activate             func()
+	}{"atlasnotes-home-symbolic", "Home", "Home screen (Ctrl+H)", a.showWelcome})
+	a.homeNav = topRows[0]
+	a.left.Append(top)
 	if a.store != nil {
 		a.tree = ui.NewTree(a.store, a.win, a.ai)
 		a.tree.OnOpenNote = a.openNote
@@ -109,11 +112,19 @@ func (a *App) buildWindow() {
 	} else {
 		a.left.Append(placeholder("Vault unavailable"))
 	}
+	foot, _ := navList(struct {
+		icon, label, tooltip string
+		activate             func()
+	}{iconName("atlasnotes-settings-symbolic", "emblem-system-symbolic"), "Settings", "Settings (Ctrl+,)", a.showSettings})
+	foot.AddCSSClass("atlas-nav-footer")
+	a.left.Append(foot)
 
 	mark("header+tree")
 
-	// Center: welcome screen / editor.
+	// Center: welcome screen / editor, on the page layer.
 	a.center = a.buildCenter()
+	a.center.AddCSSClass("atlas-page")
+	a.center.SetOverflow(gtk.OverflowHidden) // children are clipped to its rounded corners
 	mark("center")
 	a.watchNoteOpen() // needs the center stack and the header's title, both built by now
 
@@ -134,7 +145,10 @@ func (a *App) buildWindow() {
 	inner.SetShrinkEndChild(false)
 	inner.SetWideHandle(true)
 
+	inner.AddCSSClass("atlas-inner")
+
 	outer := gtk.NewPaned(gtk.OrientationHorizontal)
+	outer.AddCSSClass("atlas-shell")
 	outer.SetStartChild(a.left)
 	outer.SetEndChild(inner)
 	outer.SetResizeStartChild(false)
@@ -152,9 +166,13 @@ func (a *App) buildWindow() {
 	inner.SetPosition(centerWidth)
 	a.outerPaned, a.innerPaned = outer, inner
 
-	a.leftToggle.ConnectToggled(func() { a.left.SetVisible(a.leftToggle.Active()) })
+	a.leftToggle.ConnectToggled(func() {
+		a.left.SetVisible(a.leftToggle.Active())
+		a.syncPageCorners()
+	})
 	a.rightToggle.ConnectToggled(func() {
 		a.right.SetVisible(a.rightToggle.Active())
+		a.syncPageCorners()
 		// A toggle the user pressed is what they want. One this code made to
 		// fit the window is not, and must not overwrite it.
 		if !a.fitting {
@@ -167,10 +185,13 @@ func (a *App) buildWindow() {
 	a.toastOverlay.SetChild(outer)
 
 	toolbar := adw.NewToolbarView()
+	toolbar.AddCSSClass("atlas-frame")
 	toolbar.AddTopBar(header)
 	toolbar.SetContent(a.toastOverlay)
 
 	a.win.SetContent(toolbar)
+	a.syncPageCorners()
+	a.applyTransparency()
 }
 
 // buildSidebar fills in the assistant panel. It runs from an idle callback
@@ -243,20 +264,12 @@ func panePosition(stored, fallback int) int {
 // setWindowSubtitle shows the open note in the header bar, so the window title
 // says what you are looking at instead of repeating the app's version.
 func (a *App) setWindowSubtitle(note string) {
-	if a.windowTitle == nil {
+	a.homeNav.setCurrent(note == "")
+	if a.win == nil || fixedWindowTitle {
 		return
 	}
 	if note == "" {
-		a.windowTitle.SetTitle("Atlas Notes")
-		a.windowTitle.SetSubtitle("")
-		if !fixedWindowTitle {
-			a.win.SetTitle("Atlas Notes")
-		}
-		return
-	}
-	a.windowTitle.SetTitle(note)
-	a.windowTitle.SetSubtitle("Atlas Notes")
-	if fixedWindowTitle {
+		a.win.SetTitle("Atlas Notes")
 		return
 	}
 	a.win.SetTitle(note + " · Atlas Notes")

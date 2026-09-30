@@ -83,6 +83,7 @@ type generalFields struct {
 	fonts   *gtk.DropDown
 	format  *gtk.DropDown
 	remind  *gtk.CheckButton
+	glass   *gtk.DropDown
 	page    gtk.Widgetter
 }
 
@@ -179,6 +180,29 @@ func (a *App) buildGeneralPage() generalFields {
 	storageGroup.Append(formatHint)
 	box.Append(storageGroup)
 
+	// True translucency, where the desktop can show it. Elsewhere the choice
+	// stays, greyed, with the reason beside it, and the saved level is kept for
+	// a desktop that can.
+	glassGroup := groupCard("Window transparency")
+	glass := gtk.NewDropDownFromStrings([]string{"Off", "Subtle", "Medium", "Strong"})
+	for i, l := range storage.TransparencyLevels {
+		if storage.NormalizeTransparency(a.cfg.WindowTransparency) == l {
+			glass.SetSelected(uint(i))
+		}
+	}
+	glassGroup.Append(glass)
+	glassHint := gtk.NewLabel("Lets the desktop show through the window's frame and page. Text stays solid.")
+	if ok, why := TransparencyAvailable(); !ok {
+		glass.SetSensitive(false)
+		glassHint.SetText(why)
+	}
+	glassHint.SetXAlign(0)
+	glassHint.SetWrap(true)
+	glassHint.AddCSSClass("dim-label")
+	glassHint.AddCSSClass("caption")
+	glassGroup.Append(glassHint)
+	box.Append(glassGroup)
+
 	remindGroup := groupCard("Reminders")
 	remind := wrappingCheck("Notify me about checklist items that are due today or overdue")
 	remind.SetActive(a.cfg.DueReminders)
@@ -188,7 +212,7 @@ func (a *App) buildGeneralPage() generalFields {
 	return generalFields{
 		name: nameEntry, model: modelEntry, system: sysView,
 		summary: summary, toolbar: toolbar, fonts: fonts,
-		format: format, remind: remind, page: pageScroll(box),
+		format: format, remind: remind, glass: glass, page: pageScroll(box),
 	}
 }
 
@@ -270,6 +294,10 @@ func (a *App) applySettings(f generalFields, rows []*actionRow) {
 		a.cfg.FontRendering = fontRenderingModes[i]
 	}
 	a.cfg.DueReminders = f.remind.Active()
+	if i := int(f.glass.Selected()); i >= 0 && i < len(storage.TransparencyLevels) && f.glass.Sensitive() {
+		a.cfg.WindowTransparency = storage.TransparencyLevels[i]
+		a.applyTransparency()
+	}
 	if i := int(f.format.Selected()); a.store != nil && i >= 0 && i < len(noteFormats) {
 		a.changeNoteFormat(noteFormats[i])
 	}
