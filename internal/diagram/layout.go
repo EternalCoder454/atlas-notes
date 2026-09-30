@@ -20,19 +20,22 @@ func ApproxMeasure(text string, size float64, bold bool) (float64, float64) {
 }
 
 const (
-	titleSize  = 14.0
-	subSize    = 12.0
-	labelSize  = 12.0
-	headSize   = 12.0
-	boxPadX    = 16.0
-	boxPadY    = 10.0
-	maxBoxText = 210.0 // the widest a line of a box's text runs before it wraps
-	crossGap   = 24.0
-	rankGapV   = 44.0
-	rankGapH   = 56.0
-	groupPad   = 16.0
-	groupHead  = 26.0
-	pagePad    = 10.0
+	titleSize   = 14.0
+	subSize     = 12.0
+	labelSize   = 12.0
+	headSize    = 12.0
+	boxPadX     = 16.0
+	boxPadY     = 10.0
+	maxBoxText  = 210.0 // the widest a line of a box's text runs before it wraps
+	crossGap    = 24.0
+	rankGapV    = 44.0
+	rankGapH    = 56.0
+	groupPad    = 16.0
+	groupHead   = 26.0
+	pagePad     = 10.0
+	maxBoxLines = 12
+	// MaxSize is the largest a diagram may be, in pixels each way.
+	MaxSize = 12000.0
 )
 
 type drawnLine struct {
@@ -79,6 +82,23 @@ func layoutWith(g *Graph, m Measure, textW float64) *Scene {
 	return buildScene(g, m)
 }
 
+// TooLarge reports a scene no one could draw or read: past MaxSize either way.
+func (sc *Scene) TooLarge() bool { return sc.W > MaxSize || sc.H > MaxSize }
+
+// ParseDrawable is Parse for what is going to be drawn: a diagram that would
+// come out absurdly large is refused with an *UnsupportedError, like one that
+// cannot be read. The size is judged with estimated text, so it costs no font.
+func ParseDrawable(src string) (*Graph, error) {
+	g, err := Parse(src)
+	if err != nil {
+		return nil, err
+	}
+	if Layout(g, nil).TooLarge() {
+		return nil, &UnsupportedError{Msg: "the diagram is too large"}
+	}
+	return g, nil
+}
+
 func wrap(text string, size float64, bold bool, m Measure, limit float64) []string {
 	if w, _ := m(text, size, bold); w <= limit {
 		return []string{text}
@@ -103,6 +123,28 @@ func wrap(text string, size float64, bold bool, m Measure, limit float64) []stri
 	return out
 }
 
+// fitWidth cuts a line that is still wider than limit (one long word) and ends
+// it with an ellipsis.
+func fitWidth(s string, size float64, bold bool, m Measure, limit float64) string {
+	if w, _ := m(s, size, bold); w <= limit {
+		return s
+	}
+	r := []rune(s)
+	for n := len(r) - 1; n > 1; n = n * 3 / 4 {
+		if w, _ := m(string(r[:n])+"…", size, bold); w <= limit {
+			// Grow back to the longest that fits, a character at a time.
+			for n < len(r)-1 {
+				if w, _ := m(string(r[:n+1])+"…", size, bold); w > limit {
+					break
+				}
+				n++
+			}
+			return string(r[:n]) + "…"
+		}
+	}
+	return "…"
+}
+
 func sizeBox(it *Item, m Measure, textW float64) {
 	it.dl = it.dl[:0]
 	explicit := hasExplicitBold(it.Lines)
@@ -118,6 +160,13 @@ func sizeBox(it *Item, m Measure, textW float64) {
 			}
 		}
 		for _, part := range wrap(l.Text, size, bold, m, textW) {
+			if len(it.dl) >= maxBoxLines {
+				if last := &it.dl[len(it.dl)-1]; !strings.HasSuffix(last.text, "…") {
+					last.text += "…"
+				}
+				break
+			}
+			part = fitWidth(part, size, bold, m, textW)
 			w, h := m(part, size, bold)
 			it.dl = append(it.dl, drawnLine{text: part, size: size, bold: bold, dim: dim, w: w, h: h})
 			tw = math.Max(tw, w)
@@ -353,6 +402,11 @@ func layoutGroup(g *Graph, c *Item, m Measure, root bool) {
 			e.gap = gaps[r-1]
 		}
 	}
+	for _, e := range g.Edges {
+		if !e.skip && e.lca == c && e.lf != e.lt {
+			e.span = rank[idx[e.lt]] - rank[idx[e.lf]]
+		}
+	}
 	mainTotal := 0.0
 	starts := make([]float64, nr)
 	for r := 0; r < nr; r++ {
@@ -384,6 +438,15 @@ func layoutGroup(g *Graph, c *Item, m Measure, root bool) {
 				k.rx, k.ry = offX+mn, offY+cr
 			}
 			cr += crossOf(k) + crossGap
+			lo, hi := starts[r], starts[r]+th[r]
+			if bt {
+				lo, hi = mainTotal-hi, mainTotal-lo
+			}
+			if vert {
+				k.rowLo, k.rowHi = offY+lo, offY+hi
+			} else {
+				k.rowLo, k.rowHi = offX+lo, offX+hi
+			}
 		}
 	}
 }

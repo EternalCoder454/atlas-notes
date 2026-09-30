@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"errors"
 	"math"
 
 	"github.com/diamondburned/gotk4/pkg/cairo"
@@ -137,10 +138,13 @@ func paintScene(cr *cairo.Context, sc *diagram.Scene, pal *diagram.Palette, f *d
 	}
 }
 
+// maxPNGPixels bounds the picture an export draws.
+const maxPNGPixels = 16e6
+
 // RenderDiagramPNG draws a diagram for a document: on white, at twice its size
 // so it stays sharp on paper. It returns the PNG and the size in diagram pixels.
 func RenderDiagramPNG(src string) (png []byte, w, h int, err error) {
-	g, err := diagram.Parse(src)
+	g, err := diagram.ParseDrawable(src)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -148,9 +152,18 @@ func RenderDiagramPNG(src string) (png []byte, w, h int, err error) {
 	cr := cairo.Create(surf)
 	f := newDiagramFont(pangocairo.CreateLayout(cr), "Sans")
 	sc := diagram.Layout(g, f.measure)
-	const k = 2
+	if sc.TooLarge() {
+		return nil, 0, 0, errors.New("the diagram is too large")
+	}
 	w, h = int(math.Ceil(sc.W)), int(math.Ceil(sc.H))
-	surf = cairo.CreateImageSurface(cairo.FormatARGB32, w*k, h*k)
+	// Twice the size, unless that would be more than about 16 million pixels:
+	// the export runs on the main thread and must not allocate gigabytes.
+	k := math.Min(2, math.Sqrt(maxPNGPixels/float64(w*h)))
+	if k < 0.25 {
+		return nil, 0, 0, errors.New("the diagram is too large")
+	}
+	pw, ph := int(math.Ceil(float64(w)*k)), int(math.Ceil(float64(h)*k))
+	surf = cairo.CreateImageSurface(cairo.FormatARGB32, pw, ph)
 	cr = cairo.Create(surf)
 	pal := diagram.LightPalette
 	setRole(cr, &pal, diagram.RoleBg)

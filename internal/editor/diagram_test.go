@@ -2,6 +2,7 @@ package editor
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"testing"
 
@@ -52,5 +53,15 @@ func TestRenderDiagramPNG(t *testing.T) {
 	}
 	if _, _, _, err := RenderDiagramPNG("sequenceDiagram\nA->>B: x"); err == nil {
 		t.Error("a sequence diagram was drawn")
+	}
+}
+
+func TestRenderDiagramPNGRefusesHugeDiagrams(t *testing.T) {
+	src := "flowchart TD\n"
+	for i := 0; i < 190; i++ {
+		src += fmt.Sprintf("n%d --> n%d\n", i, i+1)
+	}
+	if _, _, _, err := RenderDiagramPNG(src); err == nil {
+		t.Error("a diagram too large to draw was drawn")
 	}
 }

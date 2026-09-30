@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/diamondburned/gotk4/pkg/cairo"
+	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
@@ -69,6 +70,7 @@ type diagramState struct {
 	serial int
 	memo   map[int]bool // per block start: the pass decided it is drawn
 	parsed map[string]diagramParse
+	notes  map[[2]int]string // what the label of a mermaid block says, by its first and last line
 }
 
 // diagramSource is the text between the fences of a mermaid block.
@@ -92,7 +94,7 @@ func (e *Editor) diagramCheck(src string) diagramParse {
 		s.parsed = map[string]diagramParse{}
 	}
 	var r diagramParse
-	if _, err := diagram.Parse(src); err != nil {
+	if _, err := diagram.ParseDrawable(src); err != nil {
 		r.msg = err.Error()
 	} else {
 		r.ok = true
@@ -114,7 +116,9 @@ func (e *Editor) drawsDiagram(b *richBlock, cursorLine int) bool {
 	if s.memo == nil {
 		s.memo = map[int]bool{}
 	}
-	v := e.diagramCheck(e.diagramSource(b)).ok
+	r := e.diagramCheck(e.diagramSource(b))
+	v := r.ok
+	e.setDiagramNote(b, r)
 	s.memo[b.first] = v
 	return v
 }
@@ -168,6 +172,7 @@ func (e *Editor) clearDiagrams() {
 	e.dia.hits = e.dia.hits[:0]
 	e.dia.byLine = nil
 	e.dia.memo = nil
+	e.dia.notes = nil
 }
 
 // syncDiagrams runs after the render pass, as syncTables does.
@@ -231,6 +236,7 @@ func (e *Editor) dropDiagram(it *diagramItem) {
 			e.view.Remove(it.box.scroll)
 		}
 		if len(e.dia.pool) < maxPooledDiagrams {
+			it.box.scene, it.box.src, it.box.avail = nil, "", 0
 			e.dia.pool = append(e.dia.pool, it.box)
 		}
 		it.box = nil
@@ -293,6 +299,8 @@ func (e *Editor) takeDiagramBox() *diagramBox {
 	b := &diagramBox{serial: s.serial, scale: 1}
 	b.area = gtk.NewDrawingArea()
 	b.area.AddCSSClass("atlas-diagram")
+	b.area.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyLabel},
+		[]coreglib.Value{*coreglib.NewValue("Flowchart")})
 	b.font = &diagramFont{}
 	b.scroll = gtk.NewScrolledWindow()
 	b.scroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyNever)
@@ -379,6 +387,8 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 		}
 		b.scene, b.src, b.avail = diagram.LayoutFit(g, b.font.measure, float64(avail)), it.src, avail
 		b.area.QueueDraw()
+		b.area.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyDescription},
+			[]coreglib.Value{*coreglib.NewValue(b.scene.Desc)})
 	}
 	sw, sh := b.scene.W, b.scene.H
 	b.scale = 1
@@ -397,14 +407,27 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 	return w, h
 }
 
-// diagramNote is what the label of a mermaid block that is not drawn says.
+func (e *Editor) setDiagramNote(b *richBlock, r diagramParse) {
+	if e.dia.notes == nil || len(e.dia.notes) > 256 {
+		e.dia.notes = map[[2]int]string{}
+	}
+	note := "Mermaid diagram"
+	if !r.ok {
+		note = "Mermaid: " + r.msg
+	}
+	e.dia.notes[[2]int{b.first, b.last}] = note
+}
+
+// diagramNote is what the label of a mermaid block that is not drawn says. The
+// render pass has worked it out when it looked at the block; a block it has not
+// looked at since it moved is worked out here.
 func (e *Editor) diagramNote(b richBlock) string {
 	if !b.closed || b.last < b.first+2 {
 		return "Mermaid diagram"
 	}
-	r := e.diagramCheck(e.diagramSource(&b))
-	if r.ok {
-		return "Mermaid diagram"
+	if n, ok := e.dia.notes[[2]int{b.first, b.last}]; ok {
+		return n
 	}
-	return "Mermaid: " + r.msg
+	e.setDiagramNote(&b, e.diagramCheck(e.diagramSource(&b)))
+	return e.dia.notes[[2]int{b.first, b.last}]
 }

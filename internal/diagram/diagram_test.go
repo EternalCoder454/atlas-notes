@@ -1,9 +1,11 @@
 package diagram
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
+	"time"
 )
 
 const example = "flowchart TD\n  subgraph sources [Free sources]\n    direction LR\n    yt[YouTube suggestions] ~~~ api[YouTube Data API] ~~~ trends[Google Trends] ~~~ irs[IRS deadlines] ~~~ qbox[Host question box]\n  end\n  subgraph prog [Go program, runs Sunday night]\n    direction LR\n    rank[Collect and rank<br>Finds the 10 best topics each week] --> draft[Draft scripts<br>Ollama by default, Gemini as backup] --> checks[Go checks<br>Length, disclaimer, numbers vs IRS text] --> send[Send drafts<br>Emails the Host and files Drive copies]\n  end\n  yt & api & trends & irs & qbox --> prog\n  send --> email[Email to the Host<br>Script text, sources, and fact-check flags] & drive[Google Drive<br>Script copies and the Posting Log sheet]\n  email -->|The Host reads and replies by email| approve[Host approves<br>Checks every fact before recording]\n  approve --> record[Host records<br>On a phone, in batches of 3 to 4] --> edit[Producer edits<br>Trims the video and schedules the upload] --> clip[Clipper<br>Cuts clips and runs them in Meta Ads]\n  style approve stroke:#3584e4,stroke-width:2px\n"
@@ -218,4 +220,102 @@ func FuzzParse(f *testing.F) {
 		}
 		Layout(g, nil).SVG(LightPalette)
 	})
+}
+
+func TestLongEdgeAvoidsBoxes(t *testing.T) {
+	for _, dir := range []string{"TD", "LR", "BT"} {
+		g := mustParse(t, "graph "+dir+"\na-->b-->c-->d\na-->d\nsubgraph s\nx-->y-->z\nx-->z\nend\nd-->x")
+		sc := Layout(g, nil)
+		for _, p := range sc.Prims {
+			if p.Kind != PrimPath {
+				continue
+			}
+			for i := 1; i < len(p.Pts); i++ {
+				a, b := p.Pts[i-1], p.Pts[i]
+				for _, id := range []string{"b", "c", "y"} {
+					it := g.Items[id]
+					// An arrow that begins or ends at the box may touch it; none may cross it.
+					lo, hi := math.Min(a.X, b.X), math.Max(a.X, b.X)
+					lo2, hi2 := math.Min(a.Y, b.Y), math.Max(a.Y, b.Y)
+					if lo < it.X+it.W-1 && hi > it.X+1 && lo2 < it.Y+it.H-1 && hi2 > it.Y+1 {
+						// Only arrows whose own ends are this box may be in it.
+						own := false
+						for _, e := range g.Edges {
+							if e.From == id || e.To == id {
+								own = own || endsAt(p, e)
+							}
+						}
+						if !own {
+							t.Errorf("%s: an arrow crosses %s", dir, id)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func endsAt(p Prim, e *Edge) bool {
+	q := p.Pts[len(p.Pts)-1]
+	it := e.to
+	return q.X >= it.X-0.01 && q.X <= it.X+it.W+0.01 && q.Y >= it.Y-0.01 && q.Y <= it.Y+it.H+0.01
+}
+
+func TestPathologicalInputs(t *testing.T) {
+	cases := map[string]string{
+		"many ids":    "flowchart TD\n" + strings.Repeat("a&", 30000) + "a",
+		"many nodes":  "flowchart TD\n" + strings.Repeat("n1 --> n2\n", 100000),
+		"long label":  "flowchart TD\na[" + strings.Repeat("word ", 5000) + "] --> b",
+		"long word":   "flowchart TD\na[" + strings.Repeat("x", 50000) + "]",
+		"lines":       "flowchart TD\na[" + strings.Repeat("l<br>", 5000) + "]",
+		"deep":        strings.Repeat("flowchart TD\nsubgraph s\n", 40),
+		"unclosed":    "flowchart TD\na[" + strings.Repeat("(", 20000),
+		"many arrows": "flowchart TD\na" + strings.Repeat(" --> a", 5000),
+	}
+	for name, src := range cases {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if g, err := Parse(src); err == nil {
+				sc := Layout(g, nil)
+				for _, p := range sc.Prims {
+					if p.Kind == PrimBox && (p.W > 1000 || p.H > 1000) && p.Fill != RoleGroup {
+						t.Errorf("%s: a box %.0f by %.0f", name, p.W, p.H)
+					}
+				}
+				sc.SVG(LightPalette)
+			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: took more than 5 seconds", name)
+		}
+	}
+}
+
+func TestTooLargeIsRefused(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("flowchart TD\n")
+	for i := 0; i < 190; i++ {
+		fmt.Fprintf(&b, "n%d --> n%d\n", i, i+1)
+	}
+	if _, err := ParseDrawable(b.String()); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("a very tall chain was accepted: %v", err)
+	}
+	if _, err := ParseDrawable(example); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestKeywordsAsNames(t *testing.T) {
+	g := mustParse(t, "flowchart TD\nstyle --> class\nclick[Go] --> title(T)\nclass --> end2\nstyle a stroke:#f00\na[A]")
+	for _, id := range []string{"style", "class", "click", "title"} {
+		if g.Items[id] == nil {
+			t.Errorf("%s was taken for a directive", id)
+		}
+	}
+	if !g.Items["a"].Accent {
+		t.Error("a real style line was lost")
+	}
 }

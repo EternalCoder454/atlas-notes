@@ -54,7 +54,8 @@ type deco struct {
 	class        string
 	icon, chevro *gtk.Image
 	title, lang  *gtk.Label
-	dressed      bool // blk and reveal are what the widgets were last dressed with
+	note         string // a mermaid block's label as last dressed
+	dressed      bool   // blk and reveal are what the widgets were last dressed with
 }
 
 func (d *deco) setVisible(v bool) {
@@ -164,7 +165,8 @@ func (d *deco) dress() {
 		limit := 16
 		if strings.EqualFold(b.lang, "mermaid") {
 			// One that could not be drawn says what it is, and why.
-			lang, limit = []rune(d.e.diagramNote(b)), 72
+			d.note = d.e.diagramNote(b)
+			lang, limit = []rune(d.note), 72
 		}
 		if len(lang) > limit {
 			lang = append(lang[:limit-1], '…')
@@ -187,7 +189,7 @@ func (e *Editor) syncRich(revealLine int) {
 		d.hidden = s.hiddenAt(b.first)
 		// The widgets are dressed again only when what they show has changed, not
 		// on every pass: setting an icon or a label is a call into GTK each.
-		if !d.dressed || d.blk != b || d.reveal != reveal || (b.kind == kindCode && strings.EqualFold(b.lang, "mermaid")) {
+		if !d.dressed || d.blk != b || d.reveal != reveal || (b.kind == kindCode && strings.EqualFold(b.lang, "mermaid") && d.note != e.diagramNote(b)) {
 			d.blk, d.reveal, d.dressed = b, reveal, true
 			d.dress()
 		}

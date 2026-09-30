@@ -16,7 +16,7 @@ func mermaidSVG(bl block) string {
 	if !isMermaid(bl) {
 		return ""
 	}
-	g, err := diagram.Parse(bl.code)
+	g, err := diagram.ParseDrawable(bl.code)
 	if err != nil {
 		return ""
 	}

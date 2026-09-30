@@ -63,3 +63,24 @@ func TestDocumentsHoldDiagramPicture(t *testing.T) {
 		}
 	}
 }
+
+func TestDiagramPictureUsesGivenSize(t *testing.T) {
+	opt := Options{Diagram: func(string) ([]byte, int, int, error) { return tinyPNG(), 400, 200, nil }}
+	out, err := RenderWith("docx", "t", "```mermaid\nflowchart TD\na-->b\n```\n", opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, _ := zip.NewReader(bytes.NewReader(out), int64(len(out)))
+	for _, f := range zr.File {
+		if f.Name == "word/document.xml" {
+			rc, _ := f.Open()
+			var b bytes.Buffer
+			b.ReadFrom(rc)
+			if !strings.Contains(b.String(), `cx="3810000"`) {
+				t.Error("the picture is not shown at the size the drawer gave")
+			}
+			return
+		}
+	}
+	t.Error("no document.xml")
+}

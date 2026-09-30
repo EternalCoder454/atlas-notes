@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Shape is the outline of a box.
@@ -45,10 +46,11 @@ type Item struct {
 	// Set by Layout. X and Y are on the page; W and H are the size.
 	X, Y, W, H float64
 
-	index  int
-	rx, ry float64 // inside the parent
-	dl     []drawnLine
-	depth  int
+	index        int
+	rx, ry       float64 // inside the parent
+	dl           []drawnLine
+	depth        int
+	rowLo, rowHi float64 // the rank this item is in, along the flow, inside its parent
 }
 
 // Edge is an arrow, or a plain line, between two items.
@@ -66,6 +68,7 @@ type Edge struct {
 	lf, lt   *Item
 	skip     bool
 	gap      float64
+	span     int // ranks between the two ends, negative when it runs back
 }
 
 // Graph is a parsed flowchart.
@@ -87,6 +90,7 @@ const (
 	maxItems  = 200
 	maxEdges  = 500
 	maxDepth  = 4
+	maxLabel  = 80
 )
 
 type parser struct {
@@ -227,6 +231,16 @@ func (p *parser) header(s string) error {
 
 func (p *parser) cur() *Item { return p.stack[len(p.stack)-1] }
 
+// directive is keyword for the words that are also names a box may have: one
+// followed by an arrow or a shape is a box.
+func directive(s, kw string) (string, bool) {
+	rest, ok := keyword(s, kw)
+	if ok && rest != "" && strings.ContainsRune("-=~<&[({:|.", rune(rest[0])) {
+		return "", false
+	}
+	return rest, ok
+}
+
 func keyword(s, kw string) (string, bool) {
 	if len(s) >= len(kw) && strings.EqualFold(s[:len(kw)], kw) && (len(s) == len(kw) || s[len(kw)] == ' ' || s[len(kw)] == '\t') {
 		return strings.TrimSpace(s[len(kw):]), true
@@ -245,7 +259,7 @@ func (p *parser) statement(s string) error {
 		p.stack = p.stack[:len(p.stack)-1]
 		return nil
 	}
-	if rest, ok := keyword(s, "direction"); ok {
+	if rest, ok := directive(s, "direction"); ok {
 		d := normDir(rest)
 		if d == "" {
 			return errf(p.lineNo, "unknown direction %q", rest)
@@ -253,14 +267,14 @@ func (p *parser) statement(s string) error {
 		p.cur().Dir = d
 		return nil
 	}
-	if rest, ok := keyword(s, "style"); ok {
+	if rest, ok := directive(s, "style"); ok {
 		f := strings.SplitN(rest, " ", 2)
 		if len(f) == 2 {
 			p.styleItem(strings.TrimSpace(f[0]), f[1])
 		}
 		return nil
 	}
-	if rest, ok := keyword(s, "classDef"); ok {
+	if rest, ok := directive(s, "classDef"); ok {
 		f := strings.SplitN(rest, " ", 2)
 		if len(f) == 2 {
 			for _, name := range strings.Split(f[0], ",") {
@@ -269,7 +283,7 @@ func (p *parser) statement(s string) error {
 		}
 		return nil
 	}
-	if rest, ok := keyword(s, "class"); ok {
+	if rest, ok := directive(s, "class"); ok {
 		f := strings.SplitN(rest, " ", 2)
 		if len(f) == 2 {
 			p.pending = append(p.pending, pendingClass{strings.Split(f[0], ","), strings.TrimSpace(f[1])})
@@ -277,7 +291,7 @@ func (p *parser) statement(s string) error {
 		return nil
 	}
 	for _, kw := range []string{"linkStyle", "click", "accTitle", "accDescr", "title", "interpolate"} {
-		if _, ok := keyword(s, kw); ok {
+		if _, ok := directive(s, kw); ok {
 			return nil
 		}
 	}
@@ -311,7 +325,7 @@ func (p *parser) subgraph(rest string) error {
 	if len(p.g.Order) >= maxItems {
 		return &UnsupportedError{Msg: "the diagram is too large"}
 	}
-	it := &Item{ID: id, Group: true, Title: plain(title), Parent: p.cur(), Dir: "", index: len(p.g.Order)}
+	it := &Item{ID: id, Group: true, Title: truncate(plain(title), maxLabel), Parent: p.cur(), Dir: "", index: len(p.g.Order)}
 	it.Dir = "" // inherits until a direction line says otherwise
 	p.add(it)
 	p.stack = append(p.stack, it)
@@ -512,7 +526,15 @@ func plainLabel(s string) string {
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
 		s = s[1 : len(s)-1]
 	}
-	return plain(s)
+	return truncate(plain(s), maxLabel)
+}
+
+// truncate cuts s to n characters, ending in an ellipsis when it was longer.
+func truncate(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
 }
 
 func plain(s string) string {
@@ -528,19 +550,19 @@ func isIDRune(r rune) bool {
 
 func (sc *scanner) id() string {
 	start := sc.pos
-	rs := []rune(sc.s[sc.pos:])
-	n, bytes := 0, 0
-	for n < len(rs) {
-		r := rs[n]
-		if isIDRune(r) {
-		} else if r == '-' && n > 0 && n+1 < len(rs) && isIDRune(rs[n+1]) {
-		} else {
-			break
+	for sc.pos < len(sc.s) {
+		r, n := utf8.DecodeRuneInString(sc.s[sc.pos:])
+		if !isIDRune(r) {
+			if r != '-' || sc.pos == start {
+				break
+			}
+			next, _ := utf8.DecodeRuneInString(sc.s[sc.pos+1:])
+			if !isIDRune(next) {
+				break
+			}
 		}
-		bytes += len(string(r))
-		n++
+		sc.pos += n
 	}
-	sc.pos = start + bytes
 	return sc.s[start:sc.pos]
 }
 
@@ -675,6 +697,9 @@ func (p *parser) nodeGroup(sc *scanner) ([]string, error) {
 			return nil, err
 		}
 		ids = append(ids, id)
+		if len(ids) > maxItems {
+			return nil, &UnsupportedError{Msg: "the diagram is too large"}
+		}
 		sc.space()
 		if strings.HasPrefix(sc.rest(), "&") {
 			sc.pos++

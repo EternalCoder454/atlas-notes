@@ -81,6 +81,7 @@ type Prim struct {
 // Scene is a laid-out diagram: W by H, and the shapes back to front.
 type Scene struct {
 	W, H  float64
+	Desc  string // the box titles, for a screen reader
 	Prims []Prim
 }
 
@@ -96,6 +97,13 @@ func shapeRadius(it *Item) float64 {
 
 func buildScene(g *Graph, m Measure) *Scene {
 	sc := &Scene{W: g.Root.W, H: g.Root.H}
+	var titles []string
+	for _, it := range g.Order {
+		if !it.Group && len(it.Lines) > 0 {
+			titles = append(titles, it.Lines[0].Text)
+		}
+	}
+	sc.Desc = truncate(strings.Join(titles, ", "), 300)
 	// Groups, outermost first.
 	var groups []*Item
 	for _, it := range g.Order {
@@ -256,6 +264,12 @@ func (sc *Scene) routeEdges(g *Graph, m Measure) {
 		}
 	}
 	var labels []Prim
+	plateOf := func(e *Edge) Role {
+		if e.lca != nil && e.lca.Parent != nil {
+			return RoleGroup // in a group, which is tinted
+		}
+		return RoleBg
+	}
 	for _, r := range list {
 		e := r.e
 		var a, b Pt
@@ -271,7 +285,15 @@ func (sc *Scene) routeEdges(g *Graph, m Measure) {
 		}
 		pts := []Pt{a}
 		var lab Pt
-		if r.ss == 0 || r.ss == 2 {
+		if detour := sc.detour(e, r.ss, r.ts, a, b); detour != nil {
+			pts = detour
+			n := len(pts)
+			lab = Pt{(pts[n-3].X + pts[n-2].X) / 2, pts[n-2].Y}
+			if r.ss == 1 || r.ss == 3 {
+				lab = Pt{pts[n-2].X, (pts[n-3].Y + pts[n-2].Y) / 2}
+			}
+			pts = append(pts[:n-1:n-1], b)
+		} else if r.ss == 0 || r.ss == 2 {
 			gap := math.Max(e.gap, 0)
 			var near float64
 			if r.ss == 2 {
@@ -318,9 +340,10 @@ func (sc *Scene) routeEdges(g *Graph, m Measure) {
 			sc.Prims = append(sc.Prims, arrowhead(pts[1], a))
 		}
 		if e.Label != "" {
+			plate := plateOf(e)
 			tw, th := m(e.Label, labelSize, false)
 			labels = append(labels,
-				Prim{Kind: PrimBox, X: lab.X - tw/2 - 6, Y: lab.Y - th/2 - 2, W: tw + 12, H: th + 4, Radius: 4, Fill: RoleBg},
+				Prim{Kind: PrimBox, X: lab.X - tw/2 - 6, Y: lab.Y - th/2 - 2, W: tw + 12, H: th + 4, Radius: 4, Fill: plate},
 				Prim{Kind: PrimText, X: lab.X, Y: lab.Y - th/2, Text: e.Label, Size: labelSize, Fill: RoleDim})
 		}
 	}
@@ -377,7 +400,7 @@ func PathSegs(pts []Pt, r float64) []Seg {
 func (sc *Scene) SVG(pal Palette) string {
 	var b strings.Builder
 	w, h := math.Ceil(sc.W), math.Ceil(sc.H)
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" font-family="sans-serif">`, w, h, w, h)
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" font-family="sans-serif" role="img" aria-label="Flowchart" style="max-width:100%%;height:auto"><title>Flowchart: %s</title>`, w, h, w, h, xmlEscape(sc.Desc))
 	col := func(r Role) string {
 		if r == RoleNone {
 			return "none"
@@ -441,4 +464,58 @@ func (sc *Scene) SVG(pal Palette) string {
 
 func xmlEscape(s string) string {
 	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace(s)
+}
+
+// detour routes an arrow that runs past more than one rank round the side of
+// the group holding them, in the gaps between ranks and a channel at the edge,
+// so that it does not cross the boxes between. It returns nil for the arrows
+// that need no such way. The last point it returns is the target's border.
+func (sc *Scene) detour(e *Edge, ss, ts int, a, b Pt) []Pt {
+	if e.span > -2 && e.span < 2 {
+		return nil
+	}
+	vert := vertical(e.lca.Dir)
+	if vert != (ss == 0 || ss == 2) || ss == ts {
+		return nil
+	}
+	// Where the rank rows of the two ends are, on the page.
+	origin := func(it *Item) Pt { return Pt{it.X - it.rx, it.Y - it.ry} }
+	oa, ob := origin(e.lf), origin(e.lt)
+	const off = 14.0
+	pad := groupPad
+	if e.lca.Parent == nil {
+		pad = pagePad
+	}
+	var ma, mb float64 // main-axis positions of the two horizontal runs
+	var ca, cb float64 // where the ends are across the flow
+	var chanL, chanR float64
+	forward := ss == 2 || ss == 1
+	if vert {
+		ca, cb = a.X, b.X
+		if forward {
+			ma, mb = oa.Y+e.lf.rowHi+off, ob.Y+e.lt.rowLo-off
+		} else {
+			ma, mb = oa.Y+e.lf.rowLo-off, ob.Y+e.lt.rowHi+off
+		}
+		chanL, chanR = e.lca.X+pad/2, e.lca.X+e.lca.W-pad/2
+	} else {
+		ca, cb = a.Y, b.Y
+		if forward {
+			ma, mb = oa.X+e.lf.rowHi+off, ob.X+e.lt.rowLo-off
+		} else {
+			ma, mb = oa.X+e.lf.rowLo-off, ob.X+e.lt.rowHi+off
+		}
+		chanL, chanR = e.lca.Y+pad/2, e.lca.Y+e.lca.H-pad/2
+	}
+	ch := chanL
+	if math.Abs(chanR-(ca+cb)/2) < math.Abs(chanL-(ca+cb)/2) {
+		ch = chanR
+	}
+	mk := func(main, cross float64) Pt {
+		if vert {
+			return Pt{cross, main}
+		}
+		return Pt{main, cross}
+	}
+	return []Pt{a, mk(ma, ca), mk(ma, ch), mk(mb, ch), mk(mb, cb), b}
 }

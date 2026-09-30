@@ -127,8 +127,13 @@ func withImages(blocks []block, opt Options) []block {
 	pics := map[string]*picture{}
 	for i, bl := range blocks {
 		if bl.kind == code && opt.Diagram != nil && isMermaid(bl) {
-			if data, _, _, err := opt.Diagram(bl.code); err == nil {
+			if data, w, h, err := opt.Diagram(bl.code); err == nil {
 				if pic := newPicture(data); pic != nil {
+					// The picture is drawn at more than its size, for sharpness, so the
+					// size the drawer gave is the one it is shown at.
+					if w > 0 && h > 0 {
+						pic.w, pic.h = w, h
+					}
 					out[i] = block{kind: figure, src: "diagram", alt: "Diagram", pic: pic}
 					continue
 				}
