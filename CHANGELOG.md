@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live preview.** Markdown's symbols show only around what the caret is in:
+  the `**` of the bold word being edited, the brackets of that one link, a
+  heading's `#` with the caret at the line's start. Everything else reads as it
+  will print, so text no longer jumps as the caret moves between lines. List
+  markers are drawn as bullets (the file keeps `-`, `*` or `+`), numbered
+  lists indent, a quote keeps a dimmed bar, and fenced code blocks are set in
+  monospace on a grey ground, where `- [ ]` stays code. Enter continues a
+  list, a numbered list with the next number, a checklist with a new box and
+  a quote with `> `; Enter on an empty item ends it. Undo and redo step over
+  the drawing of bullets, and the caret stays out of a task's hidden
+  metadata, so a new line never takes its due date with it.
 - **Find and replace in the open note.** Ctrl+F opens a find bar with a match
   count, previous and next, Match case, and a replace row (Ctrl+R) with Replace
   and Replace All; one undo reverts a Replace All. Matching is literal, by
