@@ -43,7 +43,7 @@ build-options:
     # go.mod asks for toolchain go1.27.1; the tarball below is that Go, so never
     # go looking for another one.
     GOTOOLCHAIN: local
-    GOFLAGS: -mod=readonly
+    GOFLAGS: -mod=readonly -modcacherw
     CGO_ENABLED: "1"
 
 modules:
