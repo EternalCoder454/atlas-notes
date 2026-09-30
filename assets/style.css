@@ -950,3 +950,88 @@ window.atlas-glass dialog-host > dialog sheet list.boxed-list {
 	font-weight: bold;
 	background-color: alpha(@window_fg_color, 0.05);
 }
+
+/* ---- Settings (one scrolling page) ----
+ *
+ * The page is libadwaita's own preference groups, so nearly all of it is
+ * libadwaita's styling. What is here is what it does not have: the theme
+ * picker's circles, the way back from a chosen theme, and the prompt shortcut
+ * cards. The circles' colours are not here; they are generated from the theme
+ * table (internal/theme, SwatchCSS) so a new theme cannot leave one unpainted.
+ * The old .settings-group and .ai-action rules above belong to the three-page
+ * dialog and nothing uses them now.
+ */
+
+/* The list of sections at the left. Rows a little taller than the sidebar
+   default, and clear of the dialog's edge. */
+.atlas-settings-nav {
+	background: none;
+	padding: 6px;
+}
+
+.atlas-settings-nav > row {
+	min-height: 34px;
+	padding: 0 6px;
+}
+
+/* A theme's circle. Its two colours are painted by the generated rules, which
+   name this class and the theme's as well and so win over this one. What this
+   does is take the toggle button's own look away, because Adwaita's button
+   draws a background, a border and a shadow, and any of them would sit on top
+   of, or around, the colours the circle is meant to show. */
+.atlas-swatch {
+	min-width: 34px;
+	min-height: 34px;
+	padding: 0;
+	border-radius: 9999px;
+	background-color: transparent;
+	background-image: none;
+	box-shadow: none;
+	border: 1px solid alpha(@window_fg_color, 0.22);
+	outline: none;
+}
+
+.atlas-swatch:hover {
+	border-color: alpha(@window_fg_color, 0.45);
+}
+
+/* The chosen one gets a ring in the accent colour, set outside the border so it
+   does not cover either of the two colours. */
+.atlas-swatch:checked {
+	border-color: @accent_bg_color;
+	box-shadow: 0 0 0 2px @accent_bg_color;
+}
+
+/* Adwaita tints a checked toggle's background. The tint would wash over the
+   theme's own colours, so it goes; the ring says which one is chosen. */
+.atlas-swatch:checked,
+.atlas-swatch:checked:hover,
+.atlas-swatch:active {
+	background-color: transparent;
+}
+
+/* The way back from a chosen theme. It is a correction, not an action, so it
+   is as quiet as a button can be and still be one; and when it is what is
+   chosen it says so with the accent, as the circles do with their ring. */
+.atlas-quiet-button {
+	font-size: 0.88em;
+	font-weight: normal;
+	padding: 2px 10px;
+	opacity: 0.7;
+}
+
+.atlas-quiet-button:hover {
+	opacity: 1;
+}
+
+.atlas-quiet-button:checked {
+	opacity: 1;
+	color: @accent_color;
+	background-color: alpha(@accent_bg_color, 0.16);
+}
+
+/* A prompt shortcut: a card in the page, tighter than a preferences row
+   because it holds a whole field. The radius is the app's 7px, from .card. */
+.atlas-shortcut {
+	padding: 10px;
+}
