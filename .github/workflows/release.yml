@@ -1,6 +1,7 @@
 name: Release builds
 
-# Builds the downloadable artifacts: the Windows .zip and the Android .apk.
+# Builds the downloadable artifacts: the Windows .zip, the Android .apk and the
+# Linux .flatpak (for distributions too old to build the app natively).
 #
 # Windows is built on a Windows runner under MSYS2 rather than cross-compiled,
 # because that is the supported way to build GTK4 and libadwaita for Windows:
@@ -383,5 +384,61 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.apk
+          fail_on_unmatched_files: true
+          body_path: dist/release-notes.md
+
+  flatpak:
+    name: Flatpak (x86_64)
+    # Not on pushes to beta: the runtime download and a cold gotk4 compile make
+    # this slow, and nothing Flatpak-specific changes often. It runs on main,
+    # which warms its cache, on tags, and by hand.
+    if: github.ref != 'refs/heads/beta' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        run: |
+          set -eu
+          VERSION=$(sed -n 's/^var version = "\(.*\)"/\1/p' internal/app/version.go)
+          echo "Atlas Notes $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      # The bundle is named after the version, like the .apk and the .zip.
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: atlas-notes-${{ env.VERSION }}.flatpak
+          manifest-path: packaging/flatpak/io.github.atlasnotes.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          restore-cache: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas-notes-flatpak
+          path: atlas-notes-${{ env.VERSION }}.flatpak
+          if-no-files-found: error
+
+      # Same notes as the other jobs send, so whichever job finishes last does
+      # not blank the release body.
+      - name: Take this version's notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          mkdir -p dist
+          awk -v v="$VERSION" '
+            $0 == "## " v { taking = 1; next }
+            /^## / && taking  { exit }
+            taking            { print }
+          ' WHATSNEW.md > dist/release-notes.md
+          cat dist/release-notes.md
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: atlas-notes-${{ env.VERSION }}.flatpak
           fail_on_unmatched_files: true
           body_path: dist/release-notes.md
