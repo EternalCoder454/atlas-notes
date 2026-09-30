@@ -81,6 +81,14 @@ func (a *App) installUpdate(branch string, onStatus func(text string, done bool)
 		return
 	}
 
+	// A package manager owns a packaged copy, and a copy with no source has
+	// nothing to rebuild; both are told what to do instead of being rebuilt
+	// over. See install_kind.go.
+	if text, handled := updateAdvice(detectInstall(), which(aurHelpers...)); handled {
+		onStatus(text, true)
+		return
+	}
+
 	onStatus("Downloading and building the new version…\nThis takes a minute or two.", false)
 
 	go func() {
@@ -114,7 +122,10 @@ func (a *App) installUpdate(branch string, onStatus func(text string, done bool)
 func updateScript(branch string) string {
 	src := canonicalSourceDir()
 	parent := filepath.Dir(src)
+	// install.sh keeps its own Go toolchain in the data dir when the distro's was
+	// too old; without it on PATH this would fail on exactly those machines.
 	return fmt.Sprintf(`set -e
+if [ -x %[5]q/go ]; then export PATH=%[5]q:"$PATH"; fi
 if [ ! -d %[1]q/.git ]; then
   rm -rf %[1]q
   mkdir -p %[4]q
@@ -123,7 +134,7 @@ fi
 git -C %[1]q fetch --prune origin
 git -C %[1]q checkout %[3]q
 git -C %[1]q reset --hard origin/%[3]q
-make -C %[1]q install`, src, repoURL, branch, parent)
+make -C %[1]q install`, src, repoURL, branch, parent, filepath.Join(storage.DataDir(), "go", "bin"))
 }
 
 // buildInfo reports where this binary lives and was built, and where updates
@@ -132,6 +143,7 @@ func buildInfo() string {
 	var parts []string
 	if exe, err := installedBinary(); err == nil {
 		parts = append(parts, "Installed at: "+exe)
+		parts = append(parts, "Install: "+detectInstall().Where())
 		if st, serr := os.Stat(exe); serr == nil {
 			parts = append(parts, "This build: "+st.ModTime().Format("Jan 2, 2006 3:04 PM"))
 		}
