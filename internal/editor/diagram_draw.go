@@ -144,14 +144,14 @@ const maxPNGPixels = 16e6
 // RenderDiagramPNG draws a diagram for a document: on white, at twice its size
 // so it stays sharp on paper. It returns the PNG and the size in diagram pixels.
 func RenderDiagramPNG(src string) (png []byte, w, h int, err error) {
-	g, err := diagram.ParseDrawable(src)
+	doc, err := diagram.ParseDocDrawable(src)
 	if err != nil {
 		return nil, 0, 0, err
 	}
 	surf := cairo.CreateImageSurface(cairo.FormatARGB32, 1, 1)
 	cr := cairo.Create(surf)
 	f := newDiagramFont(pangocairo.CreateLayout(cr), "Sans")
-	sc := diagram.Layout(g, f.measure)
+	sc := doc.Scene(f.measure, 0)
 	if sc.TooLarge() {
 		return nil, 0, 0, errors.New("the diagram is too large")
 	}
