@@ -12,10 +12,11 @@ import (
 
 // This file implements find and replace inside the open note.
 //
-// The search is literal and runs on the buffer's raw text, the same string the
-// checklist code measures its offsets against (see rawText), so a match's
-// character offsets are also buffer offsets and can go straight into
-// IterAtOffset. Matching itself has no GTK in it (findMatches) and is tested on
+// The search is literal and runs on the buffer's text with the bullets drawn as
+// "•" mapped back to the markers they stand for (see sourceText), so that a note
+// is searched as it is written, and so that the string is the one the checklist
+// code measures its offsets against: a match's character offsets are also buffer
+// offsets and can go straight into IterAtOffset. Matching itself has no GTK in it (findMatches) and is tested on
 // its own.
 
 const (
@@ -141,7 +142,7 @@ func (f *finder) resume() {
 // it into view; an edit elsewhere in the note must not move the view.
 func (f *finder) refresh(reveal bool) {
 	f.stale = false
-	f.matches = findMatches(f.e.rawText(), f.query, f.matchCase)
+	f.matches = findMatches(f.e.sourceText(), f.query, f.matchCase)
 	f.current = -1
 	if len(f.matches) > 0 {
 		from, _ := f.e.selectionSpan()
@@ -334,7 +335,7 @@ func (e *Editor) FindSeed() string {
 	if !ok || start.Line() != end.Line() {
 		return ""
 	}
-	text := e.buffer.Slice(start, end, true)
+	text := e.sourceSlice(start, end)
 	if strings.ContainsRune(text, anchorRune) {
 		return ""
 	}
@@ -375,7 +376,7 @@ func (e *Editor) ReplaceAll(with string) int {
 	}
 	// Recomputed rather than trusted: this is the one call that rewrites the
 	// whole note, and it must not run on offsets from before the last edit.
-	matches := findMatches(e.rawText(), f.query, f.matchCase)
+	matches := findMatches(e.sourceText(), f.query, f.matchCase)
 	if len(matches) == 0 {
 		return 0
 	}

@@ -2,7 +2,8 @@
 // whose buffer is re-tagged (headings, bold, italic, code) on a 50ms debounce.
 // It is a live preview: the markdown syntax markers are hidden except around the
 // exact construct the caret is in, so the text stays put as the caret moves.
-// Checklist lines are converted to embedded checkbox widgets on the same pass.
+// Checklist lines are converted to embedded checkbox widgets on the same pass,
+// and list markers are drawn as "•" away from the caret (see bullets.go).
 package editor
 
 import (
@@ -55,6 +56,13 @@ type Editor struct {
 	// caretPassNeeded).
 	lastKey  caretKey
 	keyValid bool
+	// freshLoad is set when a note has just been opened, so that the first pass to
+	// draw its bullets leaves nothing in the undo history (see applyBulletEdits).
+	freshLoad bool
+	// histBefore is the text as a step of the undo history started, and histSwap
+	// whether the step that has just run was only bullet swaps (see afterHistory).
+	histBefore string
+	histSwap   bool
 	// snapping is set while the caret is being moved out of a task's hidden
 	// metadata (see snapToMetadata), so that the move does not snap again.
 	snapping   bool
@@ -186,6 +194,7 @@ func New() *Editor {
 		return false // the view inserts the newline, wherever the caret now is
 	})
 	e.view.AddController(enter)
+	e.installBullets()
 
 	e.installItemMenu()
 	e.installLinks()
@@ -287,6 +296,7 @@ func (e *Editor) createTags() {
 		"left-margin": 26, "style": pango.StyleItalic, "foreground": "#9a9a9a",
 	})
 	e.newTag("divider", map[string]any{"foreground": "#9a9a9a", "scale": 0.8})
+	e.createBulletTags()
 	// A finished task reads as done: struck through and receded.
 	e.newTag("done", map[string]any{"strikethrough": true, "foreground": "#9a9a9a"})
 	// Links go last of the formatting tags, so their colour wins over the quote
@@ -334,6 +344,7 @@ func (e *Editor) SetContent(s string) {
 	e.view.SetBuffer(e.buffer)
 
 	e.revealCaret = false
+	e.freshLoad = true
 	e.lastCursor = 0
 	// One full pass: reparse renders every "- [ ] " line as a checkbox and
 	// applies the tags. (This used to run the checklist pass twice.)
@@ -377,9 +388,10 @@ func (e *Editor) clearDirty() {
 }
 
 // Content returns the full markdown text, reconstructing "- [ ]/[x] " prefixes
-// from the embedded checkboxes and stripping the anchor characters.
+// from the embedded checkboxes, stripping the anchor characters and turning each
+// "•" that stands for a list marker back into it (see sourceText).
 func (e *Editor) Content() string {
-	raw := e.rawText()
+	raw := e.sourceText()
 	if !e.hasAnchors && !strings.Contains(raw, anchorChar) {
 		return raw // no embedded checkboxes: the buffer text is the document
 	}
@@ -481,6 +493,7 @@ func (e *Editor) reparse() {
 	breadcrumb("reparse lines %d-%d of %d, caret %d", from, to, lastLine+1, cursorLine)
 	e.renderChecklists(from, to, revealLine)
 	e.reapItems()
+	e.renderBullets(from, to, revealLine)
 	e.tagRange(from, to, revealLine, caretCol)
 	e.syncImages(from, to)
 
@@ -598,8 +611,11 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 	if !end.EndsLine() {
 		end.ForwardToLineEnd()
 	}
-	e.buffer.RemoveAllTags(start, end)
 	text := e.buffer.Slice(start, end, true) // Slice keeps offsets aligned with TextIter
+	// A "•" is a list marker as far as parsing goes, and its tag is what says so,
+	// so the bullets are found before the tags come off and given theirs back.
+	bullets := e.swappedBullets(from, text)
+	e.buffer.RemoveAllTags(start, end)
 
 	key := caretKey{line: -1}
 	lineNum := from
@@ -617,10 +633,20 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 		if strings.HasPrefix(line, anchorChar) && e.anchorChecked(lineNum) {
 			e.applyTag("done", lineNum, 1, utf8.RuneCountInString(line))
 		}
-		if role := roleOf(e.fence, lineNum, line); role != fenceNone {
-			e.tagFenceLine(lineNum, line, role)
+		parse := line
+		marker := bullets[lineNum] // 0 when the line is not drawn as a bullet
+		if marker != 0 {
+			parse = restoreMarker(line, marker)
+		}
+		if role := roleOf(e.fence, lineNum, parse); role != fenceNone {
+			e.tagFenceLine(lineNum, parse, role)
 		} else {
-			e.tagLine(lineNum, line, at, keyed)
+			e.tagLine(lineNum, parse, at, keyed)
+		}
+		if marker != 0 {
+			if it, ok := e.buffer.IterAtLineOffset(lineNum, glyphCol(line)); ok {
+				e.setBulletTag(it.Offset(), marker)
+			}
 		}
 		if breadcrumbsOn {
 			breadcrumb("tagged line %d: %d chars, %d bytes", lineNum,
