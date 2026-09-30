@@ -204,3 +204,27 @@ func TestMetaRanges(t *testing.T) {
 		t.Fatal("plain text has no ranges")
 	}
 }
+
+func TestBlockIDAndExtremePriorities(t *testing.T) {
+	it, ok := ParseLine("- [ ] a 🔺 📅 2026-07-01 ^task-1")
+	if !ok || it.Text != "a" || it.Priority != PriorityHigh || it.DueDate != "2026-07-01" || it.BlockID != "task-1" {
+		t.Fatalf("parsed %+v", it)
+	}
+	// Rewritten with one priority emoji, and the id still last.
+	if got, want := it.Marshal(), "- [ ] a ⏫ 📅 2026-07-01 ^task-1"; got != want {
+		t.Errorf("Marshal = %q, want %q", got, want)
+	}
+	it.Order = 2
+	if got, want := it.Marshal(), "- [ ] a ⏫ 📅 2026-07-01 <!-- order:2 --> ^task-1"; got != want {
+		t.Errorf("Marshal = %q, want %q", got, want)
+	}
+	if low, _ := ParseLine("- [ ] b ⏬"); low.Priority != PriorityLow || low.Text != "b" {
+		t.Errorf("⏬ read as %+v", low)
+	}
+	// Not ids: a caret inside a word, or with other characters after it.
+	for _, l := range []string{"- [ ] x^2", "- [ ] a ^b!", "- [ ] a ^"} {
+		if it, _ := ParseLine(l); it.BlockID != "" {
+			t.Errorf("%q gave block id %q", l, it.BlockID)
+		}
+	}
+}

@@ -49,6 +49,9 @@ type Item struct {
 	Priority Priority
 	DueDate  string // ISO yyyy-mm-dd, empty if unset
 	Order    int    // 1-based sort order; 0 means "unset"
+	// BlockID is an Obsidian block id ("^abc") ending the line, kept so that
+	// rewriting a task does not break links to it. Without the caret.
+	BlockID string
 }
 
 // ParseLine parses a single line into an Item. ok is false when the line is not
@@ -68,6 +71,7 @@ func ParseLine(line string) (it Item, ok bool) {
 		parseMeta(strings.TrimSpace(rest[start+len(metaOpen):end]), &it)
 		rest = rest[:start] + rest[end+len(metaClose):]
 	}
+	rest, it.BlockID = cutBlockID(strings.TrimSpace(rest))
 	// Cutting a marker can join the bytes either side of it into a new one (a
 	// broken emoji with a real one inside it), so cut until nothing is left to
 	// cut. Only a line that had a marker pays for the second look.
@@ -80,6 +84,24 @@ func ParseLine(line string) (it Item, ok bool) {
 	}
 	it.Text = strings.TrimSpace(rest)
 	return it, true
+}
+
+// cutBlockID takes an Obsidian block id off the very end of s: a space, "^",
+// then letters, digits and hyphens. It comes after the task's other metadata,
+// so it is looked for once the comment is out and before the emoji are read.
+func cutBlockID(s string) (rest, id string) {
+	t := strings.TrimRight(s, " \t")
+	i := strings.LastIndexAny(t, " \t")
+	if i < 0 || i+2 >= len(t) || t[i+1] != '^' {
+		return s, ""
+	}
+	for j := i + 2; j < len(t); j++ {
+		c := t[j]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			return s, ""
+		}
+	}
+	return t[:i], t[i+2:]
 }
 
 const (
@@ -194,6 +216,9 @@ func (it Item) Marshal() string {
 		b.WriteByte(' ')
 		b.WriteString(meta)
 	}
+	if it.BlockID != "" {
+		b.WriteString(" ^" + it.BlockID)
+	}
 	return b.String()
 }
 
@@ -220,7 +245,11 @@ const (
 	highEmoji = "⏫"
 	medEmoji  = "🔼"
 	lowEmoji  = "🔽"
-	varSel    = "\uFE0F" // emoji presentation selector some keyboards add
+	// The Tasks plugin also has a highest and a lowest level. They read as high
+	// and low, and a rewrite writes ⏫ or 🔽, so a line never carries two.
+	highestEmoji = "🔺"
+	lowestEmoji  = "⏬"
+	varSel       = "\uFE0F" // emoji presentation selector some keyboards add
 )
 
 func priorityEmoji(p Priority) string {
@@ -287,6 +316,10 @@ func scanEmoji(s string, fn func(emojiToken)) {
 				end, tok.pri = i+len(highEmoji), PriorityHigh
 			case strings.HasPrefix(s[i:], medEmoji):
 				end, tok.pri = i+len(medEmoji), PriorityMedium
+			case strings.HasPrefix(s[i:], highestEmoji):
+				end, tok.pri = i+len(highestEmoji), PriorityHigh
+			case strings.HasPrefix(s[i:], lowestEmoji):
+				end, tok.pri = i+len(lowestEmoji), PriorityLow
 			case strings.HasPrefix(s[i:], lowEmoji):
 				end, tok.pri = i+len(lowEmoji), PriorityLow
 			case strings.HasPrefix(s[i:], dueEmoji):

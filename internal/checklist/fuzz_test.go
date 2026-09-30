@@ -32,7 +32,7 @@ func FuzzParseLine(f *testing.F) {
 		if !ok2 {
 			t.Fatalf("Marshal of %+v (from %q) did not parse back: %q", it, line, it.Marshal())
 		}
-		if again.Checked != it.Checked || again.Priority != it.Priority || again.DueDate != it.DueDate || again.Order != it.Order {
+		if again.Checked != it.Checked || again.Priority != it.Priority || again.DueDate != it.DueDate || again.Order != it.Order || again.BlockID != it.BlockID {
 			t.Fatalf("round trip changed the item: %+v -> %+v (line %q)", it, again, line)
 		}
 	})

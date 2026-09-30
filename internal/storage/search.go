@@ -125,7 +125,12 @@ func indexContent(tx *sql.Tx, id int64, body string) error {
 	if err := deriveContent(tx, id, body); err != nil {
 		return err
 	}
-	_, err := tx.Exec(`UPDATE notes SET indexed = 1 WHERE id = ?`, id)
+	if _, err := tx.Exec(`UPDATE notes SET indexed = 1 WHERE id = ?`, id); err != nil {
+		return err
+	}
+	// The trigger that notes down a note an older build wrote fires on that
+	// update too; this build has just read the note, so it is not stale.
+	_, err := tx.Exec(`DELETE FROM undated_stale WHERE note_id = ?`, id)
 	return err
 }
 

@@ -70,7 +70,22 @@ CREATE TABLE IF NOT EXISTS note_undated (
 );
 CREATE INDEX IF NOT EXISTS idx_note_undated_note ON note_undated(note_id);
 
--- A note that becomes locked leaves all of them at once.
+-- Which notes an older build may have written since. It knows nothing of
+-- note_undated, so it would leave that table as it was; this trigger fires in
+-- its writes too and notes the note down, and the next start of this build
+-- reads those notes again (see migrateDerived).
+CREATE TABLE IF NOT EXISTS undated_stale (
+	note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE
+);
+CREATE TRIGGER IF NOT EXISTS undated_stale_mark AFTER UPDATE OF indexed ON notes
+WHEN new.indexed = 1 BEGIN
+	INSERT OR IGNORE INTO undated_stale(note_id) VALUES (new.id);
+END;
+
+-- A note that becomes locked leaves all of them at once. Dropped first: an
+-- index made before note_undated existed has the older trigger, which would
+-- otherwise stay and leave a locked note's tasks in the clear.
+DROP TRIGGER IF EXISTS derived_lock;
 CREATE TRIGGER IF NOT EXISTS derived_lock AFTER UPDATE OF locked ON notes
 WHEN new.locked = 1 BEGIN
 	DELETE FROM note_links WHERE note_id = new.id;
@@ -96,6 +111,15 @@ func (s *Store) migrateDerived() error {
 		return err
 	}
 	if _, err := s.db.Exec(derivedSchema); err != nil {
+		return err
+	}
+	// A locked note has no rows here. An index made before the trigger above
+	// was corrected can hold some, in the clear.
+	if _, err := s.db.Exec(`DELETE FROM note_undated WHERE note_id IN (SELECT id FROM notes WHERE locked = 1)`); err != nil {
+		return err
+	}
+	// Notes an older build wrote are read again, so their undated tasks are right.
+	if _, err := s.db.Exec(`UPDATE notes SET indexed = 0 WHERE id IN (SELECT note_id FROM undated_stale)`); err != nil {
 		return err
 	}
 	if existing < len(derivedTables) {
@@ -137,15 +161,11 @@ func deriveContent(tx *sql.Tx, id int64, body string) error {
 		}
 	}
 
-	fenced := false
+	// "- [ ]" inside a code block is code, as the editor treats it, and a list
+	// of every open task must not offer it. The same rule the editor uses.
+	fenced := markup.InCodeFence(body)
 	for n, line := range strings.Split(body, "\n") {
-		// "- [ ]" inside a code block is code, as the editor treats it, and a
-		// list of every open task must not offer it.
-		if t := strings.TrimSpace(line); strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
-			fenced = !fenced
-			continue
-		}
-		if fenced {
+		if fenced[n] {
 			continue
 		}
 		it, ok := checklist.ParseLine(line)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
@@ -89,6 +90,8 @@ type tasksPage struct {
 	more *gtk.Label
 	pool []*taskRowWidgets
 	gen  uint64 // tells a stale answer from the latest
+
+	pending bool // a refresh is waiting on refreshTasksSoon's timer
 }
 
 var tasksUI *tasksPage
@@ -326,6 +329,28 @@ func (a *App) refreshTasks() {
 	}()
 }
 
+// tasksRefreshDelayMs is how long the page waits after a change to the vault
+// before asking the index again, so a burst of changes (a sync bringing in a
+// hundred notes) is one query.
+const tasksRefreshDelayMs = 400
+
+// refreshTasksSoon is what a change to the vault calls. It does nothing unless
+// the page is showing, and otherwise asks for a refresh once changes go quiet.
+func (a *App) refreshTasksSoon() {
+	p := tasksUI
+	if p == nil || p.pending || !a.tasksShowing() {
+		return
+	}
+	p.pending = true
+	coreglib.TimeoutAdd(tasksRefreshDelayMs, func() bool {
+		p.pending = false
+		if a.tasksShowing() {
+			a.refreshTasks()
+		}
+		return false
+	})
+}
+
 // show dresses the page with tasks.
 func (p *tasksPage) show(a *App, tasks []storage.DueTask, today, weekEnd string) {
 	// Every row goes back to the pool first; the ones still needed are taken
@@ -372,6 +397,9 @@ func (p *tasksPage) show(a *App, tasks []storage.DueTask, today, weekEnd string)
 	p.more.SetVisible(more > 0)
 }
 
+// tickMu serializes the ticks made from the page.
+var tickMu sync.Mutex
+
 // completeTask ticks a task in its note through the store, so locking, history
 // and saving all apply, then brings the page up to date. The write is off the
 // main thread, as a note save is.
@@ -379,11 +407,26 @@ func (a *App) completeTask(t storage.DueTask) {
 	if a.store == nil {
 		return
 	}
+	// The page shows with no note open, so the editor holds nothing of this
+	// note. If one has been opened since, its unsaved text goes to disk first,
+	// so the tick is made on top of it and not under an autosave.
+	if a.currentNote == t.Path {
+		a.flushDirty()
+	}
 	go func() {
-		err := a.store.CompleteTask(t.Path, t.Line, t.Text)
+		// One tick at a time, in the order they were made. The store's own
+		// lock already keeps two from losing each other; this keeps the toasts
+		// and refreshes in order too.
+		tickMu.Lock()
+		err := a.store.CompleteTask(t.Path, t)
+		tickMu.Unlock()
 		coreglib.IdleAdd(func() bool {
 			switch err {
 			case nil:
+				// The open note, if it is this one, holds the old text now.
+				if a.currentNote == t.Path {
+					a.onLinksChanged()
+				}
 			case storage.ErrLocked:
 				a.toast("That note is locked. Unlock it to tick its tasks.")
 			case storage.ErrTaskMoved:

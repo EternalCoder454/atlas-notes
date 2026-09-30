@@ -123,7 +123,6 @@ func (e *Editor) updateItem(ln int, mut func(*checklist.Item)) {
 		return
 	}
 	it.Checked = e.anchorChecked(ln)
-	it.Order = 0
 	mut(&it)
 
 	e.replaceLineRaw(ln, it.Marshal())

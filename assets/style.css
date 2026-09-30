@@ -747,14 +747,17 @@ list.atlas-nav-footer {
 	color: alpha(@window_fg_color, 0.7);
 }
 
+/* The theme's own warning and error colours, which libadwaita lightens on a
+   dark scheme, so the chips read on either. The Tasks page's priority pills use
+   the same tints. */
 .due-chip.due-today {
-	background-color: alpha(#f5c211, 0.22);
-	color: #b58500;
+	background-color: alpha(@warning_color, 0.2);
+	color: @warning_color;
 }
 
 .due-chip.due-overdue {
-	background-color: alpha(#e01b24, 0.18);
-	color: #e01b24;
+	background-color: alpha(@error_color, 0.16);
+	color: @error_color;
 }
 
 /* The update dialog's list of what a new version brings. Plain language, a

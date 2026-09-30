@@ -201,7 +201,7 @@ func (e *Editor) lineText(ln int) (string, bool) {
 }
 
 // newRow builds a checklist row: the priority bar, the checkbox, and a due-date
-// badge (hidden until the task has a date).
+// badge (blank until the task has a date, but always taking its room).
 //
 // Its only signal handler captures the editor, never the widgets — a handler
 // that captures its own widget keeps a Go reference to it alive, which keeps
@@ -246,7 +246,11 @@ func (e *Editor) newRow() *itemRow {
 	chip := gtk.NewLabel("")
 	chip.AddCSSClass("due-chip")
 	chip.SetVAlign(gtk.AlignEnd) // bottom-aligned, like the box, on the baseline
-	chip.SetVisible(false)
+	// Every row keeps the chip's room, dated or not, so the text of a task
+	// starts in the same place on every line. An undated row's chip is blank
+	// and see-through rather than absent.
+	chip.SetWidthChars(6)
+	chip.SetOpacity(0)
 
 	box.Append(bar)
 	box.Append(cb)
@@ -324,12 +328,13 @@ func dressDueChip(chip *gtk.Label, due string) {
 	}
 	t, err := time.Parse("2006-01-02", due)
 	if due == "" || err != nil {
-		chip.SetVisible(false)
+		chip.SetOpacity(0)
 		chip.SetText("")
+		chip.SetTooltipText("")
 		return
 	}
 	chip.SetText(t.Format("Jan 2"))
-	chip.SetVisible(true)
+	chip.SetOpacity(1)
 	today := time.Now().Truncate(24 * time.Hour)
 	switch day := t.Truncate(24 * time.Hour); {
 	case day.Before(today):

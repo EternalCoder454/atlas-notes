@@ -543,6 +543,7 @@ func (a *App) showWelcome() {
 // once, the first time it is shown, and afterwards only its contents change —
 // rebuilding the widgets each time would keep every previous copy resident.
 func (a *App) refreshWelcome() {
+	a.refreshTasksSoon() // every change to the vault comes through here
 	if a.centerStack == nil || !a.welcomeBuilt {
 		return
 	}
