@@ -122,13 +122,25 @@ func (s *Store) migrateDerived() error {
 	if _, err := s.db.Exec(`UPDATE notes SET indexed = 0 WHERE id IN (SELECT note_id FROM undated_stale)`); err != nil {
 		return err
 	}
-	if existing < len(derivedTables) {
+	// The index's own version. 1 is when a note's front matter tags began to count,
+	// so notes indexed before are read again, once.
+	var version int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if existing < len(derivedTables) || version < derivedVersion {
 		if _, err := s.db.Exec(`UPDATE notes SET indexed = 0`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, derivedVersion)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// derivedVersion is the version of what deriveContent writes; see migrateDerived.
+const derivedVersion = 1
 
 // deriveContent replaces one note's links, tags and due tasks with what its text
 // says now. It runs inside the caller's transaction, beside the search index

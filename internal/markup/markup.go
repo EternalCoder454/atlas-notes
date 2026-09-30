@@ -18,6 +18,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"atlas-notes/internal/frontmatter"
 )
 
 // Kind is what a span on a line is.
@@ -198,7 +200,8 @@ type Summary struct {
 	Images []string // image paths, as written and URL-decoded
 }
 
-// Summarize collects a note's links, tags and images.
+// Summarize collects a note's links, tags and images. The tags include the ones
+// the front matter lists under "tags", which have no "#" to be found by.
 func Summarize(text string) Summary {
 	var s Summary
 	seenTag := map[string]bool{}
@@ -223,6 +226,20 @@ func Summarize(text string) Summary {
 			}
 		}
 	})
+	if doc, ok := frontmatter.Parse(text); ok {
+		for _, t := range doc.Tags() {
+			// The same rule as a tag in the text: a name that is not one (it has a
+			// space, or is only digits) is not counted.
+			if sp, ok := tagAt("#"+t, 0); !ok || sp.End != len(t)+1 {
+				continue
+			}
+			key := strings.ToLower(t)
+			if !seenTag[key] {
+				seenTag[key] = true
+				s.Tags = append(s.Tags, key)
+			}
+		}
+	}
 	return s
 }
 

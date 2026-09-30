@@ -213,7 +213,7 @@ func (e *Editor) planBullets(text string, from, revealLine int) []bulletEdit {
 	var edits []bulletEdit
 	lineNum := from
 	for _, line := range strings.Split(text, "\n") {
-		code := inFence(e.fence, lineNum)
+		code := inFence(e.fence, lineNum) || e.inFront(lineNum) // front matter is not a list
 		if strings.Contains(line, bulletGlyph) {
 			start := glyphCol(line)
 			col := 0
@@ -387,8 +387,8 @@ func (e *Editor) installBullets() {
 	keys := gtk.NewEventControllerKey()
 	keys.SetPropagationPhase(gtk.PhaseCapture)
 	keys.ConnectKeyPressed(func(keyval, _ uint, state gdk.ModifierType) bool {
-		if state&gdk.ControlMask == 0 || state&(gdk.AltMask|gdk.SuperMask) != 0 {
-			return false
+		if state&gdk.ControlMask == 0 || state&(gdk.AltMask|gdk.SuperMask) != 0 || e.cardFocused() {
+			return false // and Ctrl+Z in the properties card is the card entry's
 		}
 		var redo bool
 		switch keyval {

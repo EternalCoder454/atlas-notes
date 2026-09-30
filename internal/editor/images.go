@@ -592,7 +592,7 @@ func (it *imageItem) resize(_ *Editor, avail int) {
 // makes the line positions below trustworthy. Asking twice is one pass.
 func (e *Editor) queuePlace() {
 	s := &e.img
-	if s.queued || (len(s.items) == 0 && len(e.tbl.items) == 0 && len(e.emb.items) == 0 && len(e.rich.active) == 0) {
+	if s.queued || (len(s.items) == 0 && len(e.tbl.items) == 0 && len(e.emb.items) == 0 && len(e.rich.active) == 0 && !e.props.on) {
 		return
 	}
 	s.queued = true
@@ -619,6 +619,9 @@ func (e *Editor) placeBlocks() {
 	}
 	for _, it := range e.emb.items {
 		blocks = append(blocks, it)
+	}
+	if e.props.on {
+		blocks = append(blocks, &e.props.item)
 	}
 	if len(blocks) == 0 {
 		e.retryPlace(e.placeDecor())

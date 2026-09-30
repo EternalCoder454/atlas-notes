@@ -837,3 +837,51 @@ func TestOlderBuildWritesAreReread(t *testing.T) {
 		t.Errorf("note not queued for reading")
 	}
 }
+
+// A note's front matter "tags" are its tags in the index, like "#tag" in the text.
+func TestFrontMatterTagsAreIndexed(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "FM", "---\ntags: [Project/Atlas, idea]\n---\nBody #idea")
+	saveNote(t, s, "Plain", "#idea")
+	if got := withTag(t, s, "project/atlas"); !slices.Equal(got, []string{"FM"}) {
+		t.Errorf("NotesWithTag(project/atlas) = %v, want [FM]", got)
+	}
+	tags, err := s.Tags()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []TagCount{{"idea", 2}, {"project/atlas", 1}}
+	if !slices.Equal(tags, want) {
+		t.Errorf("Tags() = %v, want %v", tags, want)
+	}
+}
+
+// An index made before front matter tags counted is read again once.
+func TestDerivedVersionQueuesOneReindex(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "FM", "---\ntags: [old]\n---")
+	if _, err := s.db.Exec(`UPDATE notes SET indexed = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.migrateDerived(); err != nil {
+		t.Fatal(err)
+	}
+	var n, v int
+	s.db.QueryRow(`SELECT count(*) FROM notes WHERE indexed = 0`).Scan(&n)
+	s.db.QueryRow(`PRAGMA user_version`).Scan(&v)
+	if n != 1 || v != derivedVersion {
+		t.Errorf("unindexed = %d, version = %d", n, v)
+	}
+	s.db.Exec(`UPDATE notes SET indexed = 1`)
+	s.db.Exec(`DELETE FROM undated_stale`) // the older-build marker is its own mechanism
+	if err := s.migrateDerived(); err != nil {
+		t.Fatal(err)
+	}
+	s.db.QueryRow(`SELECT count(*) FROM notes WHERE indexed = 0`).Scan(&n)
+	if n != 0 {
+		t.Errorf("a second start queued %d notes", n)
+	}
+}
