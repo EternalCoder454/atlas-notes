@@ -271,7 +271,7 @@ func (e *Editor) editProp(idx int, key string, mutate func(p *frontmatter.Prop))
 	if reflect.DeepEqual(lines, doc.Props[idx].Lines) {
 		return
 	}
-	e.replaceLines(doc.Props[idx].Line, doc.Props[idx].End, lines)
+	e.replaceLines(doc.Props[idx].Line, doc.Props[idx].End, lines, doc.EOL)
 }
 
 // removeProp takes a property out of the front matter.
@@ -280,7 +280,7 @@ func (e *Editor) removeProp(idx int, key string) {
 	if !ok || idx < 0 || idx >= len(doc.Props) || doc.Props[idx].Key != key {
 		return
 	}
-	e.replaceLines(doc.Props[idx].Line, doc.Props[idx].End, nil)
+	e.replaceLines(doc.Props[idx].Line, doc.Props[idx].End, nil, doc.EOL)
 }
 
 // addProp adds a property at the end of the front matter, above its closing "---".
@@ -295,22 +295,22 @@ func (e *Editor) addProp(p frontmatter.Prop) bool {
 			return false
 		}
 	}
-	e.replaceLines(doc.End, doc.End-1, p.Render())
+	e.replaceLines(doc.End, doc.End-1, p.Render(), doc.EOL)
 	return true
 }
 
 // replaceLines writes lines in place of buffer lines first through last, both
 // included (nothing is replaced when last < first, and the lines go in before
-// first; no lines removes them), as a single step of the undo history. The lines'
+// first; no lines removes them), joined by eol, as a single step of the undo history. The lines'
 // own text is swapped and the line breaks around it kept, so a caret on the line
 // after them does not move.
-func (e *Editor) replaceLines(first, last int, lines []string) {
+func (e *Editor) replaceLines(first, last int, lines []string, eol string) {
 	e.buffer.BeginUserAction()
 	defer e.buffer.EndUserAction()
 	switch {
 	case last < first: // an insertion
 		if at, ok := e.buffer.IterAtLine(first); ok {
-			e.buffer.Insert(at, strings.Join(lines, "\n")+"\n")
+			e.buffer.Insert(at, strings.Join(lines, eol)+eol)
 		}
 	case len(lines) == 0: // a removal, line breaks and all
 		start, ok1 := e.buffer.IterAtLine(first)
@@ -327,7 +327,11 @@ func (e *Editor) replaceLines(first, last int, lines []string) {
 		}
 		e.buffer.Delete(start, end)
 		if at, ok := e.buffer.IterAtLineOffset(first, 0); ok {
-			e.buffer.Insert(at, strings.Join(lines, "\n"))
+			text := strings.Join(lines, eol)
+			if eol == "\r\n" {
+				text += "\r" // the line's own ending, which is part of what was swapped
+			}
+			e.buffer.Insert(at, text)
 		}
 	}
 }

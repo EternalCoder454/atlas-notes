@@ -1254,7 +1254,7 @@ window.atlas-glass .atlas-page .tasks-open {
 .atlas-prop-add-chip:focus-within { background-color: alpha(@window_fg_color, 0.07); }
 .atlas-prop-entry:hover { background-color: alpha(@window_fg_color, 0.04); }
 .atlas-prop-add-chip { min-width: 0; }
-.atlas-prop-date { padding: 0 8px; min-height: 26px; }
+.atlas-prop-date { padding: 0 8px 0 0; min-height: 26px; margin-left: 8px; }
 .atlas-prop-readonly { color: alpha(@window_fg_color, 0.5); font-style: italic; padding: 0 8px; }
 .atlas-chip {
 	border-radius: 999px;
@@ -1364,3 +1364,4 @@ window.atlas-glass .atlas-page .tasks-open {
 .side-title {
 	font-weight: 700;
 }
+.atlas-prop-date > button { padding: 0; min-height: 26px; }

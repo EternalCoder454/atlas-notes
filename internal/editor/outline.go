@@ -142,7 +142,7 @@ func (e *Editor) installOutline() {
 	r.box.AddCSSClass("atlas-outline-rail")
 	r.box.SetHAlign(gtk.AlignEnd)
 	r.box.SetVAlign(gtk.AlignCenter)
-	r.box.SetMarginEnd(6)
+	r.box.SetMarginEnd(18) // clear of the overlay scrollbar, which must stay draggable
 	r.box.SetVisible(false)
 	r.frame.AddOverlay(r.box)
 

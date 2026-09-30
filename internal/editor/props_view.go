@@ -117,6 +117,8 @@ func (e *Editor) cardWidgets() *propsCard {
 	s.card = c
 	c.root = gtk.NewBox(gtk.OrientationVertical, 2)
 	c.root.AddCSSClass("atlas-props")
+	// The card is laid at the text's edge, which a folded first line puts at 0.
+	c.root.SetMarginStart(e.view.LeftMargin())
 
 	head := gtk.NewBox(gtk.OrientationHorizontal, 4)
 	title := gtk.NewLabel("Properties")
@@ -307,7 +309,11 @@ func (e *Editor) newPropRow() *propRow {
 	// A month or a year arrow moves the selected day along with it, and GTK says
 	// so with a day-selected of its own; only a day that was picked counts. The
 	// arrow's own signal is what tells the two apart, so the day waits a moment.
-	move := func() { r.nav = true }
+	move := func() {
+		r.nav = true
+		coreglib.TimeoutAdd(200, func() bool { r.nav = false; return false })
+	}
+	pop.ConnectShow(func() { r.nav = false })
 	r.cal.ConnectNextMonth(move)
 	r.cal.ConnectPrevMonth(move)
 	r.cal.ConnectNextYear(move)
@@ -390,6 +396,22 @@ func (r *propRow) set(mutate func(p *frontmatter.Prop)) {
 // commitEntry writes the entry's text as the property's value. A number entry
 // given something that is not a number is put back as it was.
 func (r *propRow) commitEntry() {
+	r.later(r.commitEntryNow)
+}
+
+// later runs a commit from an idle moment, and only if the card is still up. A
+// focus-leave arrives while the card is being hidden or dressed, in the middle of
+// a render pass, and the buffer must not be edited then.
+func (r *propRow) later(fn func()) {
+	coreglib.IdleAdd(func() bool {
+		if s := &r.e.props; s.on && !s.stale && !r.busy && r.box.IsVisible() {
+			fn()
+		}
+		return false
+	})
+}
+
+func (r *propRow) commitEntryNow() {
 	if r.busy || (r.kind != frontmatter.Text && r.kind != frontmatter.Number) {
 		return
 	}
@@ -401,11 +423,27 @@ func (r *propRow) commitEntry() {
 	if text == r.value {
 		return
 	}
-	r.set(func(p *frontmatter.Prop) { p.Value = text })
+	r.set(func(p *frontmatter.Prop) {
+		// A value typed where there was none is a number or a date when it reads
+		// as one.
+		if p.Value == "" && p.Kind == frontmatter.Text {
+			switch {
+			case frontmatter.IsNumber(text):
+				p.Kind = frontmatter.Number
+			case frontmatter.IsDate(text):
+				p.Kind = frontmatter.Date
+			}
+		}
+		p.Value = text
+	})
 }
 
 // commitChip adds what the entry holds to the list.
 func (r *propRow) commitChip() {
+	r.later(r.commitChipNow)
+}
+
+func (r *propRow) commitChipNow() {
 	if r.busy {
 		return
 	}
