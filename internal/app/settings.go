@@ -180,10 +180,10 @@ var noteFormats = []storage.Compression{
 
 // noteFormatLabels are what noteFormats are called in the combo.
 var noteFormatLabels = []string{
-	"Plain Markdown (.md)",
-	"Zstandard (.md.zst)",
-	"Gzip (.md.gz)",
-	"XZ (.md.xz)",
+	"Markdown (.md)",
+	"Zstandard (.zst)",
+	"Gzip (.gz)",
+	"XZ (.xz)",
 }
 
 // noteFormatIndex is a format's position in the combo. A format this build does
@@ -700,11 +700,15 @@ func (v *settingsView) buildAppearance() {
 
 	// Text rendering: the right choice depends on the screen, so it is a
 	// setting rather than a guess. See internal/app/fonts.go.
-	fontSub := "Automatic picks per screen. Takes effect on the next launch."
+	// The choices are one word each: the combo shows the chosen one beside the
+	// row's title, and the longer names were cut off there. What each is for
+	// is in the subtitle instead.
+	fontSub := "Automatic picks per screen; Crisp suits 1080p screens and Smooth " +
+		"suits HiDPI ones. Takes effect on the next launch."
 	fonts := comboRow("Text rendering", fontSub, []string{
-		"Automatic (recommended)",
-		"Crisp (best on 1080p)",
-		"Smooth (best on HiDPI)",
+		"Automatic",
+		"Crisp",
+		"Smooth",
 	}, fontModeIndex(a.cfg.FontRendering), func(i int) {
 		if i < 0 || i >= len(fontRenderingModes) {
 			return

@@ -82,7 +82,7 @@ func (a *App) syncEditorAccent() {
 		return
 	}
 	if t, ok := theme.ByID(a.cfg.Theme); ok && t.ID != "light" && t.ID != "dark" {
-		a.editor.SetLinkColor(t.Secondary)
+		a.editor.SetLinkColor(t.LinkColor())
 		return
 	}
 	mgr := adw.StyleManagerGetDefault()

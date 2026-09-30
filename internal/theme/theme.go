@@ -233,7 +233,10 @@ var Themes = []Theme{
 		Name:    "Rose",
 		Summary: "Light, warm with a rose accent",
 		Dark:    false,
-		// After Rosé Pine's Dawn variant: warm off-white, muted violet-grey text.
+		// After Rosé Pine's Dawn variant: warm off-white, violet-grey text. The
+		// text is a step deeper than Dawn's #575279, which read well at full
+		// strength but left everything drawn dimmed from it (placeholders,
+		// quiet icons, captions) too faint on the cream.
 		// Its "love" rose is #b4637a, which carries a white label at 4.2:1; this
 		// is a step deeper at 5.1:1, close enough that nobody would call it a
 		// different colour.
@@ -241,19 +244,19 @@ var Themes = []Theme{
 		Secondary: "#a5566d",
 		colors: map[string]string{
 			"window_bg_color":    "#faf4ed",
-			"window_fg_color":    "#575279",
+			"window_fg_color":    "#464160",
 			"view_bg_color":      "#fffaf3",
-			"view_fg_color":      "#575279",
+			"view_fg_color":      "#464160",
 			"sidebar_bg_color":   "#f2e9e1",
-			"sidebar_fg_color":   "#575279",
+			"sidebar_fg_color":   "#464160",
 			"headerbar_bg_color": "#f2e9e1",
-			"headerbar_fg_color": "#575279",
+			"headerbar_fg_color": "#464160",
 			"card_bg_color":      "#fffaf3",
-			"card_fg_color":      "#575279",
+			"card_fg_color":      "#464160",
 			"dialog_bg_color":    "#fffaf3",
-			"dialog_fg_color":    "#575279",
+			"dialog_fg_color":    "#464160",
 			"popover_bg_color":   "#fffaf3",
-			"popover_fg_color":   "#575279",
+			"popover_fg_color":   "#464160",
 			"accent_bg_color":    "#a5566d",
 			"accent_fg_color":    "#ffffff",
 			"accent_color":       "#9c4f66",
@@ -472,6 +475,17 @@ func SwatchCSS() string {
 		b.WriteString("}\n")
 	}
 	return b.String()
+}
+
+// LinkColor is the colour for accent-coloured text: links, tags and web
+// addresses in a note. That is the theme's accent_color, which is chosen to
+// read as text, where Secondary is the accent as a fill behind a white label
+// and on a light theme can be a shade too pale for small type.
+func (t Theme) LinkColor() string {
+	if c := t.colors["accent_color"]; c != "" {
+		return c
+	}
+	return t.Secondary
 }
 
 // SwatchClass is the CSS class carrying one theme's colours.
