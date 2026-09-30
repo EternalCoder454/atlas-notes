@@ -36,6 +36,9 @@ import (
 // The parts that need no GTK (spotting an image line, fitting a size, deciding
 // where newlines go, the texture cache) are plain functions and are tested on
 // their own.
+//
+// Tables are laid over the text the same way, and share the placement below (see
+// block and placeBlocks); tables.go says the rest.
 
 const (
 	// maxImageHeight keeps a tall picture from taking over the screen.

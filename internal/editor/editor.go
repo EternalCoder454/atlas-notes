@@ -3,7 +3,8 @@
 // It is a live preview: the markdown syntax markers are hidden except around the
 // exact construct the caret is in, so the text stays put as the caret moves.
 // Checklist lines are converted to embedded checkbox widgets on the same pass,
-// and list markers are drawn as "•" away from the caret (see bullets.go).
+// list markers are drawn as "•" away from the caret (see bullets.go), and a
+// Markdown table is drawn as a grid of labels (see tables.go).
 package editor
 
 import (

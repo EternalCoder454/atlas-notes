@@ -280,12 +280,17 @@ func findTables(lines []string, first int, fence []bool) []tableAt {
 // they do; an end that is not on such a line has no table crossing it. isRow says
 // whether a line looks like a row.
 func widenToTables(from, to, last int, isRow func(line int) bool) (int, int) {
-	if isRow(from) {
+	rowFrom := isRow(from)
+	rowTo := rowFrom
+	if to != from {
+		rowTo = isRow(to)
+	}
+	if rowFrom {
 		for from > 0 && isRow(from-1) {
 			from--
 		}
 	}
-	if isRow(to) {
+	if rowTo {
 		for to < last && isRow(to+1) {
 			to++
 		}
@@ -925,6 +930,9 @@ func (t *tableItem) resize(e *Editor, avail int) { t.size(e, avail) }
 // lines are hidden, but each still takes a sliver of height, and the grid is laid
 // over them, so what they take is not asked for twice.
 func (t *tableItem) wantPad(e *Editor, line, avail int) string {
+	if avail <= 0 {
+		return "" // the view has no width to fit a table to
+	}
 	_, h := t.size(e, avail)
 	if h <= 0 {
 		return ""
