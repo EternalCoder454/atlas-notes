@@ -126,6 +126,7 @@ func updateScript(branch string) string {
 	// too old; without it on PATH this would fail on exactly those machines.
 	return fmt.Sprintf(`set -e
 if [ -x %[5]q/go ]; then export PATH=%[5]q:"$PATH"; fi
+if [ -d %[6]q ]; then export GOCACHE=%[6]q; fi
 if [ ! -d %[1]q/.git ]; then
   rm -rf %[1]q
   mkdir -p %[4]q
@@ -134,7 +135,7 @@ fi
 git -C %[1]q fetch --prune origin
 git -C %[1]q checkout %[3]q
 git -C %[1]q reset --hard origin/%[3]q
-make -C %[1]q install`, src, repoURL, branch, parent, filepath.Join(storage.DataDir(), "go", "bin"))
+make -C %[1]q install`, src, repoURL, branch, parent, filepath.Join(storage.DataDir(), "go", "bin"), filepath.Join(storage.DataDir(), "cache"))
 }
 
 // buildInfo reports where this binary lives and was built, and where updates

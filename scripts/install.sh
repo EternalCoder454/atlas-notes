@@ -13,8 +13,9 @@
 #   install.sh [install]      install, or update an existing install (default)
 #   install.sh --update       pull and rebuild the existing checkout, like the
 #                             in-app Update button; no dependency or Ollama step
-#   install.sh --uninstall    remove the app, its source checkout and build
-#                             cache; your notes and settings are kept
+#   install.sh --uninstall    remove the app, its source checkout, private
+#                             build cache and Go; your notes and settings are
+#                             kept. Go's shared build cache is left alone.
 #   install.sh --purge        --uninstall, then optionally delete settings and
 #                             the search index, and (only if you type a
 #                             confirmation) your notes. Needs a terminal.
@@ -27,6 +28,9 @@
 #   ATLAS_NOTES_BRANCH=<name>   same as --branch
 #   ATLAS_NOTES_REPO=<url|path> clone from somewhere other than GitHub
 #   PREFIX=<dir>    install root (default ~/.local)
+#
+# Needs GLib 2.88, GTK 4.22 and libadwaita 1.9 or newer (see MIN_* below); on an
+# older distro it stops before building and says so.
 #
 # Everything lives inside main, which runs on the last line. When this script
 # is piped into bash, bash reads it from the same stdin that the commands it
@@ -65,6 +69,9 @@ else
 fi
 SRC_DIR="$DATA_DIR/src"
 GO_DIR="$DATA_DIR/go"
+# Builds use a cache of their own, so uninstalling can remove it without touching
+# the Go build cache that the user's other projects share.
+CACHE_DIR="$DATA_DIR/cache"
 
 say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -270,10 +277,10 @@ check_libs() {
 	glib="$($pc --modversion glib-2.0 2>/dev/null || true)"
 	say "Found GLib ${glib:-?}, GTK $gtk and libadwaita $adw."
 	if [ -n "$glib" ] && ! version_ge "$glib" "$MIN_GLIB"; then
-		die "$DISTRO ships GLib $glib, and Atlas Notes needs $MIN_GLIB or newer (with GTK $MIN_GTK and libadwaita $MIN_ADW; you have $gtk and $adw). Use a newer release of the distro, or build inside a container or toolbox that has newer libraries."
+		die "$DISTRO ships GLib $glib, and Atlas Notes needs $MIN_GLIB or newer (with GTK $MIN_GTK and libadwaita $MIN_ADW; you have $gtk and $adw). Use a newer release of the distro. A Flatpak for older distros is coming."
 	fi
 	if ! version_ge "$adw" "$MIN_ADW"; then
-		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Use a newer release of the distro, or build inside a container or toolbox that has a newer libadwaita."
+		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Use a newer release of the distro. A Flatpak for older distros is coming."
 	fi
 	if ! version_ge "$gtk" "$MIN_GTK"; then
 		die "$DISTRO ships GTK $gtk, and Atlas Notes needs $MIN_GTK or newer."
@@ -397,17 +404,16 @@ uninstall_app() {
 	update-desktop-database "$apps" 2>/dev/null || true
 	gtk-update-icon-cache -f -t "$icons" 2>/dev/null || true
 
-	# The Go build cache is shared with every other Go project, but it is only a
-	# cache: the next build of anything rebuilds what it needs.
-	if have go; then
-		say "Clearing the Go build cache..."
-		go clean -cache 2>/dev/null || true
-	fi
 	if [ -d "$SRC_DIR" ]; then
 		say "Removing the source checkout $SRC_DIR..."
 		# Go's module cache is read-only by design; this one is not, but be safe.
 		chmod -R u+w "$SRC_DIR" 2>/dev/null || true
 		rm -rf "${SRC_DIR:?}"
+	fi
+	if [ -d "$CACHE_DIR" ]; then
+		say "Removing the build cache $CACHE_DIR..."
+		chmod -R u+w "$CACHE_DIR" 2>/dev/null || true
+		rm -rf "${CACHE_DIR:?}"
 	fi
 	if [ -d "$GO_DIR" ]; then
 		say "Removing the Go toolchain this installer downloaded ($GO_DIR)..."
@@ -516,6 +522,8 @@ main() {
 	have gcc || have cc || have clang || die "A C compiler is required (gcc or clang)."
 	check_libs
 	ensure_go
+	mkdir -p "$CACHE_DIR"
+	export GOCACHE="$CACHE_DIR"
 	fetch_source
 	build_and_install
 	install_ollama

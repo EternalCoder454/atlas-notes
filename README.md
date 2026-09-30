@@ -212,8 +212,8 @@ GTK bindings it uses (gotk4 0.4.1) are generated against those releases and will
 not compile against older headers. That means Fedora 44 or newer, Arch Linux
 and openSUSE Tumbleweed today, and the distros that follow GNOME 50. **Debian 13
 (GLib 2.84), Ubuntu 24.04 and Linux Mint 22 (libadwaita 1.5) are too old**; the
-installer stops before building and says which version it found. On those, build
-inside a container or toolbox with a newer distro.
+installer stops before building and says which version it found. A Flatpak for
+those distros is coming.
 
 ### Per distro
 
@@ -252,7 +252,8 @@ bash ~/.local/share/atlas-notes/src/scripts/install.sh --uninstall
 ```
 
 This removes the binary, the desktop entry, the icon, the source checkout, the
-Go build cache and the Go toolchain the installer downloaded (if it did). For a
+private build cache (`~/.local/share/atlas-notes/cache`) and the Go toolchain the
+installer downloaded (if it did). Go's shared build cache is left alone. For a
 package, use the package manager: `sudo pacman -R atlas-notes`,
 `sudo dnf remove atlas-notes`.
 
