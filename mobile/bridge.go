@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"reflect"
 	"sync"
 	"time"
 
@@ -353,7 +354,16 @@ func vault() (*storage.Store, error) {
 	return store, nil
 }
 
+// toJSON is what every bridge call returns to the app.
+//
+// A nil slice is written as [] rather than null. Go marshals an empty list it
+// never appended to as null, and the app reads every list with JSONArray,
+// which refuses null: a note with no tasks put "Value null ... cannot be
+// converted to JSONArray" under every note that was opened.
 func toJSON(v any) (string, error) {
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		return "[]", nil
+	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return "", err

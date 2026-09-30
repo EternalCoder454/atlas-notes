@@ -63,7 +63,7 @@ object Vault {
     suspend fun open(dir: File) = io { Bridge.open(dir.absolutePath) }
 
     suspend fun notes(): List<Note> = io {
-        JSONArray(Bridge.listNotes()).map {
+        jsonList(Bridge.listNotes()).map {
             Note(
                 path = it.getString("path"),
                 name = it.getString("name"),
@@ -118,7 +118,7 @@ object Vault {
      * are.
      */
     suspend fun dueTasks(through: String): List<DueTask> = io {
-        JSONArray(Bridge.dueTasks(through)).map {
+        jsonList(Bridge.dueTasks(through)).map {
             DueTask(
                 path = it.getString("path"),
                 line = it.getInt("line"),
@@ -134,7 +134,7 @@ object Vault {
      * written with its "#" and in any case.
      */
     suspend fun notesWithTag(tag: String): List<String> = io {
-        val a = JSONArray(Bridge.notesWithTag(tag))
+        val a = jsonList(Bridge.notesWithTag(tag))
         (0 until a.length()).map { a.getString(it) }
     }
 
@@ -157,7 +157,7 @@ object Vault {
 
     /** The checklist items in a note's text, parsed by the shared Go model. */
     suspend fun tasks(content: String): List<Task> = io {
-        JSONArray(Bridge.tasks(content)).map {
+        jsonList(Bridge.tasks(content)).map {
             Task(it.getInt("line"), it.getString("text"), it.getBoolean("checked"))
         }
     }
@@ -210,7 +210,7 @@ object Vault {
 
     /** Paths of the notes whose text contains every word of [query]. */
     suspend fun searchText(query: String): Set<String> = io {
-        val a = JSONArray(Bridge.searchNotes(query))
+        val a = jsonList(Bridge.searchNotes(query))
         (0 until a.length()).map { a.getString(it) }.toSet()
     }
 
@@ -218,7 +218,7 @@ object Vault {
     data class ExportFormat(val id: String, val name: String, val ext: String, val mime: String)
 
     suspend fun exportFormats(): List<ExportFormat> = io {
-        JSONArray(Bridge.exportFormats()).map {
+        jsonList(Bridge.exportFormats()).map {
             ExportFormat(it.getString("id"), it.getString("name"), it.getString("ext"), it.getString("mime"))
         }
     }
@@ -237,6 +237,14 @@ object Vault {
     private const val LOCKED = "locked"
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
+
+    /**
+     * A list the Go core returned. Go writes a list it never added to as null,
+     * which JSONArray refuses; the core now sends [] instead, and this reads
+     * null or nothing as empty too, so an older core cannot bring the error back.
+     */
+    private fun jsonList(json: String?): JSONArray =
+        if (json.isNullOrBlank() || json == "null") JSONArray() else JSONArray(json)
 
     private fun <T> JSONArray.map(f: (org.json.JSONObject) -> T): List<T> =
         (0 until length()).map { f(getJSONObject(it)) }

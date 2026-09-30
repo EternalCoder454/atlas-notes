@@ -270,3 +270,15 @@ func TestRenameNoteReportsOnlyTheMove(t *testing.T) {
 		t.Error("renaming a note that is not there did not fail")
 	}
 }
+
+// TestListsAreNeverNull: the app reads every list with JSONArray, which refuses
+// null, and a note without tasks once showed an error each time it was opened.
+func TestListsAreNeverNull(t *testing.T) {
+	raw, err := Tasks("# Hi\n\nno tasks here\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw != "[]" {
+		t.Fatalf("Tasks on a note without tasks = %q, want []", raw)
+	}
+}
