@@ -61,6 +61,8 @@ func (a *App) runDevView() {
 			a.showIconSheet()
 		case "home":
 			a.showWelcome()
+		case "tasks":
+			a.showTasks()
 		case "locks":
 			a.devLockState()
 		case "update":

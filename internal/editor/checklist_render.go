@@ -342,3 +342,19 @@ func dressDueChip(chip *gtk.Label, due string) {
 		chip.SetTooltipText("Due " + t.Format("Mon, Jan 2 2006"))
 	}
 }
+
+// RevealLine puts the caret at the start of a line and scrolls it into view.
+// The Tasks page uses it to open a note at the task that was clicked. The line
+// is a line of the note's text, and the buffer holds the same lines, so the
+// number carries over; one past the end lands on the last line.
+func (e *Editor) RevealLine(ln int) {
+	if ln < 0 {
+		return
+	}
+	it, ok := e.buffer.IterAtLine(ln)
+	if !ok {
+		_, it = e.buffer.Bounds()
+	}
+	e.buffer.PlaceCursor(it)
+	e.view.ScrollToMark(e.buffer.GetInsert(), 0.1, false, 0, 0)
+}

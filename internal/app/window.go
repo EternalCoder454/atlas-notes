@@ -96,8 +96,11 @@ func (a *App) buildWindow() {
 	top, topRows := navList(struct {
 		icon, label, tooltip string
 		activate             func()
-	}{"atlasnotes-home-symbolic", "Home", "Home screen (Ctrl+H)", a.showWelcome})
-	a.homeNav = topRows[0]
+	}{"atlasnotes-home-symbolic", "Home", "Home screen (Ctrl+H)", a.showWelcome}, struct {
+		icon, label, tooltip string
+		activate             func()
+	}{"atlasnotes-tasks-board-symbolic", "Tasks", "Every open task (Ctrl+J)", a.showTasks})
+	a.homeNav, a.tasksNav = topRows[0], topRows[1]
 	a.left.Append(top)
 	if a.store != nil {
 		a.tree = ui.NewTree(a.store, a.win, a.ai)
@@ -246,6 +249,7 @@ func (a *App) buildMainMenu() *gio.Menu {
 	view := gio.NewMenu()
 	view.Append("Lock Notes Now", "app.lock-now")
 	view.Append("Home Screen", "app.home")
+	view.Append("Tasks", "app.tasks")
 	view.Append("Toggle Vault Panel", "app.toggle-vault")
 	view.Append("Toggle Assistant", "app.toggle-assistant")
 	menu.AppendSection("", view)
@@ -270,7 +274,8 @@ func panePosition(stored, fallback int) int {
 // setWindowSubtitle shows the open note in the header bar, so the window title
 // says what you are looking at instead of repeating the app's version.
 func (a *App) setWindowSubtitle(note string) {
-	a.homeNav.setCurrent(note == "")
+	a.homeNav.setCurrent(note == "" && !a.tasksShowing())
+	a.tasksNav.setCurrent(note == "" && a.tasksShowing())
 	if a.win == nil || fixedWindowTitle {
 		return
 	}

@@ -58,7 +58,8 @@ type App struct {
 	editor  *editor.Editor
 	sidebar *ui.Sidebar
 
-	homeNav navRow // the Home entry, current while the home screen shows
+	homeNav  navRow // the Home entry, current while the home screen shows
+	tasksNav navRow // the Tasks entry, current while the Tasks page shows
 	// themeCSS holds the chosen theme's colour overrides; appliedTheme is what
 	// it holds, so applying the same theme again restyles nothing.
 	themeCSS     *gtk.CSSProvider
