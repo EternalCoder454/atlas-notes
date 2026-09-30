@@ -23,8 +23,8 @@ pkgdesc="Fast local-first notes and checklists with an optional local AI assista
 arch=('x86_64' 'aarch64')
 url="https://github.com/EternalCoder454/atlas-notes"
 license=('MIT')
-depends=('gtk4' 'libadwaita' 'glib2')
-makedepends=('go>=1.25' 'gcc' 'pkgconf' 'gobject-introspection')
+depends=('gtk4>=4.22' 'libadwaita>=1.9' 'glib2>=2.88')
+makedepends=('go>=1.26' 'gcc' 'pkgconf' 'gobject-introspection')
 checkdepends=('desktop-file-utils')
 optdepends=('ollama: runs the local model the optional AI assistant talks to')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
@@ -43,7 +43,7 @@ build() {
     export CGO_LDFLAGS="${LDFLAGS}"
     export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
 
-    go build -ldflags "-linkmode=external -s -w" -o "$pkgname" .
+    go build -ldflags "-linkmode=external -s -w -X atlas-notes/internal/app.version=$pkgver" -o "$pkgname" .
 }
 
 check() {

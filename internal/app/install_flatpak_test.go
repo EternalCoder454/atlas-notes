@@ -22,6 +22,19 @@ func TestFlatpakDetectedFromInfoFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	flatpakInfoPath = info
+
+	// The file alone is not enough: the binary has to be under /app too.
+	oldApp := flatpakAppDir
+	t.Cleanup(func() { flatpakAppDir = oldApp })
+	flatpakAppDir = t.TempDir()
+	if inFlatpak() {
+		t.Fatal(".flatpak-info exists but the binary is not under /app, yet detected as a Flatpak")
+	}
+	exe, err := installedBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	flatpakAppDir = filepath.Dir(exe)
 	got := detectInstallReal()
 	if got.Kind != Flatpak {
 		t.Fatalf("got %+v, want a Flatpak install", got)

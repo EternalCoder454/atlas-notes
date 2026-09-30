@@ -242,7 +242,11 @@ func packageOwner(path string) (manager, pkg string, ok bool) {
 		if which(q.tool) == "" {
 			continue
 		}
-		out, err := exec.Command(q.tool, append(append([]string{}, q.args...), path)...).Output()
+		cmd := exec.Command(q.tool, append(append([]string{}, q.args...), path)...)
+		// The output is parsed for English phrases ("is owned by"), so ask for
+		// the untranslated text whatever language the desktop is set to.
+		cmd.Env = append(os.Environ(), "LC_ALL=C")
+		out, err := cmd.Output()
 		if err != nil {
 			continue // not owned by this one, or it could not say
 		}

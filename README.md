@@ -231,7 +231,8 @@ Atlas Notes comes as a Flatpak on the GNOME 50 runtime, which carries the
 libraries it needs. Each release has an `atlas-notes-<version>.flatpak` file;
 the installer downloads the latest, installs Flatpak itself if it is missing,
 and adds Flathub for the runtime (about 400 MB, once). It asks for no access to
-your files: pictures and exports go through the system's file chooser.
+your files: pictures and exports go through the system's file chooser. The
+Flatpak is built for x86_64 only; the installer says so at once on other CPUs.
 
 In the Flatpak your notes live in
 `~/.var/app/io.github.atlasnotes/data/atlas-notes/vault` and your settings in
@@ -299,13 +300,15 @@ package, use the package manager: `sudo pacman -R atlas-notes`,
   `vault_path` in `config.json` points
 - history and the search index: `~/.local/share/atlas-notes`
 
-In the Flatpak they are under `~/.var/app/io.github.atlasnotes`.
+In the Flatpak they are under `~/.var/app/io.github.atlasnotes`. `--uninstall`
+lists both places if you have both installs, and `--purge` offers to clear each.
 
 To remove those as well, download the script and run it in a terminal:
 `curl -fsSLO https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh && bash install.sh --purge`. It asks before
 deleting settings and the search index, and will not delete your notes or their
 history unless you type `delete my notes` when asked. It refuses to run when
-piped, and never deletes a vault that lives outside Atlas Notes' own folder.
+piped, and never deletes a vault that lives outside Atlas Notes' own folder, or any folder
+that holds or sits inside your vault.
 Ollama and its models are not installed by the package and are not removed.
 
 ## Using the AI assistant
