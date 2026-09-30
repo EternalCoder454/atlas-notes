@@ -10,7 +10,7 @@ name: Tests
 # container has none.
 on:
   push:
-    branches: [beta, ci-speedup] # ci-speedup: temporary, to test this workflow
+    branches: [beta]
     paths-ignore:
       - "**.md"
       - "LICENSE"
