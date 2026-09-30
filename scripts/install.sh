@@ -473,10 +473,12 @@ offered_adw() {
 	case "$PM" in
 		apt)    v="$(apt-cache policy libadwaita-1-dev 2>/dev/null | awk '/Candidate:/ {print $2; exit}')" ;;
 		dnf)    v="$(dnf -q repoquery --latest-limit=1 --qf '%{version}\n' libadwaita-devel 2>/dev/null | head -n1)" ;;
-		pacman) v="$(pacman -Si libadwaita 2>/dev/null | awk -F': *' '/^Version/ {print $2; exit}')" ;;
-		zypper) v="$(zypper --non-interactive info libadwaita-devel 2>/dev/null | awk -F': *' '/^Version/ {print $2; exit}')" ;;
+		pacman) v="$(pacman -Si libadwaita 2>/dev/null | sed -n 's/^Version *: *//p' | head -n1)" ;;
+		zypper) v="$(zypper --non-interactive info libadwaita-devel 2>/dev/null | sed -n 's/^Version *: *//p' | head -n1)" ;;
 	esac
-	v="${v#*:}" # an epoch ("1:1.5.0") is not part of the version
+	# An epoch ("1:1.5.0") is not part of the version. (Matching the field with
+	# awk -F': *' would split inside it, which is why sed is used above.)
+	v="${v#*:}"
 	case "$v" in ""|"(none)") return ;; esac
 	printf '%s' "$v"
 }
