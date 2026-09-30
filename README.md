@@ -156,14 +156,22 @@ can update the last one, shown rather than asserted.
 
 ## Install
 
-One command works on Fedora, Debian, Ubuntu, Linux Mint, Arch Linux, openSUSE
-and any other distro that has GTK 4 and libadwaita. It installs the build
-dependencies (asking for your `sudo` password), fetches the source, builds, and
-adds Atlas Notes to your app grid:
+One command each, on Fedora, Debian, Ubuntu, Linux Mint, Arch Linux, openSUSE
+and any other distro:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh | bash
-```
+| | |
+| --- | --- |
+| Install | `curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh \| bash` |
+| Update | `curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh \| bash -s -- --update` |
+| Remove (keeps your notes) | `curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh \| bash -s -- --uninstall` |
+
+Where the distro's GTK and libadwaita are new enough (Fedora 44, Arch,
+openSUSE Tumbleweed), the installer builds Atlas Notes for it, asking for your
+`sudo` password to install the build packages. Where they are too old (Debian
+13, Ubuntu 24.04, Linux Mint 22), it installs the Flatpak from the latest
+release instead, which brings its own; you don't have to choose. Either way
+Atlas Notes ends up in your app grid, and the Update button in Settings knows
+which kind you have.
 
 Prefer to read it first? Clone and run it locally:
 
@@ -186,7 +194,9 @@ The installer:
    official Go from go.dev (checking its SHA-256) into
    `~/.local/share/atlas-notes/go`. A distro Go from 1.21 on is fine: it fetches
    the exact toolchain the project names by itself.
-3. Checks that GTK and libadwaita are new enough and says so plainly if not.
+3. Checks that GTK and libadwaita are new enough. It asks the package manager
+   first, before installing anything, and if they are too old it installs the
+   Flatpak instead (see below).
 4. Clones the source into `~/.local/share/atlas-notes/src` (the same place the
    in-app updater uses) and runs `make install`, which puts the binary, the
    `.desktop` entry and the icon under `~/.local`.
@@ -212,8 +222,32 @@ GTK bindings it uses (gotk4 0.4.1) are generated against those releases and will
 not compile against older headers. That means Fedora 44 or newer, Arch Linux
 and openSUSE Tumbleweed today, and the distros that follow GNOME 50. **Debian 13
 (GLib 2.84), Ubuntu 24.04 and Linux Mint 22 (libadwaita 1.5) are too old**; the
-installer stops before building and says which version it found. A Flatpak for
-those distros is coming.
+installer sees that before installing anything and installs the Flatpak instead.
+
+### The Flatpak
+
+For older distros, or anywhere you would rather have it (`install.sh --flatpak`),
+Atlas Notes comes as a Flatpak on the GNOME 50 runtime, which carries the
+libraries it needs. Each release has an `atlas-notes-<version>.flatpak` file;
+the installer downloads the latest, installs Flatpak itself if it is missing,
+and adds Flathub for the runtime (about 400 MB, once). It asks for no access to
+your files: pictures and exports go through the system's file chooser.
+
+In the Flatpak your notes live in
+`~/.var/app/io.github.atlasnotes/data/atlas-notes/vault` and your settings in
+`~/.var/app/io.github.atlasnotes/config/atlas-notes`. To keep the vault in a
+folder of your own, such as a synced one, allow that folder and point
+`vault_path` at it:
+
+```bash
+flatpak override --user --filesystem=$HOME/Notes io.github.atlasnotes
+```
+
+There is no Flatpak repository to update from, so updating means installing the
+newer bundle over the old one, which is what `install.sh --update` does. By hand:
+download the newer file from the releases page and run
+`flatpak install --user ./atlas-notes-<version>.flatpak`. Building the bundle
+yourself is described in `packaging/flatpak/README.md`.
 
 ### Per distro
 
@@ -221,8 +255,9 @@ those distros is coming.
   yourself (or for COPR), use `packaging/atlas-notes.spec`:
   `rpmbuild -ba packaging/atlas-notes.spec`. Enable network access for the Go
   module download on COPR.
-- **Debian, Ubuntu, Linux Mint:** the one-liner uses `apt` and downloads Go from
-  go.dev, but only releases with GLib 2.88 or newer can build it (see above).
+- **Debian, Ubuntu, Linux Mint:** the one-liner installs the Flatpak on today's
+  releases. On a release new enough to build natively it uses `apt` and
+  downloads Go from go.dev.
 - **Arch Linux and Manjaro:** the one-liner uses `pacman`. To get a proper
   package that `pacman` owns, build the PKGBUILD:
   `git clone https://github.com/EternalCoder454/atlas-notes.git && cd atlas-notes/packaging && makepkg -si`.
@@ -238,8 +273,8 @@ those distros is coming.
   manager installed (the PKGBUILD or the RPM), it does not write over
   `/usr/bin`; it shows the `pacman`, `dnf`, `apt` or `zypper` command to run
   instead.
-- **Script:** `bash ~/.local/share/atlas-notes/src/scripts/install.sh --update`, or
-  re-run the one-liner.
+- **Script:** `curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh | bash -s -- --update`. It rebuilds a native
+  install and replaces a Flatpak with the latest release's.
 - **Package manager:** `sudo dnf upgrade atlas-notes`, `paru -Syu atlas-notes`,
   or rebuild from the newer PKGBUILD.
 
@@ -248,10 +283,10 @@ See [Updating](#updating) for the launch-time check and the channels.
 ### Removing
 
 ```bash
-bash ~/.local/share/atlas-notes/src/scripts/install.sh --uninstall
+curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh | bash -s -- --uninstall
 ```
 
-This removes the binary, the desktop entry, the icon, the source checkout, the
+For a Flatpak this runs `flatpak uninstall`. For a native install it removes the binary, the desktop entry, the icon, the source checkout, the
 private build cache (`~/.local/share/atlas-notes/cache`) and the Go toolchain the
 installer downloaded (if it did). Go's shared build cache is left alone. For a
 package, use the package manager: `sudo pacman -R atlas-notes`,
@@ -264,7 +299,10 @@ package, use the package manager: `sudo pacman -R atlas-notes`,
   `vault_path` in `config.json` points
 - history and the search index: `~/.local/share/atlas-notes`
 
-To remove those as well, run `install.sh --purge` in a terminal. It asks before
+In the Flatpak they are under `~/.var/app/io.github.atlasnotes`.
+
+To remove those as well, download the script and run it in a terminal:
+`curl -fsSLO https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh && bash install.sh --purge`. It asks before
 deleting settings and the search index, and will not delete your notes or their
 history unless you type `delete my notes` when asked. It refuses to run when
 piped, and never deletes a vault that lives outside Atlas Notes' own folder.

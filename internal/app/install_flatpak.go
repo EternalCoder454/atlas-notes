@@ -23,8 +23,12 @@ func inFlatpak() bool {
 // flatpakAdvice is what the Update button says in a Flatpak.
 func flatpakAdvice() string {
 	return "Atlas Notes is installed as a Flatpak, so it cannot update itself. " +
-		"Download the newest atlas-notes-<version>.flatpak from\n" + releasesURL +
-		"\nand install it over this one by running this in a terminal:\n" +
-		"flatpak install --user ./atlas-notes-<version>.flatpak\n" +
+		"To install the newest version over this one, run this in a terminal:\n" +
+		"curl -fsSL " + installScriptURL + " | bash -s -- --update\n" +
+		"Or download atlas-notes-<version>.flatpak from\n" + releasesURL +
+		"\nand run: flatpak install --user ./atlas-notes-<version>.flatpak\n" +
 		"Your notes are kept."
 }
+
+// installScriptURL is the installer's address, which also updates a Flatpak.
+const installScriptURL = "https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh"

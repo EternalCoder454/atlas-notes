@@ -16,12 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--uninstall` removes the app and keeps your notes and settings, and `--purge`
   can delete those too after an explicit confirmation. The old
   `install-fedora.sh` URL still works.
+- **A Flatpak, for distros too old to build Atlas Notes.** It needs GLib 2.88,
+  GTK 4.22 and libadwaita 1.9, which Debian 13, Ubuntu 24.04 and Linux Mint 22
+  don't have. Each release now carries an `atlas-notes-<version>.flatpak` on
+  the GNOME 50 runtime, and the installer picks it by itself there: it asks
+  the package manager which libadwaita it offers before installing anything,
+  and installs Flatpak and the bundle instead. `--update` replaces the bundle
+  with the latest release's and `--uninstall` removes it, keeping the notes.
+  The Flatpak asks for no access to your files; pictures and exports go
+  through the file chooser portal.
 - **Packages**: `packaging/PKGBUILD` for Arch and `packaging/atlas-notes.spec` for
   RPM and COPR.
 - The Update button knows how the app was installed. A copy owned by `pacman`,
   `dnf`, `apt` or `zypper` is given that manager's update command instead of
   being rebuilt over, and a copy with no source is pointed at the installer.
-  Settings shows how this copy was installed.
+  Settings shows how this copy was installed. In the Flatpak it gives the
+  one command that updates it.
+
+### Fixed
+- The welcome note said notes are compressed and live in `~/.local/share`;
+  they are plain Markdown by default, and in the Flatpak they live elsewhere.
+  It now points at the folder shown on the home screen.
 
 ### Changed
 - **Typing is about seven times faster**: 0.014 ms a keystroke where 0.8.1

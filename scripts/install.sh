@@ -19,6 +19,8 @@
 #   install.sh --purge        --uninstall, then optionally delete settings and
 #                             the search index, and (only if you type a
 #                             confirmation) your notes. Needs a terminal.
+#   install.sh --flatpak      install the Flatpak even where a native build
+#                             would work
 #   install.sh --branch NAME  track a branch other than the default
 #   install.sh --help
 #
@@ -27,10 +29,16 @@
 #   SKIP_OLLAMA=1   don't install Ollama or pull the default model
 #   ATLAS_NOTES_BRANCH=<name>   same as --branch
 #   ATLAS_NOTES_REPO=<url|path> clone from somewhere other than GitHub
+#   ATLAS_NOTES_FLATPAK=1       same as --flatpak
+#   ATLAS_NOTES_FLATPAK_BUNDLE=<url>  install this bundle, not the latest
+#                               release's (file:// works, for testing a build)
 #   PREFIX=<dir>    install root (default ~/.local)
 #
-# Needs GLib 2.88, GTK 4.22 and libadwaita 1.9 or newer (see MIN_* below); on an
-# older distro it stops before building and says so.
+# A native build needs GLib 2.88, GTK 4.22 and libadwaita 1.9 or newer (see
+# MIN_* below). Where the distro offers older ones (Debian 13, Ubuntu 24.04,
+# Linux Mint 22), the script installs the Flatpak from the latest release
+# instead, which brings those libraries with it; --update and --uninstall then
+# act on the Flatpak.
 #
 # Everything lives inside main, which runs on the last line. When this script
 # is piped into bash, bash reads it from the same stdin that the commands it
@@ -278,10 +286,10 @@ check_libs() {
 	glib="$($pc --modversion glib-2.0 2>/dev/null || true)"
 	say "Found GLib ${glib:-?}, GTK $gtk and libadwaita $adw."
 	if [ -n "$glib" ] && ! version_ge "$glib" "$MIN_GLIB"; then
-		die "$DISTRO ships GLib $glib, and Atlas Notes needs $MIN_GLIB or newer (with GTK $MIN_GTK and libadwaita $MIN_ADW; you have $gtk and $adw). Use a newer release of the distro. A Flatpak for older distros is coming."
+		die "$DISTRO ships GLib $glib, and Atlas Notes needs $MIN_GLIB or newer (with GTK $MIN_GTK and libadwaita $MIN_ADW; you have $gtk and $adw). Run this again with --flatpak to install the Flatpak, which brings its own."
 	fi
 	if ! version_ge "$adw" "$MIN_ADW"; then
-		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Use a newer release of the distro. A Flatpak for older distros is coming."
+		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Run this again with --flatpak to install the Flatpak, which brings its own."
 	fi
 	if ! version_ge "$gtk" "$MIN_GTK"; then
 		die "$DISTRO ships GTK $gtk, and Atlas Notes needs $MIN_GTK or newer."
@@ -378,6 +386,121 @@ path_hint() {
 	esac
 }
 
+# ---- flatpak --------------------------------------------------------------
+
+FLATPAK_ID="io.github.atlasnotes"
+FLATPAK_CHANGED=0
+RELEASES_API="https://api.github.com/repos/EternalCoder454/atlas-notes/releases/latest"
+
+# offered_adw prints the libadwaita version the package manager would install,
+# or nothing when it cannot tell (package lists not fetched yet, say), in which
+# case the native build is tried and check_libs has the last word.
+offered_adw() {
+	local v=""
+	case "$PM" in
+		apt)    v="$(apt-cache policy libadwaita-1-dev 2>/dev/null | awk '/Candidate:/ {print $2; exit}')" ;;
+		dnf)    v="$(dnf -q repoquery --latest-limit=1 --qf '%{version}\n' libadwaita-devel 2>/dev/null | head -n1)" ;;
+		pacman) v="$(pacman -Si libadwaita 2>/dev/null | awk -F': *' '/^Version/ {print $2; exit}')" ;;
+		zypper) v="$(zypper --non-interactive info libadwaita-devel 2>/dev/null | awk -F': *' '/^Version/ {print $2; exit}')" ;;
+	esac
+	v="${v#*:}" # an epoch ("1:1.5.0") is not part of the version
+	case "$v" in ""|"(none)") return ;; esac
+	printf '%s' "$v"
+}
+
+# wants_flatpak decides, before anything is installed, whether this machine can
+# build natively. Asking first matters: installing a page of development packages
+# only to find they are too old would leave them behind for nothing.
+wants_flatpak() {
+	[ "${ATLAS_NOTES_FLATPAK:-0}" = "1" ] && return 0
+	local have_adw offered
+	have_adw="$(pkg-config --modversion libadwaita-1 2>/dev/null || true)"
+	if [ -n "$have_adw" ]; then
+		if version_ge "$have_adw" "$MIN_ADW"; then return 1; fi
+		return 0
+	fi
+	offered="$(offered_adw)"
+	[ -n "$offered" ] && ! version_ge "$offered" "$MIN_ADW"
+}
+
+flatpak_installed() {
+	have flatpak && flatpak info --user "$FLATPAK_ID" >/dev/null 2>&1
+}
+
+native_installed() {
+	[ -e "$PREFIX/bin/atlas-notes" ] || [ -d "$SRC_DIR" ]
+}
+
+# use_flatpak_dirs points the "what was kept" and --purge paths at the sandbox's
+# folders, where a Flatpak keeps its notes and settings.
+use_flatpak_dirs() {
+	DATA_DIR="$HOME/.var/app/$FLATPAK_ID/data/atlas-notes"
+	CONFIG_DIR="$HOME/.var/app/$FLATPAK_ID/config/atlas-notes"
+}
+
+ensure_flatpak() {
+	have flatpak && return
+	[ -n "$PM" ] || die "Flatpak is not installed. Install it with your package manager (see https://flatpak.org/setup/), then run this again."
+	local sudo_cmd=""
+	if [ "$(id -u)" -ne 0 ]; then
+		have sudo || die "Installing Flatpak needs root and sudo isn't installed. As root, install the flatpak package, then run this again."
+		sudo_cmd="sudo"
+	fi
+	say "Installing Flatpak with $PM (sudo may ask for your password)..."
+	case "$PM" in
+		dnf)    $sudo_cmd dnf install -y flatpak ;;
+		apt)    $sudo_cmd apt-get update
+		        $sudo_cmd env DEBIAN_FRONTEND=noninteractive apt-get install -y flatpak ;;
+		pacman) $sudo_cmd pacman -S --needed --noconfirm flatpak ;;
+		zypper) $sudo_cmd zypper --non-interactive install flatpak ;;
+	esac </dev/null
+	have flatpak || die "Flatpak still isn't available after installing it."
+}
+
+# release_bundle_url is the .flatpak attached to the latest release.
+release_bundle_url() {
+	curl -fsSL "$RELEASES_API" |
+		grep -o '"browser_download_url": *"[^"]*\.flatpak"' | head -n1 |
+		sed 's/.*"\(https:[^"]*\)"$/\1/'
+}
+
+# flatpak_install installs the latest release's bundle, or replaces an older
+# one with it. There is no hosted Flatpak repository, so updating a bundle
+# means installing the newer bundle over it; the sandbox's data is kept.
+flatpak_install() {
+	have curl || die "curl is required."
+	ensure_flatpak
+	say "Adding Flathub, where the GNOME runtime the bundle runs on comes from..."
+	flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+	local url version installed=""
+	url="${ATLAS_NOTES_FLATPAK_BUNDLE:-}"
+	[ -n "$url" ] || url="$(release_bundle_url || true)"
+	[ -n "$url" ] || die "The latest release has no Flatpak attached. See $REPO_URL/releases, or build it: packaging/flatpak/README.md"
+	version="$(basename "$url" .flatpak)"
+	version="${version#atlas-notes-}"
+	if flatpak_installed; then
+		installed="$(flatpak info --user "$FLATPAK_ID" 2>/dev/null | awk -F': *' '/^ *Version/ {print $2; exit}')"
+		if [ -n "$installed" ] && [ "$installed" = "$version" ]; then
+			say "Atlas Notes $version is already installed and up to date."
+			FLATPAK_CHANGED=0
+			return
+		fi
+	fi
+
+	local tmp
+	tmp="$(mktemp -d)"
+	# shellcheck disable=SC2064 # expand now: tmp is local
+	trap "rm -rf '$tmp'" EXIT
+	say "Downloading Atlas Notes $version (Flatpak)..."
+	curl -fL --progress-bar -o "$tmp/atlas-notes.flatpak" "$url"
+	say "Installing it (the first time also fetches the GNOME runtime, about 400 MB)..."
+	flatpak install --user -y --noninteractive --reinstall --bundle "$tmp/atlas-notes.flatpak" </dev/null
+	rm -rf "$tmp"
+	trap - EXIT
+	FLATPAK_CHANGED=1
+}
+
 # ---- removal --------------------------------------------------------------
 
 # vault_path is where the notes are: vault_path in config.json, or the default.
@@ -441,9 +564,14 @@ purge() {
 	fi
 	[ -n "$DATA_DIR" ] && [ "$DATA_DIR" != "/" ] && [ "$DATA_DIR" != "$HOME" ] || die "Refusing to purge: bad data directory '$DATA_DIR'."
 
+	if flatpak_installed; then
+		say "Removing the Atlas Notes Flatpak..."
+		flatpak uninstall --user -y --noninteractive "$FLATPAK_ID" </dev/null
+		native_installed || use_flatpak_dirs
+	fi
 	local vault
 	vault="$(vault_path)"
-	uninstall_app
+	native_installed && uninstall_app
 
 	printf '\n' >&2
 	say "Settings and search index:"
@@ -484,6 +612,7 @@ main() {
 			--update|update) action=update ;;
 			--uninstall|uninstall) action=uninstall ;;
 			--purge|purge) action=purge ;;
+			--flatpak)    ATLAS_NOTES_FLATPAK=1 ;;
 			--branch)     [ $# -ge 2 ] || die "--branch needs a name."; BRANCH="$2"; shift ;;
 			--branch=*)   BRANCH="${1#--branch=}" ;;
 			-h|--help)    usage; exit 0 ;;
@@ -498,7 +627,14 @@ main() {
 	case "$action" in
 		uninstall)
 			ensure_go_quiet
-			uninstall_app
+			if flatpak_installed; then
+				say "Removing the Atlas Notes Flatpak..."
+				flatpak uninstall --user -y --noninteractive "$FLATPAK_ID" </dev/null
+				native_installed || use_flatpak_dirs
+			fi
+			if native_installed || ! have flatpak; then
+				uninstall_app
+			fi
 			print_kept
 			say "Atlas Notes is removed. If you installed it from a package, use the package manager instead."
 			return ;;
@@ -510,6 +646,23 @@ main() {
 
 	detect_distro
 	say "Detected $DISTRO${PM:+ (package manager: $PM)}."
+
+	# A Flatpak install stays one: updating it means the newer bundle.
+	if [ "$action" = update ] && flatpak_installed && ! native_installed; then
+		flatpak_install
+		[ "$FLATPAK_CHANGED" = 1 ] && say "Updated. Restart Atlas Notes to use the new version."
+		return
+	fi
+	if [ "$action" = install ] && wants_flatpak; then
+		if [ "${ATLAS_NOTES_FLATPAK:-0}" != "1" ]; then
+			say "$DISTRO offers libadwaita older than $MIN_ADW, which Atlas Notes needs to build. Installing the Flatpak instead, which brings its own."
+		fi
+		flatpak_install
+		say "Done! Launch Atlas Notes from your applications menu, or run: flatpak run $FLATPAK_ID"
+		say "Update with: install.sh --update. Remove with: install.sh --uninstall (your notes are kept)."
+		return
+	fi
+
 	if [ "$action" = update ]; then
 		# Dependencies were installed the first time, and the updater has no
 		# business asking for a password.

@@ -49,7 +49,7 @@ No green dot? Install Ollama with ` + "`curl -fsSL https://ollama.com/install.sh
 
 ## Where your notes live
 
-Notes are compressed Markdown files under ` + "`~/.local/share/atlas-notes/vault/`" + ` and your settings sit in ` + "`~/.config/atlas-notes/config.json`" + `. Point ` + "`vault_path`" + ` anywhere you like; a synced folder works fine.
+Notes are plain Markdown files in your vault, the folder shown at the bottom of the home screen, so any other app can open them. Settings has the rest: where the vault is, and whether notes are compressed.
 
 Delete this note whenever you are ready. Happy writing.
 `
