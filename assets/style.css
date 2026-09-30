@@ -1120,3 +1120,55 @@ row.combo listview.inline {
 window.atlas-glass .atlas-page .tasks-open {
 	background-color: alpha(@card_bg_color, 0.85);
 }
+
+/* Version history, Changes view. The tints are the theme's own success and error
+   colours at low alpha, so they read on light and dark alike, and the text keeps
+   the normal foreground colour. */
+.diff-view {
+	padding: 4px 0;
+}
+
+.diff-row {
+	padding: 1px 14px;
+}
+
+.diff-text {
+	font-family: monospace;
+	min-height: 1.4em;
+}
+
+.diff-gutter {
+	font-family: monospace;
+	opacity: 0.7;
+}
+
+.diff-add {
+	background-color: alpha(@success_color, 0.18);
+}
+
+.diff-add .diff-gutter {
+	color: @success_color;
+	opacity: 1;
+}
+
+.diff-del {
+	background-color: alpha(@error_color, 0.18);
+}
+
+.diff-del .diff-gutter {
+	color: @error_color;
+	opacity: 1;
+}
+
+.diff-fold {
+	background-color: alpha(currentColor, 0.06);
+	padding-top: 3px;
+	padding-bottom: 3px;
+}
+
+.diff-fold .diff-text {
+	font-family: inherit;
+	font-style: italic;
+	opacity: 0.7;
+	min-height: 0;
+}

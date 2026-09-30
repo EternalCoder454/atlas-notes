@@ -107,6 +107,13 @@ func (a *App) runDevView() {
 			case "history":
 				a.showHistory()
 			}
+		case "history-diff":
+			// Edit the note on disk, so that the version the store keeps of what it
+			// said before differs from it, and open the history on Changes.
+			a.devEditNote(arg)
+			a.openNote(arg)
+			historyOpensOnChanges = true
+			a.showHistory()
 		case "templates":
 			a.actionNewFromTemplate()
 		case "item-menu":
@@ -192,5 +199,23 @@ func (a *App) devLockState() {
 	a.cfg.FavouriteNotes = []string{notes[0].Path, notes[2].Path}
 	if a.tree != nil {
 		a.tree.ForceRefresh()
+	}
+}
+
+// devEditNote changes a note on disk for the screenshots: one line is dropped,
+// one changed and one added, and the text it had before becomes a version.
+func (a *App) devEditNote(rel string) {
+	text, err := a.store.ReadNote(rel)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > 6 {
+		lines = append(lines[:4], lines[5:]...)
+		lines[2] += " (reworded)"
+	}
+	lines = append(lines, "", "A new line at the end.")
+	if err := a.store.WriteNote(rel, strings.Join(lines, "\n")); err != nil {
+		log.Printf("atlas-notes: dev edit: %v", err)
 	}
 }
