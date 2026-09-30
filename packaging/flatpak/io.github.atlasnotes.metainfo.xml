@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.atlasnotes</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Atlas Notes</name>
+  <summary>Local-first notes and checklists with local AI</summary>
+  <description>
+    <p>Atlas Notes keeps your notes as plain Markdown files on your own computer. It has checklists, links between notes, tags, tasks with due dates and reminders, version history, and an optional assistant that runs on a local Ollama server, so nothing leaves your machine.</p>
+    <p>Notes can be opened by Obsidian and any other Markdown app.</p>
+  </description>
+  <launchable type="desktop-id">io.github.atlasnotes.desktop</launchable>
+  <url type="homepage">https://github.com/EternalCoder454/atlas-notes</url>
+  <url type="bugtracker">https://github.com/EternalCoder454/atlas-notes/issues</url>
+  <developer id="io.github.eternalcoder454">
+    <name>EternalHell</name>
+  </developer>
+  <content_rating type="oars-1.1" />
+  <categories>
+    <category>Office</category>
+  </categories>
+  <provides>
+    <binary>atlas-notes</binary>
+  </provides>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <releases>
+    <release version="0.8.1" date="2026-09-30" />
+  </releases>
+</component>
