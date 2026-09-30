@@ -19,7 +19,7 @@ const (
 	sizePrefix = "atlas:size"
 )
 
-var entities = strings.NewReplacer("#quot;", `"`, "#lt;", "<", "#gt;", ">", "#amp;", "&", "#124;", "|", "#35;", "#", "#96;", "`")
+var entities = strings.NewReplacer("#quot;", `"`, "#lt;", "<", "#gt;", ">", "#amp;", "&", "#124;", "|", "#35;", "#", "#96;", "`", "#42;", "*")
 
 // unescape reads the entity codes Mermaid text uses for what cannot be written
 // as is; escape writes them.
@@ -45,7 +45,7 @@ func escape(s string) string {
 			i += 3
 		}
 	}
-	s = strings.NewReplacer(`"`, "#quot;", "<", "#lt;", ">", "#gt;", "|", "#124;").Replace(s)
+	s = strings.NewReplacer(`"`, "#quot;", "<", "#lt;", ">", "#gt;", "|", "#124;", "*", "#42;").Replace(s)
 	// A backtick at either end would make Mermaid read a Markdown string.
 	if strings.HasPrefix(s, "`") {
 		s = "#96;" + s[1:]
