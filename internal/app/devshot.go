@@ -136,7 +136,7 @@ func (a *App) showIconSheet() {
 		img := gtk.NewImageFromIconName(name)
 		img.SetPixelSize(40)
 		cell.Append(img)
-		caption := gtk.NewLabel(strings.TrimSuffix(strings.TrimPrefix(name, "atlas-"), "-symbolic"))
+		caption := gtk.NewLabel(strings.TrimSuffix(strings.TrimPrefix(name, "atlasnotes-"), "-symbolic"))
 		caption.AddCSSClass("caption")
 		caption.AddCSSClass("dim-label")
 		cell.Append(caption)

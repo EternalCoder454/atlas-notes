@@ -112,8 +112,7 @@ func (a *App) welcomeCard(icon, title, subtitle, accel string, activate func()) 
 
 	row := gtk.NewBox(gtk.OrientationHorizontal, 12)
 	img := gtk.NewImageFromIconName(icon)
-	img.SetPixelSize(22)
-	img.AddCSSClass("welcome-card-icon")
+	img.AddCSSClass("welcome-card-icon") // sized in the stylesheet, with the others
 	img.SetVAlign(gtk.AlignCenter)
 	row.Append(img)
 
