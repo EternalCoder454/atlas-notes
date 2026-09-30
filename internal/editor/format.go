@@ -31,7 +31,7 @@ func (e *Editor) toggleWrap(marker string) {
 		e.afterEdit()
 		return
 	}
-	text := e.buffer.Slice(start, end, true)
+	text := e.sourceSlice(start, end) // a drawn bullet is written out again, not kept as a "•"
 	if strings.HasPrefix(text, marker) && strings.HasSuffix(text, marker) && len(text) > 2*len(marker) {
 		text = strings.TrimSuffix(strings.TrimPrefix(text, marker), marker)
 	} else {
@@ -119,7 +119,7 @@ func (e *Editor) eachSelectedLine(fn func(string) string) {
 		start, end = ins, ins
 	}
 	first, last := start.Line(), end.Line()
-	lines := strings.Split(e.rawText(), "\n")
+	lines := strings.Split(e.sourceText(), "\n")
 	for ln := first; ln <= last && ln < len(lines); ln++ {
 		if strings.HasPrefix(lines[ln], anchorChar) && !strings.HasPrefix(lines[ln], anchorChar+"\x00") {
 			// A rendered checkbox line: operate on the text after the anchor.
