@@ -25,10 +25,18 @@ name: Release builds
 # Merging to main warms that cache; the tag build then restores it. Give the
 # main build time to finish before pushing the tag, or the tag run starts before
 # there is anything to restore.
+#
+# A push that changes only documentation builds nothing: the artifacts would be
+# the same as the last run's. GitHub does not evaluate path filters for tag
+# pushes, so a release tag always builds, and workflow_dispatch ignores them too.
 on:
   push:
     branches: [main, beta]
     tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "NOTICE"
   workflow_dispatch:
 
 permissions:
