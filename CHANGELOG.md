@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-30
+
+### Fixed
+- **The phone showed an error under every note without a task**: "Value null
+  of type org.json.JSONObject$1 cannot be converted to JSONArray". The shared
+  core returned an empty list as null, which the app cannot read as a list,
+  and 0.8.0 began reporting the failure where earlier versions hid it. The
+  core now always sends a list, and the app reads a missing one as empty.
+
 ## [0.8.0] - 2026-09-30
 
 ### Added

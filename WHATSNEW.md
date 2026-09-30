@@ -4,6 +4,9 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.8.1
+- On your phone, opening a note no longer shows an error at the bottom of the screen
+
 ## 0.8.0
 - Notes read as they will print, and Obsidian's callouts, highlights and embeds look as they should
 - Link notes with [[Name]], tag them with #tag, and paste or drop pictures straight in
