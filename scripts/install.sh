@@ -266,7 +266,7 @@ check_libs() {
 	$pc --exists gobject-introspection-1.0 2>/dev/null || die "gobject-introspection development files not found. $(dep_hint gi)"
 	say "Found GTK $gtk and libadwaita $adw."
 	if ! version_ge "$adw" "$MIN_ADW"; then
-		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Use a newer release of the distro, or install Atlas Notes from Flatpak or a container that has a newer libadwaita."
+		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Use a newer release of the distro, or build inside a container or toolbox that has a newer libadwaita."
 	fi
 	if ! version_ge "$gtk" "$MIN_GTK"; then
 		die "$DISTRO ships GTK $gtk, and Atlas Notes needs $MIN_GTK or newer."
@@ -507,8 +507,8 @@ main() {
 	have git  || die "git is required."
 	have make || die "make is required."
 	have gcc || have cc || have clang || die "A C compiler is required (gcc or clang)."
-	ensure_go
 	check_libs
+	ensure_go
 	fetch_source
 	build_and_install
 	install_ollama
