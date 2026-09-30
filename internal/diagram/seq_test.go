@@ -236,7 +236,7 @@ func TestSeqTooLarge(t *testing.T) {
 func TestPathologicalSeq(t *testing.T) {
 	cases := map[string]string{
 		"many messages": "sequenceDiagram\n" + strings.Repeat("A->>B: x\n", 50000),
-		"many parts":    "sequenceDiagram\n" + strings.Repeat("participant P\nA->>B: x\n", 20) + func() string {
+		"many parts": "sequenceDiagram\n" + strings.Repeat("participant P\nA->>B: x\n", 20) + func() string {
 			var b strings.Builder
 			for i := 0; i < 5000; i++ {
 				b.WriteString("p" + strings.Repeat("x", i%20) + string(rune('a'+i%26)) + "->>q: x\n")
@@ -285,4 +285,44 @@ func FuzzParseSequence(f *testing.F) {
 			d.Scene(nil, 600).SVG(LightPalette)
 		}
 	})
+}
+
+func TestSeqFixes(t *testing.T) {
+	if _, err := ParseSequence("sequenceDiagram\n" + strings.Repeat("activate A\n", 9)); err == nil || !strings.Contains(err.Error(), "activations") {
+		t.Errorf("deep activation: %v", err)
+	}
+	if _, err := ParseSequence("sequenceDiagram\n" + strings.Repeat("A->>+B: x\n", 9)); err == nil {
+		t.Error("deep activation by message accepted")
+	}
+	// Separators count as steps.
+	src := "sequenceDiagram\nalt a\n" + strings.Repeat("else b\n", maxSeqEvents) + "end\n"
+	if _, err := ParseSequence(src); err == nil || !strings.Contains(err.Error(), "too many") {
+		t.Errorf("separators uncounted: %v", err)
+	}
+	// An error is a nil Doc, not a nil pointer inside one.
+	for _, s := range []string{"gantt\n", "sequenceDiagram\n"} {
+		if d, err := ParseDoc(s); err == nil || d != nil {
+			t.Errorf("%q: doc %v err %v", s, d, err)
+		}
+	}
+	// Eight bars deep still keep arrows between their lifelines.
+	q := mustSeq(t, "sequenceDiagram\n"+strings.Repeat("A->>+B: x\n", 8)+"B->>A: y\n")
+	sc := q.Scene(nil, 0)
+	var ax, bx float64
+	for _, p := range sc.Prims {
+		if p.Kind == PrimPath && p.Dash && len(p.Pts) == 2 && p.Pts[0].X == p.Pts[1].X {
+			if ax == 0 {
+				ax = p.Pts[0].X
+			} else {
+				bx = p.Pts[0].X
+			}
+		}
+	}
+	for _, p := range sc.Prims {
+		if p.Kind == PrimPath && len(p.Pts) == 2 && p.StrokeW == 1.5 && p.Pts[0].Y == p.Pts[1].Y && p.Pts[0].Y > 80 {
+			if math.Min(p.Pts[0].X, p.Pts[1].X) < ax-1 || math.Max(p.Pts[0].X, p.Pts[1].X) > bx+seqBarW*3 {
+				t.Errorf("arrow %v leaves its lifelines %.0f..%.0f", p.Pts, ax, bx)
+			}
+		}
+	}
 }

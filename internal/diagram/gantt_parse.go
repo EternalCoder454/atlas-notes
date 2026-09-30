@@ -3,9 +3,11 @@ package diagram
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Now is the clock the today line reads; tests set it.
@@ -15,7 +17,8 @@ const (
 	maxTasks    = 200
 	maxSections = 40
 	maxDuration = 100000 // the largest number in a duration
-	maxWalk     = 200000 // day steps taken to skip excluded days
+	maxWalk     = 200000 // day steps taken to skip excluded days, over the whole chart
+	maxSpanDays = 5000   // the longest a duration may be, about what can be drawn
 )
 
 // Task is a bar, or with Milestone a diamond, on a Gantt chart. Start and End
@@ -64,6 +67,7 @@ type Gantt struct {
 	exclDates map[string]bool
 	inclusive bool
 	ids       map[string]*Task
+	steps     int
 }
 
 type dateTok struct {
@@ -207,7 +211,7 @@ func parseDuration(s string) (time.Duration, int, byte, bool) {
 	case "y":
 		unit, u = 365*24*time.Hour, 'x'
 	}
-	if n*float64(unit) > 3e18 {
+	if n*float64(unit) > maxSpanDays*24*float64(time.Hour) {
 		return 0, 0, 0, false
 	}
 	d := time.Duration(n * float64(unit))
@@ -250,6 +254,9 @@ func ParseGantt(src string) (g *Gantt, err error) {
 		case "title":
 			g.Title = plainLabel(rest)
 		case "dateformat":
+			if len(g.Tasks) > 0 {
+				return nil, errf(n, "dateFormat must come before the tasks")
+			}
 			f, ok := parseDateFormat(rest)
 			if !ok {
 				return nil, errf(n, "the date format %q is not supported", clip(rest, 20))
@@ -282,7 +289,7 @@ func ParseGantt(src string) (g *Gantt, err error) {
 			sec = &Section{Name: plainLabel(rest)}
 			g.Sections = append(g.Sections, sec)
 		default:
-			k := strings.LastIndex(line, ":")
+			k := strings.Index(line, ":")
 			if k < 0 {
 				return nil, errf(n, "cannot read %q", clip(line, 24))
 			}
@@ -314,6 +321,9 @@ func ParseGantt(src string) (g *Gantt, err error) {
 	}
 	if len(g.Tasks) == 0 {
 		return nil, &UnsupportedError{Msg: "the chart has no tasks"}
+	}
+	if !slices.Contains(g.exclWeek[:], false) {
+		return nil, &UnsupportedError{Msg: "every day of the week is excluded"}
 	}
 	for _, t := range g.Tasks {
 		if err := g.resolve(t); err != nil {
@@ -361,6 +371,12 @@ func (g *Gantt) anyExcluded() bool {
 
 var reID = regexp.MustCompile(`^[\p{L}\p{N}_-]{1,40}$`)
 
+// validID reports a task id: it has a letter or an underscore, so that a date
+// that cannot be read is not taken for one.
+func validID(s string) bool {
+	return reID.MatchString(s) && strings.ContainsFunc(s, func(r rune) bool { return r == '_' || unicode.IsLetter(r) })
+}
+
 func (g *Gantt) task(line int, name, spec string) (*Task, error) {
 	t := &Task{Name: plainLabel(name), line: line}
 	if t.Name == "" {
@@ -399,13 +415,13 @@ tags:
 	case 1:
 		endS = f[0]
 	case 2:
-		if !isStart(f[0]) && reID.MatchString(f[0]) {
+		if !isStart(f[0]) && validID(f[0]) {
 			t.ID, endS = f[0], f[1]
 		} else {
 			startS, endS = f[0], f[1]
 		}
 	case 3:
-		if !reID.MatchString(f[0]) {
+		if !validID(f[0]) {
 			return nil, errf(line, "%q is not a task id", clip(f[0], 20))
 		}
 		t.ID, startS, endS = f[0], f[1], f[2]
@@ -431,6 +447,8 @@ tags:
 		}
 	} else if dur, days, u, ok := parseDuration(endS); ok {
 		t.dur, t.durD, t.unit = dur, days, u
+	} else if reDuration.MatchString(endS) {
+		return nil, errf(line, "the duration %q is too long", clip(endS, 20))
 	} else {
 		return nil, errf(line, "cannot read the end %q", clip(endS, 20))
 	}
@@ -477,9 +495,9 @@ func (g *Gantt) resolve(t *Task) error {
 		}
 	} else if t.unit == 'd' && t.durD > 0 && g.anyExcluded() {
 		d, n := t.Start, 0
-		for steps := 0; n < t.durD; steps++ {
-			if steps > maxWalk {
-				return errf(t.line, "every day is excluded")
+		for n < t.durD {
+			if g.steps++; g.steps > maxWalk {
+				return errf(t.line, "too many excluded days to count")
 			}
 			if !g.excluded(d) {
 				n++

@@ -252,3 +252,40 @@ func FuzzParseGantt(f *testing.F) {
 		}
 	})
 }
+
+func TestGanttFixes(t *testing.T) {
+	// Times have colons: the task line is cut at the first one.
+	g := mustGantt(t, "gantt\ndateFormat YYYY-MM-DD HH:mm\nA :a, 2026-01-05 10:00, 2h\n")
+	if !g.Tasks[0].Start.Equal(time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC)) || g.Tasks[0].End.Hour() != 12 {
+		t.Errorf("times: %v to %v", g.Tasks[0].Start, g.Tasks[0].End)
+	}
+	// A date that cannot be read is not an id.
+	_, err := ParseGantt("gantt\nA :a, 2026-01-01, 1d\nB :2026-13-40, 1d\n")
+	if err == nil || !strings.Contains(err.Error(), "start") {
+		t.Errorf("bad date: %v", err)
+	}
+	// Durations are bounded, with the right message.
+	for _, d := range []string{"100000w", "99999999y", "6000d"} {
+		if _, err := ParseGantt("gantt\nA :2026-01-01, " + d + "\n"); err == nil || !strings.Contains(err.Error(), "too long") {
+			t.Errorf("%s: %v", d, err)
+		}
+	}
+	// Every weekday excluded is refused up front, and the step budget is shared.
+	if _, err := ParseGantt("gantt\nexcludes sunday, monday, tuesday, wednesday, thursday, friday, saturday\nA :2026-01-01, 3d\n"); err == nil || !strings.Contains(err.Error(), "every day") {
+		t.Errorf("all excluded: %v", err)
+	}
+	start := time.Now()
+	_, err = ParseGantt("gantt\nexcludes weekends\nA :2026-01-01, 5000d\n" + strings.Repeat("B :after A, 5000d\n", 199))
+	if err == nil || time.Since(start) > 2*time.Second {
+		t.Errorf("budget: %v after %v", err, time.Since(start))
+	}
+	// dateFormat is global, so after a task it is refused.
+	if _, err := ParseGantt("gantt\nA :2026-01-01, 1d\ndateFormat DD/MM/YYYY\n"); err == nil {
+		t.Error("dateFormat after a task accepted")
+	}
+	// A span too short for a tick still gets one.
+	g = mustGantt(t, "gantt\ndateFormat YYYY-MM-DD HH:mm\nA :2026-01-01 10:10, 20m\n")
+	if s := g.Scene(nil, 0).SVG(LightPalette); !strings.Contains(s, "10:10") {
+		t.Error("no tick on a short span")
+	}
+}

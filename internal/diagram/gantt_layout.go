@@ -230,7 +230,7 @@ func (g *Gantt) Scene(m Measure, avail float64) *Scene {
 	}
 
 	// The axis: the finest step whose labels fit side by side.
-	step := tickSteps[len(tickSteps)-1]
+	step, found := tickSteps[len(tickSteps)-1], false
 	for _, s := range tickSteps {
 		ts := s.ticks(lo, hi)
 		if len(ts) > 400 {
@@ -248,7 +248,7 @@ func (g *Gantt) Scene(m Measure, avail float64) *Scene {
 		if len(ts) == 0 {
 			continue
 		}
-		step = s
+		step, found = s, true
 		// Pixels between two ticks of this step.
 		var px float64
 		if len(ts) > 1 {
@@ -260,12 +260,19 @@ func (g *Gantt) Scene(m Measure, avail float64) *Scene {
 			break
 		}
 	}
+	if !found { // a span too short for any step has no tick: the start is one
+		step = tickSteps[0]
+	}
 	f := g.AxisFormat
 	if f == "" {
 		f = step.format()
 	}
+	ticks := step.ticks(lo, hi)
+	if len(ticks) == 0 {
+		ticks = []time.Time{lo}
+	}
 	_, lh := m("0", labelSize, false)
-	for _, t := range step.ticks(lo, hi) {
+	for _, t := range ticks {
 		x := xOf(t)
 		grid = append(grid, Prim{Kind: PrimPath, Pts: []Pt{{x, axisY + ganttAxis - 4}, {x, H - ganttPad}}, Stroke: RoleGroupStroke, StrokeW: 1})
 		label := strftime(f, t)

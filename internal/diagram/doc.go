@@ -46,9 +46,17 @@ func Kind(src string) string {
 func ParseDoc(src string) (Doc, error) {
 	switch Kind(src) {
 	case "gantt":
-		return ParseGantt(src)
+		g, err := ParseGantt(src)
+		if err != nil {
+			return nil, err
+		}
+		return g, nil
 	case "sequence":
-		return ParseSequence(src)
+		q, err := ParseSequence(src)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
 	}
 	g, err := Parse(src)
 	if err != nil {

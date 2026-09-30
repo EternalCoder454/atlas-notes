@@ -10,6 +10,7 @@ const (
 	maxSeqEvents    = 250
 	maxSeqDepth     = 6
 	maxSeqText      = 160
+	maxActive       = 8 // bars on one lifeline
 )
 
 type seqKind int
@@ -137,6 +138,9 @@ func ParseSequence(src string) (s *Sequence, err error) {
 		if len(stack) > 0 {
 			b := stack[len(stack)-1]
 			if sep := seqBlocks[b.Kind]; sep != "" && lw == sep {
+				if err := s.count1(n); err != nil {
+					return nil, err
+				}
 				b.Parts = append(b.Parts, &SeqPart{Label: plainLabel(rest)})
 				continue
 			}
@@ -296,6 +300,9 @@ func (s *Sequence) part(line int, id string) (int, error) {
 func (s *Sequence) track(line int, ev *SeqEvent) error {
 	switch {
 	case ev.Kind == evActivate:
+		if s.active[ev.A] >= maxActive {
+			return errf(line, "too many nested activations")
+		}
 		s.active[ev.A]++
 	case ev.Kind == evDeactivate:
 		if s.active[ev.A] == 0 {
@@ -304,6 +311,9 @@ func (s *Sequence) track(line int, ev *SeqEvent) error {
 		s.active[ev.A]--
 	case ev.Kind == evMsg:
 		if ev.Activate {
+			if s.active[ev.B] >= maxActive {
+				return errf(line, "too many nested activations")
+			}
 			s.active[ev.B]++
 		}
 		if ev.Deactivate {
