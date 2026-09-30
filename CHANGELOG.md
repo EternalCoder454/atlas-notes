@@ -21,6 +21,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a quote with `> `; Enter on an empty item ends it. Undo and redo step over
   the drawing of bullets, and the caret stays out of a task's hidden
   metadata, so a new line never takes its due date with it.
+- **Obsidian's Markdown reads as it should.** Callouts (`> [!note] Title`,
+  and tip, info, warning, danger, success, question, quote, example, todo)
+  are tinted cards with an icon, folded with `-` and unfolded with `+`, and
+  open or close with a click without touching the file. `==highlights==` are
+  highlighted and footnotes set small. `![[Note]]` and `![[Note#Heading]]`
+  show that note or section in a bordered block, kept current when it
+  changes; a protected note shows as such rather than its text. Code blocks
+  carry their language and a copy button. Headings fold from a chevron in
+  the margin, and a fold opens by itself when the caret, a find or a
+  selection reaches into it.
+- **A command box on Ctrl+P.** One field for notes, commands (each with its
+  shortcut), settings and tags; `>` narrows to commands, `#` to tags, and `?`
+  asks the assistant. Ctrl+K and Ctrl+Shift+F still search the vault.
+- **A `/` menu in the editor.** At the start of a line or after a space, `/`
+  offers headings, lists, a task, a quote, a callout, a table, a code block, a
+  divider, an image and a link, and the assistant's Summarise, Continue
+  writing and Make a checklist. It stays out of code and of paths like
+  `a/b`.
+- **Mentioned, not linked.** Under a note, *Mentioned in* lists notes that
+  name it without linking to it, each with a Link button that turns the
+  first plain mention into a link. It leaves code, links, front matter and
+  tables' cells alone, keeps a version of the note it changes, and does
+  nothing to a note that already links.
+- **A Tasks page** (Ctrl+J, or Tasks under Home): every open task in the
+  vault, grouped Overdue, Today, This week, Later and No date, with its note,
+  priority and date. Ticking one completes it in its file.
 - **Find and replace in the open note.** Ctrl+F opens a find bar with a match
   count, previous and next, Match case, and a replace row (Ctrl+R) with Replace
   and Replace All; one undo reverts a Replace All. Matching is literal, by
@@ -99,6 +125,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   True translucency rather than a blur: the frame and the page let the desktop
   through, text stays solid, and dialogs follow. Only where the desktop
   composites, and not on Windows; elsewhere the setting says why.
+- **Task dates and priorities are written as Obsidian's Tasks plugin writes
+  them**, `⏫ 📅 2026-10-01` after the text, so they read cleanly in Obsidian
+  and anywhere else; the old `<!-- due:... -->` comment is still read, and a
+  line is only rewritten when its date or priority is changed here. 🔺 and ⏬
+  read as high and low. Due dates line up: every task keeps the date's
+  room, so text starts at the same place with or without one.
 - **Notes are plain Markdown files by default.** The format is a setting of the
   vault (`.atlas-vault.json`, so every synced device agrees): plain `.md`,
   Zstandard `.md.zst`, Gzip `.md.gz` or XZ `.md.xz`. Every form is read whatever
