@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It now points at the folder shown on the home screen.
 
 ### Changed
+- **CI runs the tests.** A Tests workflow runs `go vet` and `go test` on every
+  push to beta and every pull request, in a Fedora 44 container (Ubuntu's GTK
+  is too old); about a minute when its cache is warm. Every job has a time
+  limit, and a push that only changes documentation builds nothing.
 - **Typing is about seven times faster**: 0.014 ms a keystroke where 0.8.1
   took 0.102 (bench.sh, 10,000-note vault). An edit that stays inside one
   plain line no longer re-reads the whole note for its blocks, headings and
