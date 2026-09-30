@@ -52,17 +52,12 @@ func (a *App) buildWindow() {
 		a.win.SetIconName(appIconName) // what the title bar shows where it asks for one
 	}
 
-	a.leftToggle = gtk.NewToggleButton()
-	a.leftToggle.SetIconName("atlasnotes-panel-left-symbolic")
-	a.leftToggle.SetActive(true)
-	a.leftToggle.SetTooltipText("Show or hide the vault (F9)")
-	header.PackStart(a.leftToggle)
+	// The start of the title bar is the app's name, as a Windows 11 title bar
+	// has it; a desktop that draws the window's icon puts it just before. The
+	// buttons are grouped at the end: the two panel toggles side by side, then
+	// New note, then the menu. The vault's toggle used to sit before the name,
+	// which on KDE left it wedged between the window's icon and the name.
 	header.PackStart(brandBox())
-
-	newBtn := gtk.NewButtonFromIconName("atlasnotes-note-new-symbolic")
-	newBtn.SetTooltipText("New note (Ctrl+N)")
-	newBtn.ConnectClicked(a.actionNewNote)
-	header.PackStart(newBtn)
 
 	menuBtn := gtk.NewMenuButton()
 	menuBtn.SetIconName("atlasnotes-menu-symbolic")
@@ -75,6 +70,11 @@ func (a *App) buildWindow() {
 	// it, rather than a gear up here. With the panel hidden it is still in the
 	// menu and on Ctrl+,.
 
+	newBtn := gtk.NewButtonFromIconName("atlasnotes-note-new-symbolic")
+	newBtn.SetTooltipText("New note (Ctrl+N)")
+	newBtn.ConnectClicked(a.actionNewNote)
+	header.PackEnd(newBtn)
+
 	a.rightToggle = gtk.NewToggleButton()
 	// The assistant's own mark rather than a second sidebar arrow: the button
 	// toggles the assistant, and the panel it opens carries the same shape.
@@ -82,6 +82,12 @@ func (a *App) buildWindow() {
 	a.rightToggle.SetActive(true)
 	a.rightToggle.SetTooltipText("Show or hide the assistant (F10)")
 	header.PackEnd(a.rightToggle)
+
+	a.leftToggle = gtk.NewToggleButton()
+	a.leftToggle.SetIconName("atlasnotes-panel-left-symbolic")
+	a.leftToggle.SetActive(true)
+	a.leftToggle.SetTooltipText("Show or hide the vault (F9)")
+	header.PackEnd(a.leftToggle)
 
 	// Left panel: Home at the top, the vault browser, and Settings at the
 	// foot, as a Windows 11 app lays out its navigation.
