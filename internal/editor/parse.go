@@ -67,13 +67,9 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		if shown {
 			return
 		}
-		// Markers are normally hidden outright. GTK's invisible-text support
-		// is documented as incomplete, and hit-testing a line that carries it
-		// converts a layout byte offset back to a buffer position — the call
-		// that has been aborting this app with "byte index off the end of the
-		// line" while selecting text. ATLAS_NO_HIDE dims the markers instead
-		// of hiding them, which keeps the buffer's visible length equal to its
-		// real length and takes that machinery out of the picture.
+		// Markers are hidden by shrinking them to nothing (the "invisible" tag,
+		// which is not GTK's invisible text; see createTags). ATLAS_NO_HIDE dims
+		// them instead, for seeing what the editor hides.
 		if hideMarkers {
 			add("invisible", s, e)
 			return
@@ -132,7 +128,11 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		return charSpans(line, spans)
 	case strings.HasPrefix(line, "> "):
 		add("quote", 0, n)
-		hide(0, 2, inPrefix(2))
+		// The ">" stays, dimmed, as the quote's bar: hidden, a quote would be
+		// only grey italics with nothing to say it is a quote.
+		if !inPrefix(2) {
+			dim(0, 1)
+		}
 		body = 2
 	default:
 		if m := bulletPrefix(line); m > 0 {

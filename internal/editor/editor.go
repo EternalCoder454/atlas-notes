@@ -169,6 +169,24 @@ func New() *Editor {
 			e.OnChanged()
 		}
 	})
+	// Enter at the end of a task line keeps the task's hidden metadata (its
+	// priority and due date, in a trailing comment) on the task. The caret is
+	// kept in front of the comment (snapToMetadata), so the newline would
+	// otherwise split it off onto the new line, where it belongs to nothing.
+	enter := gtk.NewEventControllerKey()
+	enter.SetPropagationPhase(gtk.PhaseCapture)
+	enter.ConnectKeyPressed(func(keyval, _ uint, state gdk.ModifierType) bool {
+		if keyval != gdk.KEY_Return && keyval != gdk.KEY_KP_Enter {
+			return false
+		}
+		if state&(gdk.ShiftMask|gdk.ControlMask|gdk.AltMask) != 0 || e.buffer.HasSelection() {
+			return false
+		}
+		e.enterPastMetadata()
+		return false // the view inserts the newline, wherever the caret now is
+	})
+	e.view.AddController(enter)
+
 	e.installItemMenu()
 	e.installLinks()
 	e.installComplete()
@@ -917,4 +935,35 @@ func (e *Editor) runHeld() {
 	if f := finders[e]; f != nil {
 		f.resume()
 	}
+}
+
+// enterPastMetadata moves the caret past a task line's trailing metadata when
+// it sits at the end of the task's text, so a newline typed there goes after
+// the comment. It moves under the snapping guard, or snapToMetadata would put
+// the caret straight back in front of the comment.
+func (e *Editor) enterPastMetadata() {
+	ins := e.buffer.IterAtMark(e.buffer.GetInsert())
+	if ins == nil {
+		return
+	}
+	line, col := ins.Line(), ins.LineOffset()
+	text, ok := e.lineText(line)
+	if !ok || !strings.Contains(text, "<!--") {
+		return
+	}
+	stop := snapCaret(text, utf8.RuneCountInString(text))
+	if stop == utf8.RuneCountInString(text) || col != stop {
+		return // no trailing metadata, or the caret is mid-text
+	}
+	end, ok := e.lineCharLen(line)
+	if !ok {
+		return
+	}
+	at, ok := e.buffer.IterAtLineOffset(line, end)
+	if !ok {
+		return
+	}
+	e.snapping = true
+	e.buffer.PlaceCursor(at)
+	e.snapping = false
 }

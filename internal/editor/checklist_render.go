@@ -70,6 +70,9 @@ func (e *Editor) renderChecklists(from, to, excludeLine int) {
 		if ln == excludeLine {
 			continue // leave the line being edited as raw markdown
 		}
+		if ln < len(e.fence) && e.fence[ln] {
+			continue // "- [ ] " in a code block is code, not a task
+		}
 		line, ok := e.lineText(ln)
 		if !ok || line == "" {
 			continue
