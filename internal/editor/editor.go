@@ -107,6 +107,9 @@ type Editor struct {
 	// rich is the state of the quotes, callouts, code blocks and folds (see
 	// render.go).
 	rich richState
+	// forceReparse lets the next render pass run with text selected (see
+	// unfoldAtCaret).
+	forceReparse bool
 	// emb is the state of the embedded notes (see embeds.go).
 	emb embedState
 
@@ -225,6 +228,10 @@ func New() *Editor {
 	e.installRender()
 
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
+		if mark.Name() == "selection_bound" {
+			e.unfoldAtCaret() // a selection's far end may be in folded text
+			return
+		}
 		if mark.Name() != "insert" {
 			return
 		}
@@ -485,7 +492,9 @@ func (e *Editor) reparse() {
 	// held for it then runs 50 ms later, in the middle of the drag, before a
 	// new selection exists to hold it back. The button being down is what a
 	// drag is, so that is what is checked.
-	if e.handsBusy() {
+	force := e.forceReparse
+	e.forceReparse = false
+	if !force && e.handsBusy() {
 		e.reparseDeferred = true
 		e.whenHandsFree()
 		return
@@ -561,7 +570,9 @@ func (e *Editor) refreshFence(from, to, lastLine int) (int, int) {
 	e.fence, e.fenceLines, e.fenceStale = cur, lastLine+1, false
 	// The same text is at hand for finding out whether a table is possible.
 	e.hasPipe = strings.IndexByte(raw, '|') >= 0
-	e.scanRich(raw)
+	if e.scanRich(raw, from, to, lastLine+1) {
+		from, to = 0, lastLine
+	}
 	if fenceChanged(old, cur, oldLines, lastLine+1, to) {
 		to = lastLine
 	}

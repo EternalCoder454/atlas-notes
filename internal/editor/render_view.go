@@ -1,8 +1,6 @@
 package editor
 
 import (
-	"strings"
-
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
@@ -54,7 +52,7 @@ type deco struct {
 	class        string
 	icon, chevro *gtk.Image
 	title, lang  *gtk.Label
-	wide         int
+	dressed      bool // blk and reveal are what the widgets were last dressed with
 }
 
 func (d *deco) setVisible(v bool) {
@@ -104,7 +102,7 @@ func (e *Editor) takeDeco(k blockKind, n int) *deco {
 		// The press is claimed, so the view does not also put the caret in the title
 		// (which would show its markers) for the click that folded the callout.
 		click.ConnectPressed(func(_ int, _, _ float64) { click.SetState(gtk.EventSequenceClaimed) })
-		click.ConnectReleased(func(_ int, _, _ float64) { e.toggleCallout(d.blk.key) })
+		click.ConnectReleased(func(_ int, _, _ float64) { e.toggleCallout(d.blk.first) })
 		head.AddController(click)
 		d.head.w = head
 	case kindCode:
@@ -118,7 +116,7 @@ func (e *Editor) takeDeco(k blockKind, n int) *deco {
 		btn.AddCSSClass("atlas-code-copy")
 		btn.SetFocusOnClick(false)
 		btn.SetTooltipText("Copy code")
-		btn.ConnectClicked(func() { e.copyBlockText(d.blk) })
+		btn.ConnectClicked(func() { e.copyBlockText(d.blk.first) })
 		box.Append(d.lang)
 		box.Append(btn)
 		d.main.w = box
@@ -158,7 +156,13 @@ func (d *deco) dress() {
 		// its header lets clicks through to the text.
 		gtk.BaseWidget(d.head.w).SetCanTarget(!d.reveal)
 	case kindCode:
-		d.lang.SetText(b.lang)
+		// A long language name is cut short, so it cannot push the copy button out
+		// of the block.
+		lang := []rune(b.lang)
+		if len(lang) > 16 {
+			lang = append(lang[:15], '…')
+		}
+		d.lang.SetText(string(lang))
 	}
 }
 
@@ -172,10 +176,14 @@ func (e *Editor) syncRich(revealLine int) {
 		b := s.blocks[i]
 		d := e.takeDeco(b.kind, used[b.kind])
 		used[b.kind]++
-		d.blk = b
-		d.reveal = revealed(&b, revealLine)
+		reveal := revealed(&b, revealLine)
 		d.hidden = s.hiddenAt(b.first)
-		d.dress()
+		// The widgets are dressed again only when what they show has changed, not
+		// on every pass: setting an icon or a label is a call into GTK each.
+		if !d.dressed || d.blk != b || d.reveal != reveal {
+			d.blk, d.reveal, d.dressed = b, reveal, true
+			d.dress()
+		}
 		s.active = append(s.active, d)
 	}
 	for k, list := range s.decos {
@@ -184,6 +192,7 @@ func (e *Editor) syncRich(revealLine int) {
 		}
 	}
 	e.queuePlace()
+	e.refreshChevron()
 }
 
 func (e *Editor) putPart(p *part, x, y, w, h int) {
@@ -215,9 +224,26 @@ func (e *Editor) placeDecor() (unsettled bool) {
 	if width <= 0 {
 		return true
 	}
+	// Only blocks near the viewport are put in place: laying out a long note's
+	// every callout on each pass is work for widgets nobody is looking at. A
+	// scroll places the ones that have come near (see installRender).
+	adj := e.scroll.VAdjustment()
+	vTop := int(adj.Value())
+	vEnd := vTop + int(adj.PageSize())
+	near := 800
+	l0, l1 := 0, e.buffer.LineCount()
+	if it, _ := e.view.IterAtLocation(0, max(vTop-near, 0)); it != nil {
+		l0 = it.Line()
+	}
+	if it, _ := e.view.IterAtLocation(0, vEnd+near); it != nil {
+		l1 = it.Line()
+	}
 	for _, d := range s.active {
 		if d.hidden || (d.kind == kindCode && d.reveal) {
 			d.setVisible(false)
+			continue
+		}
+		if d.blk.last < l0 || d.blk.first > l1 {
 			continue
 		}
 		fi, ok1 := e.buffer.IterAtLine(d.blk.first)
@@ -251,8 +277,15 @@ func (e *Editor) placeDecor() (unsettled bool) {
 	return unsettled
 }
 
-// copyBlockText puts a code block's text, without its fences, on the clipboard.
-func (e *Editor) copyBlockText(b richBlock) {
+// copyBlockText puts the text of the code block that starts at line first, without
+// its fences, on the clipboard. The block is found again as it is now: the note
+// may have been edited since the button was drawn. The buffer's text is used, not
+// its slice, so a checkbox's placeholder character cannot come along.
+func (e *Editor) copyBlockText(first int) {
+	b := e.rich.blockAt(first)
+	if b == nil || b.kind != kindCode {
+		return
+	}
 	last := b.last
 	if b.closed {
 		last--
@@ -268,7 +301,7 @@ func (e *Editor) copyBlockText(b richBlock) {
 	if !end.EndsLine() {
 		end.ForwardToLineEnd()
 	}
-	e.view.Clipboard().SetText(e.buffer.Slice(start, end, true))
+	e.view.Clipboard().SetText(e.buffer.Text(start, end, false))
 }
 
 // ---- The heading chevron ---------------------------------------------------
@@ -293,6 +326,17 @@ func (c *chevron) hide() {
 // over a heading, and the caret landing in folded text.
 func (e *Editor) installRender() {
 	s := &e.rich
+	e.scroll.VAdjustment().NotifyProperty("value", func() {
+		if len(s.active) == 0 || s.decoQueued {
+			return
+		}
+		s.decoQueued = true
+		coreglib.IdleAdd(func() bool {
+			s.decoQueued = false
+			e.placeDecor()
+			return false
+		})
+	})
 	c := &chevron{line: -1}
 	s.chev = c
 	c.btn = gtk.NewButton()
@@ -324,7 +368,7 @@ func (e *Editor) installRender() {
 		if iter == nil {
 			return
 		}
-		e.hoverHeading(iter.Line())
+		e.hoverHeading(iter.Line(), false)
 	})
 	m.ConnectLeave(func() {
 		c.inView = false
@@ -335,9 +379,9 @@ func (e *Editor) installRender() {
 
 // hoverHeading shows the chevron beside line when it is a heading, and takes it
 // away when it is not.
-func (e *Editor) hoverHeading(line int) {
+func (e *Editor) hoverHeading(line int, force bool) {
 	c := e.rich.chev
-	if c.line == line || c.over {
+	if !force && (c.line == line || c.over) {
 		return
 	}
 	text, ok := e.lineText(line)
@@ -360,6 +404,14 @@ func (e *Editor) hoverHeading(line int) {
 	e.putPart(&c.part, 0, top+max(h-22, 0), 18, 22)
 }
 
+// refreshChevron draws the chevron again for the heading it is beside, after a
+// fold has changed its direction or the lines have moved.
+func (e *Editor) refreshChevron() {
+	if c := e.rich.chev; c != nil && c.line >= 0 {
+		e.hoverHeading(c.line, true)
+	}
+}
+
 // leaveHeading takes the chevron away a moment after the pointer has left both
 // the text and the button. The pointer crosses from one to the other, and the
 // button must not vanish under it on the way.
@@ -372,9 +424,6 @@ func (e *Editor) leaveHeading() {
 		return false
 	})
 }
-
-// headingKey is the text that identifies a heading for folding.
-func headingKey(line string) string { return strings.TrimSpace(line) }
 
 // hideFoldedRows keeps the checklist rows of folded lines out of sight: a row is
 // a widget in the text, which shrinking the line's text does nothing to.

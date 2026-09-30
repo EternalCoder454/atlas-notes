@@ -1,9 +1,13 @@
 package editor
 
 import (
+	"reflect"
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
 
 // This file draws the block constructs Obsidian notes lean on: quotes, callouts,
@@ -43,8 +47,7 @@ type richBlock struct {
 	titleOff int
 	lang     string
 	closed   bool
-	key      string // the first line's text, which is what remembers a fold
-	folded   bool   // a callout that is drawn folded
+	folded   bool // a callout that is drawn folded
 }
 
 // calloutHead reads "> [!type]- Title". It returns the type (lower-cased), the
@@ -176,7 +179,7 @@ func scanBlocks(lines []string, fence []bool) []richBlock {
 			for j+1 < len(lines) && strings.HasPrefix(lines[j+1], ">") && !inFence(fence, j+1) {
 				j++
 			}
-			b := richBlock{kind: kindQuote, first: i, last: j, key: lines[i]}
+			b := richBlock{kind: kindQuote, first: i, last: j}
 			if typ, fold, off, ok := calloutHead(lines[i]); ok {
 				b.kind, b.typ, b.fold, b.titleOff = kindCallout, typ, fold, off
 				b.title = strings.TrimSpace(lines[i][off:])
@@ -204,13 +207,13 @@ func headingLevel(line string) int {
 
 // scanFolds finds the lines a note's folded headings hide: everything under a
 // folded heading up to the next heading of the same or a higher level. folded is
-// the set of headings that are folded, by their text. It returns the hidden
+// the set of headings that are folded, by line. It returns the hidden
 // ranges (both ends included, in order, none inside another) and the folded
 // headings' own lines.
-func scanFolds(lines []string, fence []bool, folded map[string]bool) (hides [][2]int, heads map[int]bool) {
+func scanFolds(lines []string, fence []bool, folded map[int]bool) (hides [][2]int, heads map[int]bool) {
 	for i := 0; i < len(lines); {
 		lvl := headingLevel(lines[i])
-		if lvl == 0 || inFence(fence, i) || !folded[strings.TrimSpace(lines[i])] {
+		if lvl == 0 || inFence(fence, i) || !folded[i] {
 			i++
 			continue
 		}
@@ -254,41 +257,149 @@ type richState struct {
 	blocks []richBlock
 	hides  [][2]int
 	heads  map[int]bool
-	// calloutFlip holds the callouts the person has clicked, by first line: each
-	// is drawn the opposite of how its "+" or "-" says. headFolded holds the folded
-	// headings, by their text.
-	calloutFlip map[string]bool
-	headFolded  map[string]bool
-	decos       [3][]*deco
-	active      []*deco
-	chev        *chevron
-	rowsHidden  bool
-	unsettled   bool
+	// flipMarks holds the callouts the person has clicked, each drawn the opposite
+	// of how its "+" or "-" says, and headMarks the folded headings. They are text
+	// marks at the start of the line, so that a fold follows its block through
+	// edits (retyping a title does not undo it, and two blocks with the same text
+	// fold on their own).
+	flipMarks  []*gtk.TextMark
+	headMarks  []*gtk.TextMark
+	decos      [3][]*deco
+	active     []*deco
+	chev       *chevron
+	rowsHidden bool
+	// scanned says blocks was worked out for a note of scanLines lines, and force
+	// that the next scan must run whatever the edit was (a fold changed).
+	scanned    bool
+	scanLines  int
+	force      bool
+	decoQueued bool
+}
+
+// markLines is the set of lines a list of marks is on. Marks whose text was
+// deleted are dropped from the list.
+func (e *Editor) markLines(list *[]*gtk.TextMark) map[int]bool {
+	var out map[int]bool
+	kept := (*list)[:0]
+	for _, m := range *list {
+		l := e.markLine(m)
+		if l < 0 {
+			continue
+		}
+		kept = append(kept, m)
+		if out == nil {
+			out = map[int]bool{}
+		}
+		out[l] = true
+	}
+	*list = kept
+	return out
+}
+
+// setMark puts a mark on line (mode 1), takes it off (0) or flips it (-1).
+func (e *Editor) setMark(list *[]*gtk.TextMark, line, mode int) {
+	found := false
+	kept := (*list)[:0]
+	for _, m := range *list {
+		l := e.markLine(m)
+		if l < 0 {
+			continue
+		}
+		if l == line {
+			found = true
+			if mode != 1 {
+				e.buffer.DeleteMark(m)
+				continue
+			}
+		}
+		kept = append(kept, m)
+	}
+	*list = kept
+	if !found && mode != 0 {
+		if it, ok := e.buffer.IterAtLine(line); ok {
+			// Left gravity keeps the mark in front of anything typed at the start of
+			// the line, so it stays on this line.
+			*list = append(*list, e.buffer.CreateMark("", it, true))
+		}
+	}
+}
+
+// editTouchesRich reports whether an edit to lines from to to of raw could change
+// what scanRich finds: it is next to a block or a fold that was found, or one of
+// the lines now starts like a quote, a heading or a fence. Typing in a paragraph
+// is none of these, and then nothing needs scanning. It walks the text for the
+// lines without splitting it.
+func (s *richState) editTouchesRich(raw string, from, to int) bool {
+	for _, b := range s.blocks {
+		if b.last >= from-1 && b.first <= to+1 {
+			return true
+		}
+	}
+	for _, h := range s.hides {
+		if h[1] >= from-1 && h[0] <= to+2 {
+			return true
+		}
+	}
+	if to-from > 200 {
+		return true
+	}
+	pos := 0
+	for i := 0; i < from; i++ {
+		j := strings.IndexByte(raw[pos:], '\n')
+		if j < 0 {
+			return true
+		}
+		pos += j + 1
+	}
+	for i := from; i <= to && pos <= len(raw); i++ {
+		end := len(raw)
+		if j := strings.IndexByte(raw[pos:], '\n'); j >= 0 {
+			end = pos + j
+		}
+		l := raw[pos:end]
+		if strings.HasPrefix(l, ">") || strings.HasPrefix(l, "#") || isFenceLine(l) {
+			return true
+		}
+		pos = end + 1
+	}
+	return false
 }
 
 // scanRich works out the note's blocks and folded ranges again, from the text of
-// the whole note. It runs when the text has changed (see refreshFence, which has
-// the text at hand) or when a fold has. A note with no ">" at the start of a line,
-// no fence and no fold has nothing to find, and knowing that costs a few
-// substring searches.
-func (e *Editor) scanRich(raw string) {
+// the whole note, and reports whether the folded ranges moved. It runs when the
+// text has changed (see refreshFence, which has the text at hand) or when a fold
+// has. An edit inside a paragraph, which is nearly every edit, leaves the blocks
+// where they were and costs a walk over a few lines. A note with no ">" at the
+// start of a line, no fence and no fold has nothing to find.
+func (e *Editor) scanRich(raw string, from, to, lines int) (hidesMoved bool) {
 	s := &e.rich
-	s.blocks, s.hides, s.heads = nil, nil, nil
+	force := s.force
+	s.force = false
 	quotes := strings.HasPrefix(raw, ">") || strings.Contains(raw, "\n>")
-	if !quotes && e.fence == nil && len(s.headFolded) == 0 {
-		return
+	if !quotes && e.fence == nil && len(s.headMarks) == 0 {
+		hidesMoved = len(s.hides) > 0
+		s.blocks, s.hides, s.heads, s.scanned = nil, nil, nil, false
+		return hidesMoved
 	}
-	lines := strings.Split(raw, "\n")
-	s.blocks = scanBlocks(lines, e.fence)
+	if !force && s.scanned && lines == s.scanLines && !s.editTouchesRich(raw, from, to) {
+		return false
+	}
+	oldHides, oldHeads := s.hides, s.heads
+	s.blocks, s.hides, s.heads = nil, nil, nil
+	s.scanned, s.scanLines = true, lines
+	split := strings.Split(raw, "\n")
+	s.blocks = scanBlocks(split, e.fence)
+	flip := e.markLines(&s.flipMarks)
 	for i := range s.blocks {
 		b := &s.blocks[i]
 		if b.kind == kindCallout {
-			b.folded = (b.fold == '-') != s.calloutFlip[b.key]
+			b.folded = (b.fold == '-') != flip[b.first]
 		}
 	}
-	if len(s.headFolded) > 0 {
-		s.hides, s.heads = scanFolds(lines, e.fence, s.headFolded)
+	if len(s.headMarks) > 0 {
+		s.hides, s.heads = scanFolds(split, e.fence, e.markLines(&s.headMarks))
 	}
+	return !reflect.DeepEqual(oldHides, s.hides) || !reflect.DeepEqual(oldHeads, s.heads)
 }
 
 // blockAt is the block that line n is in, or nil.
@@ -322,14 +433,9 @@ func (s *richState) foldedAt(n int) bool {
 
 // widenForRich widens the lines a pass covers to whole blocks: a callout is drawn
 // as one card, so a pass that touches a line of it retags all of it, and the
-// caret entering or leaving a code block shows or hides its fences. With a
-// heading folded, every pass covers the whole note; a fold is rare and the note's
-// structure may have changed under it.
+// caret entering or leaving a code block shows or hides its fences.
 func (e *Editor) widenForRich(from, to, lastLine int) (int, int) {
 	s := &e.rich
-	if len(s.hides) > 0 {
-		return 0, lastLine
-	}
 	for changed := true; changed; {
 		changed = false
 		for _, b := range s.blocks {
@@ -352,7 +458,13 @@ func (e *Editor) widenForRich(from, to, lastLine int) (int, int) {
 func (e *Editor) clearRich() {
 	s := &e.rich
 	s.blocks, s.hides, s.heads = nil, nil, nil
-	s.calloutFlip, s.headFolded = nil, nil
+	s.scanned = false
+	for _, m := range append(s.flipMarks, s.headMarks...) {
+		if !m.Deleted() {
+			e.buffer.DeleteMark(m)
+		}
+	}
+	s.flipMarks, s.headMarks = nil, nil
 	s.active = s.active[:0]
 	for k := range s.decos {
 		for _, d := range s.decos[k] {
@@ -366,37 +478,46 @@ func (e *Editor) clearRich() {
 
 // ---- Tags ------------------------------------------------------------------
 
-// createRichTags defines the tags this file's blocks use.
-func (e *Editor) createRichTags() {
-	e.newTag("highlight", map[string]any{"background": "rgba(255,208,0,0.38)"})
-	e.newTag("footref", map[string]any{"scale": 0.72, "rise": 5000, "foreground": "#62a0ea"})
-	e.newTag("footdef", map[string]any{"scale": 0.9, "foreground": "#9a9a9a"})
+// richTagDefs are the tags this file's blocks use, in the order they are made:
+// a later tag wins over an earlier one where both set a property.
+var richTagDefs = []struct {
+	name  string
+	props map[string]any
+}{
+	// Text tags take a colour, not a CSS name. The yellow is an alpha, so it is a
+	// soft mark on a light page and on a dark one alike; the footnote reference
+	// takes the theme's accent (see SetLinkColor).
+	{"highlight", map[string]any{"background": "rgba(255,208,0,0.30)"}},
+	{"footref", map[string]any{"scale": 0.72, "rise": 5000, "foreground": linkColor}},
+	{"footdef", map[string]any{"scale": 0.9, "foreground": "#9a9a9a"}},
 	// A callout's lines sit inside its card: room on the left for the icon.
-	e.newTag("callout", map[string]any{"left-margin": calloutIndent, "right-margin": 28, "pixels-below-lines": 2})
-	e.newTag("calloutfirst", map[string]any{"pixels-above-lines": 12})
-	e.newTag("calloutlast", map[string]any{"pixels-below-lines": 12})
+	{"callout", map[string]any{"left-margin": calloutIndent, "right-margin": 28, "pixels-below-lines": 2}},
+	{"calloutfirst", map[string]any{"pixels-above-lines": 12}},
+	{"calloutlast", map[string]any{"pixels-below-lines": 12}},
 	// A title that is only the type's name has no text to hold the header open, so
 	// the line is given the height of the header the type's name is drawn in.
-	e.newTag("calloutbare", map[string]any{"pixels-below-lines": 16})
-	e.newTag("callouttitle", map[string]any{"weight": 700})
-	// A code block's fences shrink away, and the opening one leaves a band for the
-	// language label and the copy button.
-	e.newTag("fencetop", map[string]any{
-		"family": "monospace", "scale": 0.94, "pixels-below-lines": 22,
-		"paragraph-background": "rgba(128,128,128,0.14)",
-	})
-	e.newTag("fenceend", map[string]any{
-		"family": "monospace", "scale": 0.94, "pixels-above-lines": 4,
-		"paragraph-background": "rgba(128,128,128,0.14)",
-	})
+	{"calloutbare", map[string]any{"pixels-below-lines": 16}},
+	{"callouttitle", map[string]any{"weight": 700}},
+	// A code block's fences shrink away (they are tagged "invisible" too, and these
+	// must not set a size, or as later tags they would win it back), and the
+	// opening one leaves a band above the code for the label and the copy button.
+	{"fencetop", map[string]any{"pixels-below-lines": 22, "paragraph-background": "rgba(128,128,128,0.14)"}},
+	{"fenceend", map[string]any{"pixels-above-lines": 4, "paragraph-background": "rgba(128,128,128,0.14)"}},
 	// Folded lines shrink to nothing, spacing included. Not GTK's invisible; see
 	// createTags.
-	e.newTag("folded", map[string]any{
+	{"folded", map[string]any{
 		"scale": 0.001, "foreground": "rgba(0,0,0,0)",
 		"pixels-above-lines": 0, "pixels-below-lines": 0, "pixels-inside-wrap": 0,
 		"left-margin": 0, "indent": 0,
-	})
-	e.newTag("foldhead", map[string]any{"foreground": "#9a9a9a"})
+	}},
+	{"foldhead", map[string]any{"foreground": "#9a9a9a"}},
+}
+
+// createRichTags defines the tags this file's blocks use.
+func (e *Editor) createRichTags() {
+	for _, d := range richTagDefs {
+		e.newTag(d.name, d.props)
+	}
 }
 
 // markerTag is the tag that takes a marker out of sight.
@@ -475,6 +596,7 @@ func (e *Editor) tagLineFrom(lineNum int, line string, off, at int, key *caretKe
 // foldChanged draws again after a fold was made or undone. The text has not
 // changed, but the blocks are worked out from it again and every line is retagged.
 func (e *Editor) foldChanged() {
+	e.rich.force = true
 	e.fenceStale = true
 	e.markAllDirty()
 	e.scheduleReparse()
@@ -486,56 +608,60 @@ func (e *Editor) toggleHeading(line int) {
 	if !ok || headingLevel(text) == 0 {
 		return
 	}
-	s := &e.rich
-	key := strings.TrimSpace(text)
-	if s.headFolded[key] {
-		delete(s.headFolded, key)
-	} else {
-		if s.headFolded == nil {
-			s.headFolded = map[string]bool{}
-		}
-		s.headFolded[key] = true
-	}
+	e.setMark(&e.rich.headMarks, line, -1)
 	e.foldChanged()
 }
 
-// toggleCallout folds or unfolds a callout.
-func (e *Editor) toggleCallout(key string) {
-	s := &e.rich
-	if s.calloutFlip == nil {
-		s.calloutFlip = map[string]bool{}
-	}
-	if s.calloutFlip[key] {
-		delete(s.calloutFlip, key)
-	} else {
-		s.calloutFlip[key] = true
-	}
+// toggleCallout folds or unfolds the callout whose first line is line.
+func (e *Editor) toggleCallout(line int) {
+	e.setMark(&e.rich.flipMarks, line, -1)
 	e.foldChanged()
 }
 
-// unfoldAtCaret opens whatever fold the caret has landed in. Text nobody can see
-// is no place for a caret: it is where find leaves it on a match, or where an
-// arrow key takes it.
+// unfoldAtCaret opens whatever fold the caret, or a selection, has reached. Text
+// nobody can see is no place for a caret: it is where find leaves it on a match,
+// or where an arrow key takes it. And a selection that runs across a fold, with
+// its ends on lines that are showing, would delete what was never seen with the
+// next key. The insert mark and the selection's other end are both looked at.
 func (e *Editor) unfoldAtCaret() {
 	s := &e.rich
 	if e.loading || (len(s.hides) == 0 && len(s.blocks) == 0) {
 		return
 	}
 	ins := e.buffer.IterAtMark(e.buffer.GetInsert())
+	bound := e.buffer.IterAtMark(e.buffer.SelectionBound())
 	if ins == nil {
 		return
 	}
-	line := ins.Line()
+	lo, hi := ins.Line(), ins.Line()
+	if bound != nil {
+		lo, hi = min(lo, bound.Line()), max(hi, bound.Line())
+	}
+	changed := false
 	for _, h := range s.hides {
-		if line >= h[0] && line <= h[1] {
-			if text, ok := e.lineText(h[0] - 1); ok {
-				delete(s.headFolded, strings.TrimSpace(text))
-				e.foldChanged()
-			}
-			return
+		if h[1] >= lo && h[0] <= hi {
+			e.setMark(&s.headMarks, h[0]-1, 0)
+			changed = true
 		}
 	}
-	if b := s.blockAt(line); b != nil && b.kind == kindCallout && b.folded && line > b.first {
-		e.toggleCallout(b.key)
+	for _, b := range s.blocks {
+		if b.kind == kindCallout && b.folded && b.last >= lo && b.first+1 <= hi {
+			e.setMark(&s.flipMarks, b.first, -1)
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	e.foldChanged()
+	// A selection holds the render pass back (see reparse), and the next key could
+	// delete what it covers. Once the button is up the fold is opened at once; while
+	// a drag is on, the pass runs when it ends, which is before any key can.
+	if e.buffer.HasSelection() && !e.buttonDown() {
+		coreglib.IdleAdd(func() bool {
+			e.forceReparse = true
+			e.reparse()
+			return false
+		})
 	}
 }

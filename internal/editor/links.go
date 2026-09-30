@@ -40,7 +40,7 @@ const (
 // such as "#88c0d0": a theme's accent. Text tags take a colour, not a CSS
 // name, so a theme reaches them through here rather than the stylesheet.
 func (e *Editor) SetLinkColor(color string) {
-	for _, name := range []string{tagWikiLink, tagHashtag, tagURL} {
+	for _, name := range []string{tagWikiLink, tagHashtag, tagURL, "footref"} {
 		if tag := e.tags[name]; tag != nil {
 			tag.SetObjectProperty("foreground", color)
 		}

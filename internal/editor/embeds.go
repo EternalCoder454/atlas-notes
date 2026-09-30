@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"errors"
+	"html"
 	"reflect"
 	"strings"
 	"unicode/utf8"
@@ -24,7 +26,63 @@ const (
 	// maxEmbedLines and maxEmbedChars cap what an embed shows.
 	maxEmbedLines = 30
 	maxEmbedChars = 3000
+	// maxEmbedLine caps one line of an embedded note, and maxEmbedBytes the text
+	// taken from it, so that a note that is one enormous line costs nothing to draw.
+	maxEmbedLine  = 1000
+	maxEmbedBytes = 64 << 10
 )
+
+// ErrProtected is what Editor.ReadNote returns for a note that is locked: an
+// embed must not show in one note what the other keeps sealed.
+var ErrProtected = errors.New("protected note")
+
+// clipRunes cuts s to at most n bytes, at a character boundary.
+func clipRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// embedTable draws the rows of a table as aligned text, which is all an embed
+// has room for: the delimiter row goes, and each column is padded to its widest
+// cell.
+func embedTable(rows []string) string {
+	var cells [][]string
+	var widths []int
+	for _, r := range rows {
+		if _, ok := parseDelimiter(r); ok {
+			continue
+		}
+		c := splitRow(r)
+		for i := range c {
+			c[i] = cleanText(c[i])
+			if i >= len(widths) {
+				widths = append(widths, 0)
+			}
+			widths[i] = max(widths[i], utf8.RuneCountInString(c[i]))
+		}
+		cells = append(cells, c)
+	}
+	var b strings.Builder
+	for n, c := range cells {
+		var row strings.Builder
+		for i, cell := range c {
+			row.WriteString(cell)
+			if i < len(c)-1 {
+				row.WriteString(strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)+3))
+			}
+		}
+		if n > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString("<tt>" + html.EscapeString(row.String()) + "</tt>")
+	}
+	return b.String()
+}
 
 // embedRef is what an embed line names.
 type embedRef struct {
@@ -83,7 +141,9 @@ func sectionOf(text, heading string) (string, bool) {
 func embedMarkup(text string) (out string, more bool) {
 	var b strings.Builder
 	n := 0
-	for _, l := range strings.Split(strings.TrimSpace(text), "\n") {
+	lines := strings.Split(strings.TrimSpace(clipRunes(text, maxEmbedBytes)), "\n")
+	for i := 0; i < len(lines); i++ {
+		l := clipRunes(lines[i], maxEmbedLine)
 		if strings.HasPrefix(strings.TrimSpace(l), "![[") {
 			l = strings.Replace(l, "![[", "[[", 1)
 		}
@@ -93,19 +153,38 @@ func embedMarkup(text string) (out string, more bool) {
 		if n >= maxEmbedLines || b.Len() >= maxEmbedChars {
 			return strings.TrimRight(b.String(), "\n"), true
 		}
-		if lvl := headingLevel(l); lvl > 0 {
-			b.WriteString("<b>" + cellMarkup(l[lvl+1:]) + "</b>")
-		} else if strings.HasPrefix(l, "> ") {
+		switch {
+		case isTableRow(l) && i+1 < len(lines) && isTableDelimiter(lines[i+1]):
+			// A table: the run of rows it has, as aligned text.
+			j := i
+			for j+1 < len(lines) && isTableRow(lines[j+1]) {
+				j++
+			}
+			rows := lines[i : j+1]
+			b.WriteString(embedTable(rows))
+			n += len(rows)
+			i = j
+		case headingLevel(l) > 0:
+			b.WriteString("<b>" + cellMarkup(l[headingLevel(l)+1:]) + "</b>")
+			n++
+		case strings.HasPrefix(l, "> "):
 			b.WriteString(cellMarkup(l[2:]))
-		} else if isFenceLine(l) || strings.HasPrefix(strings.TrimSpace(l), "<!--") {
+			n++
+		case isFenceLine(l) || strings.HasPrefix(strings.TrimSpace(l), "<!--"):
 			continue
-		} else {
+		default:
 			b.WriteString(cellMarkup(l))
+			n++
 		}
 		b.WriteByte('\n')
-		n++
 	}
 	return strings.TrimRight(b.String(), "\n"), false
+}
+
+// isTableDelimiter reports whether a line is a table's "|---|---|" row.
+func isTableDelimiter(line string) bool {
+	_, ok := parseDelimiter(line)
+	return ok
 }
 
 // ---- State -----------------------------------------------------------------
@@ -268,6 +347,24 @@ func (e *Editor) takeEmbedBox() *embedBox {
 	return b
 }
 
+// RefreshEmbeds reads the embedded notes again, for when the notes they show may
+// have changed (a save, a sync, a rename). The app calls it where it refreshes
+// backlinks.
+func (e *Editor) RefreshEmbeds() {
+	changed := false
+	for _, it := range e.emb.items {
+		if it.box == nil {
+			continue
+		}
+		before := it.body
+		e.dressEmbed(it)
+		changed = changed || it.body != before
+	}
+	if changed {
+		e.queuePlace()
+	}
+}
+
 // dressEmbed fills an embed's widget from the note it names.
 func (e *Editor) dressEmbed(it *embedItem) {
 	b := it.box
@@ -287,6 +384,8 @@ func (e *Editor) dressEmbed(it *embedItem) {
 	}
 	body, more := "", false
 	switch sec, ok := sectionOf(text, it.ref.heading); {
+	case errors.Is(err, ErrProtected):
+		body = "<i>Protected note</i>"
 	case err != nil || e.ReadNote == nil:
 		body = "<i>Note not found</i>"
 	case !ok:
@@ -300,8 +399,10 @@ func (e *Editor) dressEmbed(it *embedItem) {
 	if more {
 		body += "\n…"
 	}
-	it.body = body
-	b.body.SetMarkup(body)
+	if body != it.body || b.body.Text() == "" {
+		it.body = body
+		b.body.SetMarkup(body)
+	}
 }
 
 // ---- Size and position -----------------------------------------------------

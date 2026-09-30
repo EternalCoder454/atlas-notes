@@ -14,6 +14,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"atlas-notes/internal/editor"
 	"atlas-notes/internal/markup"
 	"atlas-notes/internal/storage"
 )
@@ -47,10 +48,26 @@ func (a *App) readEmbedded(target string) (string, error) {
 	notes := a.noteNames()
 	for _, t := range []string{target, strings.TrimSuffix(target, ".md")} {
 		if rel := markup.Resolve(t, notes); rel != "" {
+			// ReadNote opens a locked note whenever the key is held, which is what
+			// the open note needs and no other note is entitled to: an embed would
+			// copy a protected note's text into one that is not.
+			if a.store.IsNoteLocked(rel) || a.inLockedFolder(rel) {
+				return "", editor.ErrProtected
+			}
 			return a.store.ReadNote(rel)
 		}
 	}
 	return "", errors.New("note not found")
+}
+
+// inLockedFolder reports whether a note is in a folder that is locked.
+func (a *App) inLockedFolder(rel string) bool {
+	for dir := path.Dir(rel); dir != "." && dir != "/" && dir != ""; dir = path.Dir(dir) {
+		if a.store.IsFolderLocked(dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // bindImages points the editor's pictures at the note being opened: a
@@ -240,6 +257,9 @@ func (a *App) buildBacklinks() *gtk.Box {
 // main thread; a note opened meanwhile makes its answer stale, so it is
 // dropped.
 func (a *App) refreshBacklinks() {
+	if a.editor != nil {
+		a.editor.RefreshEmbeds() // the notes it shows may be what changed
+	}
 	if a.backlinksBar == nil || a.store == nil {
 		return
 	}

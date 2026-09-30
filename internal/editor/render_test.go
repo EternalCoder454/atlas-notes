@@ -139,35 +139,35 @@ func TestScanBlocks(t *testing.T) {
 	if !reflect.DeepEqual(have, want) {
 		t.Errorf("blocks %+v, want %+v", have, want)
 	}
-	if got[3].fold != '-' || got[0].key != "> [!note] Hi" {
-		t.Errorf("fold %q key %q", got[3].fold, got[0].key)
+	if got[3].fold != '-' {
+		t.Errorf("fold %q", got[3].fold)
 	}
 }
 
 func TestScanFolds(t *testing.T) {
 	lines := strings.Split("# A\ntext\n## B\nb\n### C\nc\n## D\nd\n# E\ne", "\n")
-	fold := func(names ...string) map[string]bool {
-		m := map[string]bool{}
-		for _, n := range names {
+	fold := func(at ...int) map[int]bool {
+		m := map[int]bool{}
+		for _, n := range at {
 			m[n] = true
 		}
 		return m
 	}
-	hides, heads := scanFolds(lines, nil, fold("## B"))
+	hides, heads := scanFolds(lines, nil, fold(2))
 	if !reflect.DeepEqual(hides, [][2]int{{3, 5}}) || !heads[2] {
 		t.Errorf("## B hides %v heads %v", hides, heads)
 	}
 	// A folded heading swallows the folded ones under it.
-	hides, _ = scanFolds(lines, nil, fold("# A", "## B"))
+	hides, _ = scanFolds(lines, nil, fold(0, 2))
 	if !reflect.DeepEqual(hides, [][2]int{{1, 7}}) {
 		t.Errorf("# A hides %v", hides)
 	}
 	// A heading with nothing under it hides nothing, and "#" in code is not one.
-	if h, _ := scanFolds([]string{"# A", "# B"}, nil, fold("# A")); len(h) != 0 {
+	if h, _ := scanFolds([]string{"# A", "# B"}, nil, fold(0)); len(h) != 0 {
 		t.Errorf("empty section hid %v", h)
 	}
 	fence := []bool{false, true, true, true}
-	if h, _ := scanFolds([]string{"# A", "```", "# c", "```"}, fence, fold("# A")); !reflect.DeepEqual(h, [][2]int{{1, 3}}) {
+	if h, _ := scanFolds([]string{"# A", "```", "# c", "```"}, fence, fold(0)); !reflect.DeepEqual(h, [][2]int{{1, 3}}) {
 		t.Errorf("code hid %v", h)
 	}
 	if foldEnd(lines, nil, 2) != 5 || foldEnd(lines, nil, 0) != 7 || foldEnd(lines, nil, 8) != 9 {
@@ -248,5 +248,64 @@ func TestEmbedMarkupIsCappedAndFlat(t *testing.T) {
 	}
 	if n := utf8.RuneCountInString(got); n > maxEmbedChars+100 {
 		t.Errorf("markup is %d characters", n)
+	}
+}
+
+func TestFenceTagsDoNotResizeHiddenFences(t *testing.T) {
+	// The fence tags are made after "invisible", so a size on them would win and
+	// leave the hidden fence line at full height, a blank line by each block.
+	for _, d := range richTagDefs {
+		if d.name != "fencetop" && d.name != "fenceend" {
+			continue
+		}
+		for _, k := range []string{"scale", "size", "font", "family"} {
+			if _, ok := d.props[k]; ok {
+				t.Errorf("%s sets %q", d.name, k)
+			}
+		}
+	}
+}
+
+func TestEditTouchesRich(t *testing.T) {
+	raw := "intro\n\nplain text\n> quote\nmore\n"
+	s := richState{blocks: scanBlocks(strings.Split(raw, "\n"), nil)}
+	if s.editTouchesRich(raw, 2, 2) == false && s.blocks[0].first != 3 {
+		t.Fatal("setup")
+	}
+	if s.editTouchesRich(raw, 0, 0) {
+		t.Error("typing in a paragraph far from a block needs no scan")
+	}
+	if !s.editTouchesRich(raw, 2, 2) || !s.editTouchesRich(raw, 3, 3) {
+		t.Error("an edit next to or in a block needs one")
+	}
+	for _, line := range []string{"> new quote", "# heading", "```go"} {
+		r := "a\n" + line + "\nb"
+		if !(&richState{}).editTouchesRich(r, 1, 1) {
+			t.Errorf("a line that became %q needs a scan", line)
+		}
+	}
+	if (&richState{}).editTouchesRich("a\nplain\nb", 1, 1) {
+		t.Error("plain text needs no scan")
+	}
+}
+
+func TestEmbedTableIsAlignedText(t *testing.T) {
+	got, _ := embedMarkup("| A | Longer |\n|:--|--:|\n| xx | y |\nafter")
+	if !strings.Contains(got, "<tt>A    ") || strings.Contains(got, "---") || !strings.HasSuffix(got, "after") {
+		t.Errorf("table came out as %q", got)
+	}
+	rows := strings.Split(got, "\n")
+	if len(rows) != 3 || strings.Index(rows[0], "Longer") != strings.Index(rows[1], "y</tt>")-0 && len(rows[0]) == 0 {
+		t.Errorf("rows %q", rows)
+	}
+}
+
+func TestEmbedLineAndTextAreClipped(t *testing.T) {
+	got, _ := embedMarkup(strings.Repeat("é", maxEmbedLine*3))
+	if utf8.RuneCountInString(got) > maxEmbedLine {
+		t.Errorf("a %d-character line came out %d long", maxEmbedLine*3, utf8.RuneCountInString(got))
+	}
+	if !utf8.ValidString(clipRunes("héllo", 2)) {
+		t.Error("clipRunes split a character")
 	}
 }

@@ -262,6 +262,9 @@ func (a *App) saveCurrent() {
 			}
 			a.setSaveState(saveSaved)
 			a.rememberSaved(rel, content)
+			if a.editor != nil {
+				a.editor.RefreshEmbeds() // a note that embeds one that was just written
+			}
 			if a.dirty { // edits arrived while the write was in flight
 				a.scheduleAutosave()
 			}
