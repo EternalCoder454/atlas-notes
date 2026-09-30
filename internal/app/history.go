@@ -89,7 +89,7 @@ func (a *App) showHistory() {
 
 	if len(versions) == 0 {
 		empty := adw.NewStatusPage()
-		empty.SetIconName(iconName("atlasnotes-recent-symbolic", "document-open-recent-symbolic"))
+		empty.SetIconName(iconName("atlasnotes-recent-symbolic", "atlasnotes-note-symbolic"))
 		empty.SetDescription("No earlier versions yet. Versions are kept as you edit, at most one every ten minutes.")
 		empty.SetVExpand(true)
 		toolbar.SetContent(empty)

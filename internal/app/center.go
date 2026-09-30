@@ -232,8 +232,8 @@ func (a *App) buildFindBar() *gtk.Revealer {
 	fb.counter.SetWidthChars(10) // room for "No matches", so the bar does not shift as it changes
 	fb.counter.SetXAlign(1)
 
-	prev := findIconButton("go-up-symbolic", "↑", "Previous match (Ctrl+Shift+G)", func() { a.stepFind(false) })
-	next := findIconButton("go-down-symbolic", "↓", "Next match (Ctrl+G)", func() { a.stepFind(true) })
+	prev := findIconButton("atlasnotes-chevron-up-symbolic", "↑", "Previous match (Ctrl+Shift+G)", func() { a.stepFind(false) })
+	next := findIconButton("atlasnotes-chevron-down-symbolic", "↓", "Next match (Ctrl+G)", func() { a.stepFind(true) })
 
 	fb.matchCase = gtk.NewToggleButtonWithLabel("Match case")
 	fb.matchCase.AddCSSClass("flat")
@@ -242,8 +242,8 @@ func (a *App) buildFindBar() *gtk.Revealer {
 	fb.matchCase.ConnectToggled(a.runFind)
 
 	fb.replaceToggle = gtk.NewToggleButton()
-	if hasIcon("edit-find-replace-symbolic") {
-		fb.replaceToggle.SetIconName("edit-find-replace-symbolic")
+	if hasIcon("atlasnotes-find-replace-symbolic") {
+		fb.replaceToggle.SetIconName("atlasnotes-find-replace-symbolic")
 	} else {
 		fb.replaceToggle.SetLabel("⇄")
 	}
@@ -252,7 +252,7 @@ func (a *App) buildFindBar() *gtk.Revealer {
 	fb.replaceToggle.SetTooltipText("Replace (Ctrl+R)")
 	fb.replaceToggle.ConnectToggled(func() { fb.replaceReveal.SetRevealChild(fb.replaceToggle.Active()) })
 
-	closeBtn := findIconButton("window-close-symbolic", "✕", "Close (Esc)", func() { a.closeFind(true) })
+	closeBtn := findIconButton("atlasnotes-close-symbolic", "✕", "Close (Esc)", func() { a.closeFind(true) })
 
 	top := gtk.NewBox(gtk.OrientationHorizontal, 6)
 	top.Append(fb.replaceToggle)
