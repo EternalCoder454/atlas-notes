@@ -16,6 +16,17 @@ Why unverified (evidence): the workflow triggers on pushes to `main` and
 ignores path filters, so a manual run cannot show the skip. Confirming it
 needs a doc-only push to `beta`, which this task was not allowed to make.
 
+### Round 2 (the user approved the suggestions on 2026-09-30; no runner changes)
+
+| # | Change | File | Before | After | Status |
+|---|--------|------|--------|-------|--------|
+| 2 | `timeout-minutes`: Windows 45, Android 20 (fa99651) | `release.yml` | none (six-hour default) | capped | **verified**: dispatch run 36784750320 passed, Windows 3m16s, Android 1m30s (measured) |
+| 3 | New **Tests** workflow: `go vet` and `go test` in a fedora:44 container on `ubuntu-latest`, on pushes to beta and pull requests, doc-only changes skipped, PR runs cancel older ones, 30 min timeout | `.github/workflows/test.yml` | CI ran no tests at all | cold 11m58s, then 13m16s; **warm 1m11s** | **verified**: runs 36784713771 (failed, see 4), 36786096120 (pass, cold), 36787472872 (pass, warm, "Cache restored successfully", ~306 MB) (measured) |
+| 4 | `mobile/folder_test.go`: the read-only case runs only when not root (f18f3a6) | test | failed as root in the container | passes | **verified** (run 36786096120). No test was deleted; the other two cases still run as root, as storage's tests already do |
+| 5 | Release order: push main, wait for its run, then push the tag | process (memory note), no YAML | tag Windows build cold, 1079 to 1087 s in Build (measured) | a run after main's cache existed: Windows Build 23 s, job 3m16s (measured, run 36784750320) | **verified** that a warm cache makes it about 6x faster; the tag itself will be measured at the next release |
+
+Not done, by the user's instruction: larger runners.
+
 ### Baseline (measured with `gh run view`, runs from 2026-09-30)
 
 Total wall time per run type:
@@ -43,7 +54,15 @@ Slowest 5 steps (measured):
 
 ## 2. What it means
 
-Measured time saved so far: none. The one change is unverified.
+Measured: a release tag's Windows job should drop from about 21 min to about 3
+min when main's run has finished first (evidence: run 36784750320, Build 23 s
+against 1087 s cold). That is about 18 min off every release (inference until
+the next tag confirms it). The new Tests workflow adds about 1 min 11 s per
+beta push when warm (measured), about 13 min on the first run for a new cache
+key (measured); it runs in parallel with Release builds, so it does not
+lengthen that workflow.
+
+Round 1 alone: none measured; the one change was unverified.
 
 Expected saving (inference): about 1.5 min of runner time per doc-only push to
 `beta` or `main`. In the last 150 non-merge commits on `beta`, 11 (7%) touched
@@ -127,3 +146,6 @@ editing release jobs, so all job-level items were skipped:
   changed). 0 min for doc-only pushes (inference, unverified).
 - **Percent saved (measured):** 0%. Nothing has been confirmed by a real run.
 - **Changes made:** 1 of the 15-change cap, and it is unverified.
+- **Round 2 (approved suggestions):** 4 more changes, all verified on real runs
+  (see the Round 2 table). Measured: Tests warm 1m11s; a warm Windows release
+  build 3m16s against 20.9 min cold.
