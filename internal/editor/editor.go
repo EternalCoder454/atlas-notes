@@ -177,10 +177,12 @@ func New() *Editor {
 			e.OnChanged()
 		}
 	})
-	// Enter at the end of a task line keeps the task's hidden metadata (its
-	// priority and due date, in a trailing comment) on the task. The caret is
-	// kept in front of the comment (snapToMetadata), so the newline would
-	// otherwise split it off onto the new line, where it belongs to nothing.
+	// Enter on a list line continues the list (see continueList). Otherwise, at
+	// the end of a task line, it keeps the task's hidden metadata (its priority
+	// and due date, in a trailing comment) on the task. The caret is kept in front
+	// of the comment (snapToMetadata), so the newline would otherwise split it off
+	// onto the new line, where it belongs to nothing. Shift+Enter is always a plain
+	// newline.
 	enter := gtk.NewEventControllerKey()
 	enter.SetPropagationPhase(gtk.PhaseCapture)
 	enter.ConnectKeyPressed(func(keyval, _ uint, state gdk.ModifierType) bool {
@@ -189,6 +191,9 @@ func New() *Editor {
 		}
 		if state&(gdk.ShiftMask|gdk.ControlMask|gdk.AltMask) != 0 || e.buffer.HasSelection() {
 			return false
+		}
+		if e.continueList() {
+			return true // the list item, and its newline, are in
 		}
 		e.enterPastMetadata()
 		return false // the view inserts the newline, wherever the caret now is
