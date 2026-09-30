@@ -114,7 +114,8 @@ func (f *finder) schedule() {
 		// Repainting changes tags, and tags must not change while text is selected,
 		// when a drag may have GTK hit-testing the lines (see reparse). The refresh
 		// waits, and resume runs it once the selection has collapsed.
-		if f.e.buffer.HasSelection() {
+		if f.e.handsBusy() {
+			f.e.whenHandsFree()
 			f.held = true
 			return false
 		}

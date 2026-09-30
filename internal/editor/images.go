@@ -551,7 +551,10 @@ func (e *Editor) placeImages() {
 	// person may be dragging, and GTK hit-tests the text with every move (see
 	// reparse). The pictures keep the spacing they have until the selection
 	// collapses, which queues this pass again.
-	holdTags := e.buffer.HasSelection()
+	holdTags := e.handsBusy()
+	if holdTags {
+		e.whenHandsFree()
+	}
 	if holdTags {
 		s.padDeferred = true
 	}

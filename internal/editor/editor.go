@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 )
@@ -49,6 +50,8 @@ type Editor struct {
 	layoutStale   bool
 	staleClearing bool
 	staleGen      uint64
+	heldPolling   bool // whenHandsFree is waiting for the button to come up
+	pressing      bool // the primary button is down over the view (see New)
 	// The pointer's last position over the text, for the link lookup once it
 	// rests there; see hoverRestMs.
 	hoverX, hoverY float64
@@ -161,22 +164,27 @@ func New() *Editor {
 	// When a selection goes away, run what was held back while it existed: the
 	// render pass (see reparse), the pictures' spacing (see placeImages) and the
 	// find highlights (see finder.schedule). All of them change tags.
-	e.buffer.NotifyProperty("has-selection", func() {
-		if e.buffer.HasSelection() {
-			return
+	e.buffer.NotifyProperty("has-selection", e.runHeld)
+
+	// The primary button's press, followed as a drag gesture of our own that
+	// watches and never claims the sequence, so the view's own selection drag
+	// is untouched. Its begin and end are what say a drag is in progress: the
+	// pointer device's own button state is not reported for every kind of
+	// input (it was not for synthetic input, which is how the crash this
+	// guards against was reproduced). See reparse.
+	press := gtk.NewGestureDrag()
+	press.SetButton(gdk.BUTTON_PRIMARY)
+	press.SetPropagationPhase(gtk.PhaseCapture)
+	press.ConnectDragBegin(func(float64, float64) { e.pressing = true })
+	release := func() {
+		if e.pressing {
+			e.pressing = false
+			e.runHeld()
 		}
-		if e.reparseDeferred {
-			e.reparseDeferred = false
-			e.scheduleReparse()
-		}
-		if e.img.padDeferred {
-			e.img.padDeferred = false
-			e.queuePlace()
-		}
-		if f := finders[e]; f != nil {
-			f.resume()
-		}
-	})
+	}
+	press.ConnectDragEnd(func(float64, float64) { release() })
+	press.ConnectCancel(func(*gdk.EventSequence) { release() })
+	e.view.AddController(press)
 
 	return e
 }
@@ -209,7 +217,14 @@ func (e *Editor) createTags() {
 	e.newTag("italic", map[string]any{"style": pango.StyleItalic})
 	e.newTag("strike", map[string]any{"strikethrough": true})
 	e.newTag("code", map[string]any{"family": "monospace", "scale": 0.94})
-	e.newTag("invisible", map[string]any{"invisible": true})
+	// Hidden markers are shrunk to nothing and drawn transparent rather than
+	// made invisible. GTK's invisible text is removed from the line's layout,
+	// and every hit-test then maps layout positions back past it; when a
+	// line's hidden runs change between a layout and a hit-test (the caret
+	// reaching a line reveals its markers, a drag hit-tests continuously) GTK
+	// maps past the end of the line and aborts the process. Shrunk text stays
+	// in the layout, so there is nothing to map around.
+	e.newTag("invisible", map[string]any{"scale": 0.001, "foreground": "rgba(0,0,0,0)"})
 	// Recessive markers (list bullets, quote bars) stay visible but quiet; a
 	// mid-gray reads correctly against both the light and the dark theme.
 	e.newTag("marker", map[string]any{"foreground": "#9a9a9a"})
@@ -370,8 +385,15 @@ func (e *Editor) reparse() {
 	// document repeatedly while GTK was hit-testing it. The markers stay as
 	// they are until the selection collapses, and then the pass that was owed
 	// runs.
-	if e.buffer.HasSelection() {
+	//
+	// Nor while the mouse button is down. A click or the start of a drag can
+	// collapse a selection (find's "next" leaves one), and the pass that was
+	// held for it then runs 50 ms later, in the middle of the drag, before a
+	// new selection exists to hold it back. The button being down is what a
+	// drag is, so that is what is checked.
+	if e.handsBusy() {
 		e.reparseDeferred = true
+		e.whenHandsFree()
 		return
 	}
 
@@ -588,3 +610,73 @@ func (e *Editor) InsertAtCursor(text string) {
 // Reparse re-renders the document now, skipping the debounce. Call it after a
 // programmatic edit that must be reflected immediately.
 func (e *Editor) Reparse() { e.reparse() }
+
+// handsBusy reports whether the person is in the middle of selecting: text is
+// selected, or the primary button is down over the view. Nothing that changes
+// tags may run then; see reparse.
+func (e *Editor) handsBusy() bool {
+	return e.buffer.HasSelection() || e.buttonDown()
+}
+
+// buttonDown asks the pointer itself whether its primary button is held, so
+// the answer is right however the press began or ended: a drag that became a
+// drag-and-drop, a press on a picture, a release outside the window.
+func (e *Editor) buttonDown() bool {
+	if e.pressing {
+		return true
+	}
+	display := e.view.Display()
+	if display == nil {
+		return false
+	}
+	seat := display.DefaultSeat()
+	if seat == nil {
+		return false
+	}
+	pointer := gdk.BaseSeat(seat).Pointer()
+	if pointer == nil {
+		return false
+	}
+	return gdk.BaseDevice(pointer).ModifierState()&gdk.Button1Mask != 0
+}
+
+// whenHandsFree runs what was held back once the button is up and nothing is
+// selected. A selection going away is announced (has-selection), a button
+// coming up is not, so while the button is down this looks again every 50 ms.
+func (e *Editor) whenHandsFree() {
+	if e.heldPolling {
+		return
+	}
+	e.heldPolling = true
+	coreglib.TimeoutAdd(50, func() bool {
+		if e.buttonDown() {
+			return true // still dragging; look again
+		}
+		e.heldPolling = false
+		e.runHeld()
+		return false
+	})
+}
+
+// runHeld runs what was put off while the person was selecting: the render
+// pass, the pictures' spacing and the find highlights, all of which change
+// tags. If they are still selecting, it waits.
+func (e *Editor) runHeld() {
+	if e.handsBusy() {
+		if e.buttonDown() {
+			e.whenHandsFree()
+		}
+		return
+	}
+	if e.reparseDeferred {
+		e.reparseDeferred = false
+		e.scheduleReparse()
+	}
+	if e.img.padDeferred {
+		e.img.padDeferred = false
+		e.queuePlace()
+	}
+	if f := finders[e]; f != nil {
+		f.resume()
+	}
+}

@@ -99,11 +99,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes it all, rolls back on a write error, and saves the new salt last.
 - **Renaming a folder with a non-ASCII name corrupted its notes' paths in the
   index**: the rewrite counted bytes where SQLite counts characters.
-- **Hovering a link while the caret moved could close the app**: looking up the
-  character under the pointer while GTK's layout was behind a re-tag aborted in
-  GTK ("byte index off the end of the line"). Nothing is hit-tested until the
-  text has stayed unchanged for 100 ms, and hovering looks up once the pointer
-  rests.
+- **Selecting, clicking or hovering could close the app** ("byte index off the
+  end of the line"). Hidden Markdown was GTK "invisible" text, which GTK drops
+  from a line's layout and maps around on every hit-test; when a line's hidden
+  runs changed between a layout and a hit-test (the caret reaching a line, a
+  drag in progress), GTK mapped past the end of the line and aborted. A gdb
+  backtrace put it in GTK's own selection drag. Hidden markers are now shrunk
+  to nothing and drawn transparent instead, so they stay in the layout and
+  there is nothing to map around; tag changes also wait for a drag to end.
+  Stress runs that died within two rounds now pass 40, over and over.
 
 ### Security
 - **A note in two formats keeps both.** When a sync leaves `Plan.md` and
