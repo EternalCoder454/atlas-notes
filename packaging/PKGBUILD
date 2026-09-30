@@ -24,7 +24,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/EternalCoder454/atlas-notes"
 license=('MIT')
 depends=('gtk4' 'libadwaita' 'glib2')
-makedepends=('go>=1.25' 'gcc' 'pkgconf')
+makedepends=('go>=1.25' 'gcc' 'pkgconf' 'gobject-introspection')
 checkdepends=('desktop-file-utils')
 optdepends=('ollama: runs the local model the optional AI assistant talks to')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")

@@ -108,12 +108,12 @@ detect_distro() {
 		[ -n "$PM" ] && break
 	done
 	case "$PM" in
-		dnf)    PKGS="golang gtk4-devel libadwaita-devel gcc pkgconf-pkg-config git make tar" ;;
+		dnf)    PKGS="golang gtk4-devel libadwaita-devel gobject-introspection-devel gcc pkgconf-pkg-config git make tar" ;;
 		# Go comes from go.dev (see ensure_go), not from the distro: Debian and
 		# Ubuntu ship one too old for this project's go.mod.
-		apt)    PKGS="libgtk-4-dev libadwaita-1-dev gcc pkg-config git make curl ca-certificates tar gzip" ;;
-		pacman) PKGS="go gtk4 libadwaita gcc pkgconf git make" ;;
-		zypper) PKGS="go gtk4-devel libadwaita-devel gcc pkg-config git make curl tar gzip" ;;
+		apt)    PKGS="libgtk-4-dev libadwaita-1-dev libgirepository1.0-dev gcc pkg-config git make curl ca-certificates tar gzip" ;;
+		pacman) PKGS="go gtk4 libadwaita gobject-introspection gcc pkgconf git make" ;;
+		zypper) PKGS="go gtk4-devel libadwaita-devel gobject-introspection-devel gcc pkg-config git make curl tar gzip" ;;
 	esac
 }
 
@@ -126,13 +126,15 @@ yours, then run it again with SKIP_DEPS=1:
 
   - GTK $MIN_GTK or newer, with its development files (headers and pkg-config file)
   - libadwaita $MIN_ADW or newer, with its development files
+  - gobject-introspection, with its development files (the Go bindings ask for it)
   - a C compiler (gcc or clang)
   - pkg-config (or pkgconf)
   - git and make
   - Go $(printf '1.%s' "$MIN_GO_MINOR") or newer (optional: this script fetches it from go.dev if missing)
 
-For reference: Fedora calls them gtk4-devel and libadwaita-devel, Debian and
-Ubuntu libgtk-4-dev and libadwaita-1-dev, Arch gtk4 and libadwaita.
+For reference: Fedora calls them gtk4-devel, libadwaita-devel and
+gobject-introspection-devel, Debian and Ubuntu libgtk-4-dev, libadwaita-1-dev
+and libgirepository1.0-dev, Arch gtk4, libadwaita and gobject-introspection.
 EOF
 }
 
@@ -261,6 +263,7 @@ check_libs() {
 	adw="$($pc --modversion libadwaita-1 2>/dev/null || true)"
 	[ -n "$gtk" ] || die "GTK 4 development files not found. $(dep_hint gtk)"
 	[ -n "$adw" ] || die "libadwaita development files not found. $(dep_hint adw)"
+	$pc --exists gobject-introspection-1.0 2>/dev/null || die "gobject-introspection development files not found. $(dep_hint gi)"
 	say "Found GTK $gtk and libadwaita $adw."
 	if ! version_ge "$adw" "$MIN_ADW"; then
 		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Use a newer release of the distro, or install Atlas Notes from Flatpak or a container that has a newer libadwaita."
@@ -274,6 +277,11 @@ dep_hint() {
 	case "$PM:$1" in
 		dnf:gtk)     echo "Install gtk4-devel." ;;
 		dnf:adw)     echo "Install libadwaita-devel." ;;
+		dnf:gi)      echo "Install gobject-introspection-devel." ;;
+		apt:gi)      echo "Install libgirepository1.0-dev." ;;
+		pacman:gi)   echo "Install gobject-introspection." ;;
+		zypper:gi)   echo "Install gobject-introspection-devel." ;;
+		*:gi)        echo "Install the gobject-introspection development package." ;;
 		apt:gtk)     echo "Install libgtk-4-dev." ;;
 		apt:adw)     echo "Install libadwaita-1-dev." ;;
 		pacman:gtk)  echo "Install gtk4." ;;
