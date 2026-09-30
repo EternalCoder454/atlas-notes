@@ -12,7 +12,7 @@ import (
 
 // Clone copies the graph, for undo.
 func (g *Graph) Clone() *Graph {
-	n := &Graph{Dir: g.Dir, Items: make(map[string]*Item, len(g.Items)), CanvasW: g.CanvasW, CanvasH: g.CanvasH, src: g.src}
+	n := &Graph{Dir: g.Dir, Items: make(map[string]*Item, len(g.Items)), CanvasW: g.CanvasW, CanvasH: g.CanvasH, src: g.src, classAccent: g.classAccent}
 	if g.Pos != nil {
 		n.Pos = make(map[string]Pt, len(g.Pos))
 		for k, v := range g.Pos {
@@ -25,6 +25,7 @@ func (g *Graph) Clone() *Graph {
 		c := *it
 		c.Parent, c.Children, c.dl = parent, nil, nil
 		c.Lines = append([]Line(nil), it.Lines...)
+		c.Classes = append([]string(nil), it.Classes...)
 		cp[it] = &c
 		for _, k := range it.Children {
 			c.Children = append(c.Children, dup(k, &c))
@@ -77,8 +78,13 @@ func (g *Graph) NewID(title string) string {
 	if base == "" || unicode.IsDigit(rune(base[0])) {
 		base = "box" + base
 	}
+	// Not a name the carried lines (styles, clicks) already use either.
+	named := map[string]bool{}
+	for _, w := range strings.FieldsFunc(g.src, func(r rune) bool { return !isIDRune(r) }) {
+		named[w] = true
+	}
 	id := base
-	for n := 2; g.Items[id] != nil || reserved[id]; n++ {
+	for n := 2; g.Items[id] != nil || reserved[id] || named[id]; n++ {
 		id = base + itoa(n)
 	}
 	return id
@@ -93,6 +99,21 @@ func itoa(n int) string {
 		d = append([]byte{byte('0' + n%10)}, d...)
 	}
 	return string(d)
+}
+
+// SetAccent turns a box's highlight on or off. Off also drops the classes that
+// asked for it, so it does not come back from the text.
+func (g *Graph) SetAccent(it *Item, on bool) {
+	it.Accent = on
+	if !on {
+		var keep []string
+		for _, c := range it.Classes {
+			if !g.classAccent[c] {
+				keep = append(keep, c)
+			}
+		}
+		it.Classes = keep
+	}
 }
 
 // Clean makes text fit on one line of a box: no line breaks or bold marks, and

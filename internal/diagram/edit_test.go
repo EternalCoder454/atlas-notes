@@ -82,14 +82,14 @@ func TestMermaidGroups(t *testing.T) {
 
 func TestMermaidAccentAndStyles(t *testing.T) {
 	g := mustParse(t, example)
-	g.Items["approve"].Accent = false
+	g.SetAccent(g.Items["approve"], false)
 	g.Items["send"].Accent = true
 	_, g2 := reparse(t, g)
 	if g2.Items["approve"].Accent || !g2.Items["send"].Accent {
 		t.Error("accent not kept")
 	}
 	h := mustParse(t, "flowchart TD\n a:::hot --> b\n classDef hot fill:#f96\n")
-	h.Items["a"].Accent = false
+	h.SetAccent(h.Items["a"], false)
 	reparse(t, h)
 	h.Items["b"].Accent = true
 	h.SetText(h.Items["b"], "B text", "")
@@ -97,7 +97,7 @@ func TestMermaidAccentAndStyles(t *testing.T) {
 }
 
 func TestMermaidQuoting(t *testing.T) {
-	for _, title := range []string{`say "hi"`, "a [b] c", "x | y", "p(q)", "end", "a <b> c", "#quot; literal", "semi; colon: {x}", "émoji ü", "a --> b", "100%"} {
+	for _, title := range []string{`say "hi"`, "a [b] c", "x | y", "p(q)", "end", "a <b> c", "#quot; literal", "semi; colon: {x}", "`code`", "`",  "émoji ü", "a --> b", "100%"} {
 		g := mustParse(t, "flowchart TD\n a --> b\n")
 		g.SetText(g.Items["a"], title, "sub "+title)
 		e := g.Edges[0]
@@ -219,3 +219,47 @@ func FuzzMermaidRoundTrip(f *testing.F) {
 }
 
 var tidyGroupID = regexp.MustCompile(`^[\p{L}\p{N}_]([\p{L}\p{N}_ -]*[\p{L}\p{N}_])?$`)
+
+func TestCarriedLines(t *testing.T) {
+	src := "flowchart TD\n  a:::k --> b\n  b --> c\n  c --> d\n  classDef k fill:#eee\n  class c,d k\n  linkStyle 1,2 stroke:red\n  click c href \"x\"\n  click d href \"y\"\n"
+	g := mustParse(t, src)
+	g.RemoveEdge(g.Edges[0]) // a --> b goes
+	g.Remove(g.Items["d"])
+	g.SetText(g.Items["a"], "A2", "")
+	s, g2 := reparse(t, g)
+	if strings.Contains(s, "linkStyle 1,2") || !strings.Contains(s, "linkStyle 0 stroke:red") {
+		t.Errorf("linkStyle not renumbered:\n%s", s)
+	}
+	if strings.Contains(s, "click d") || !strings.Contains(s, "click c") || strings.Contains(s, "c,d") {
+		t.Errorf("lines for deleted boxes kept:\n%s", s)
+	}
+	if !hasStr(g2.Items["a"].Classes, "k") || !hasStr(g2.Items["c"].Classes, "k") {
+		t.Errorf("classes lost:\n%s", s)
+	}
+	if id := g.NewID("d"); id == "d" {
+		t.Error("new id reuses a name a carried line mentions")
+	}
+	// The canonical form keeps them too.
+	c := g.canonical()
+	g3 := mustParse(t, c)
+	if !sameGraph(g, g3) || !hasStr(g3.Items["c"].Classes, "k") {
+		t.Errorf("canonical lost classes:\n%s", c)
+	}
+}
+
+func TestFreeEdgesAlwaysDrawn(t *testing.T) {
+	g := mustParse(t, "flowchart TD\n a --> b\n")
+	g.SetPos("a", 100, 100)
+	g.SetPos("b", 110, 105) // on top of each other
+	sc := Layout(g, nil)
+	if len(sc.Routes) != 1 {
+		t.Fatalf("%d routes", len(sc.Routes))
+	}
+	g.SetPos("b", 300, 120)
+	r := Layout(g, nil).Routes[0]
+	for i := 1; i < len(r.Pts); i++ {
+		if r.Pts[i] == r.Pts[i-1] {
+			t.Error("zero-length step")
+		}
+	}
+}

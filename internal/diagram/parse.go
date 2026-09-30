@@ -38,6 +38,7 @@ type Item struct {
 	Title    string // a group's heading
 	Shape    Shape
 	Accent   bool
+	Classes  []string // class names given with ":::" or a class line
 	Bare     bool // named in an edge and never given a shape or text
 	Dir      string
 	Parent   *Item
@@ -87,7 +88,8 @@ type Graph struct {
 	Pos              map[string]Pt
 	CanvasW, CanvasH float64
 
-	src string // what this was parsed from, for Mermaid to carry through
+	classAccent map[string]bool // classDef names that ask for a highlight
+	src         string // what this was parsed from, for Mermaid to carry through
 }
 
 // UnsupportedError says what kind of diagram was not drawn, or what in it.
@@ -378,7 +380,15 @@ func (p *parser) styleItem(id, spec string) {
 }
 
 func (p *parser) finish() {
+	p.g.classAccent = p.classes
 	for _, pc := range p.pending {
+		if pc.class != "\x00accent" {
+			for _, id := range pc.ids {
+				if it := p.g.Items[strings.TrimSpace(id)]; it != nil && !it.Group && !hasStr(it.Classes, pc.class) {
+					it.Classes = append(it.Classes, pc.class)
+				}
+			}
+		}
 		on := pc.class == "\x00accent" || p.classes[pc.class]
 		if !on {
 			continue

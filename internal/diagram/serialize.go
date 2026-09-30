@@ -143,7 +143,7 @@ func sameGraph(a, b *Graph) bool {
 			if x.Title != y.Title {
 				return false
 			}
-		} else if x.Shape != y.Shape || x.Accent != y.Accent || !sameLines(x.Lines, y.Lines) {
+		} else if x.Shape != y.Shape || x.Accent != y.Accent || !sameStrs(x.Classes, y.Classes) || !sameLines(x.Lines, y.Lines) {
 			return false
 		}
 	}
@@ -180,6 +180,112 @@ func sameGraph(a, b *Graph) bool {
 		}
 	}
 	return true
+}
+
+func sameStrs(a, b []string) bool {
+	a, b = append([]string(nil), a...), append([]string(nil), b...)
+	sort.Strings(a)
+	sort.Strings(b)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// rawKeep says whether a carried line still means something: a click on a box
+// that is gone does not.
+func (g *Graph) rawKeep(t string) bool {
+	if rest, ok := directive(t, "click"); ok {
+		f := strings.Fields(rest)
+		return len(f) > 0 && g.Items[f[0]] != nil
+	}
+	return true
+}
+
+// classLineOut is a class line with the boxes that are gone taken out of it; it
+// is dropped when nothing is left, or when it only gave a highlight that is off.
+func (g *Graph) classLineOut(line string, classAccent map[string]bool) (string, bool) {
+	rest, _ := directive(strings.TrimSpace(line), "class")
+	f := strings.SplitN(rest, " ", 2)
+	if len(f) != 2 {
+		return line, true
+	}
+	cls := strings.TrimSpace(f[1])
+	var ids []string
+	any := false
+	for _, id := range strings.Split(f[0], ",") {
+		id = strings.TrimSpace(id)
+		if m := g.Items[id]; m != nil {
+			ids = append(ids, id)
+			any = any || m.Accent
+		}
+	}
+	if len(ids) == 0 || (classAccent[cls] && !any) {
+		return "", false
+	}
+	if len(ids) == len(strings.Split(f[0], ",")) {
+		return line, true
+	}
+	return leadWS(line) + "class " + strings.Join(ids, ",") + " " + cls, true
+}
+
+// fixLinkStyles renumbers the linkStyle lines, which name arrows by their place
+// in the text, for the arrows' new places; one whose arrow is gone is dropped.
+func fixLinkStyles(text string, orig []*Edge) string {
+	if !strings.Contains(text, "linkStyle") {
+		return text
+	}
+	p2, err := Parse(text)
+	if err != nil {
+		return text
+	}
+	at := map[string][]int{}
+	for j, e := range p2.Edges {
+		at[edgeKey(e)] = append(at[edgeKey(e)], j)
+	}
+	seen := map[string]int{}
+	mapping := map[int]int{}
+	for i, e := range orig {
+		k := edgeKey(e)
+		if n := seen[k]; n < len(at[k]) {
+			mapping[i] = at[k][n]
+		}
+		seen[k]++
+	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	var out []string
+	for _, l := range lines {
+		rest, ok := directive(strings.TrimSpace(l), "linkStyle")
+		if !ok || lineKind(l) != "raw" {
+			out = append(out, l)
+			continue
+		}
+		f := strings.SplitN(rest, " ", 2)
+		if f[0] == "default" || len(f) < 2 {
+			out = append(out, l)
+			continue
+		}
+		var idx []string
+		for _, s := range strings.Split(f[0], ",") {
+			var n int
+			if _, err := fmt.Sscanf(strings.TrimSpace(s), "%d", &n); err != nil {
+				idx = nil
+				break
+			}
+			if j, ok := mapping[n]; ok {
+				idx = append(idx, fmt.Sprint(j))
+			}
+		}
+		if len(idx) > 0 {
+			out = append(out, leadWS(l)+"linkStyle "+strings.Join(idx, ",")+" "+f[1])
+		}
+	}
+	return strings.Join(out, "\n") + "\n"
 }
 
 type frame struct {
@@ -270,8 +376,12 @@ func (g *Graph) patch() (string, bool) {
 		}
 		t := strings.TrimSpace(line)
 		switch k := lineKind(line); k {
-		case "blank", "comment", "raw", "classdef":
+		case "blank", "comment", "classdef":
 			out = append(out, line)
+		case "raw":
+			if g.rawKeep(t) {
+				out = append(out, line)
+			}
 		case "pos":
 			f := strings.Fields(strings.TrimPrefix(t, "%%"))
 			if len(f) == 4 {
@@ -331,20 +441,9 @@ func (g *Graph) patch() (string, bool) {
 			}
 			out = append(out, line)
 		case "class":
-			rest, _ := directive(t, "class")
-			f := strings.SplitN(rest, " ", 2)
-			if len(f) == 2 && classAccent[strings.TrimSpace(f[1])] {
-				any := false
-				for _, id := range strings.Split(f[0], ",") {
-					if m := g.Items[strings.TrimSpace(id)]; m != nil && m.Accent {
-						any = true
-					}
-				}
-				if !any {
-					continue
-				}
+			if nl, ok := g.classLineOut(line, classAccent); ok {
+				out = append(out, nl)
 			}
-			out = append(out, line)
 		case "chain":
 			nodes, edges, err := fragment(t)
 			if err != nil {
@@ -367,7 +466,7 @@ func (g *Graph) patch() (string, bool) {
 				if !n.Bare && (n.Shape != m.Shape || !sameLines(n.Lines, m.Lines)) {
 					ok = false
 				}
-				if o := orig.Items[n.ID]; o != nil && strings.Contains(t, ":::") && o.Accent != m.Accent {
+				if o := orig.Items[n.ID]; o != nil && strings.Contains(t, ":::") && (o.Accent != m.Accent || !sameStrs(o.Classes, m.Classes)) {
 					ok = false
 				}
 			}
@@ -422,6 +521,16 @@ func (g *Graph) patch() (string, bool) {
 		if it.Accent && !o.Accent {
 			fix = append(fix, ind+accentLine(it.ID))
 		}
+		for _, c := range it.Classes {
+			if !hasStr(o.Classes, c) {
+				fix = append(fix, ind+"class "+it.ID+" "+c)
+			}
+		}
+		for _, c := range o.Classes {
+			if !hasStr(it.Classes, c) {
+				return "", false
+			}
+		}
 	}
 	if len(fix) > 0 {
 		text = strings.Join(append(out, fix...), "\n") + "\n"
@@ -432,7 +541,7 @@ func (g *Graph) patch() (string, bool) {
 	if !sameGraph(g, p2) {
 		return "", false
 	}
-	return text, true
+	return fixLinkStyles(text, orig.Edges), true
 }
 
 func accentLine(id string) string { return "style " + id + " stroke:#3584e4,stroke-width:2px" }
@@ -487,6 +596,11 @@ func (g *Graph) canonical() string {
 			out = append(out, ind+accentLine(it.ID))
 		}
 	}
+	for _, it := range g.Order {
+		for _, c := range it.Classes {
+			out = append(out, ind+"class "+it.ID+" "+c)
+		}
+	}
 	// What the editor does not model is carried through.
 	accentClass := map[string]bool{}
 	for _, l := range sourceLines(g.src) {
@@ -500,8 +614,12 @@ func (g *Graph) canonical() string {
 				}
 			}
 			out = append(out, l)
-		case "comment", "raw":
+		case "comment":
 			out = append(out, l)
+		case "raw":
+			if g.rawKeep(t) {
+				out = append(out, l)
+			}
 		case "style":
 			rest, _ := directive(t, "style")
 			if f := strings.SplitN(rest, " ", 2); len(f) == 2 && g.Items[strings.TrimSpace(f[0])] != nil && !accentSpec("", f[1]) {
@@ -510,7 +628,11 @@ func (g *Graph) canonical() string {
 		}
 	}
 	out = append(out, g.tailLines(map[string]bool{}, ind)...)
-	return strings.Join(out, "\n") + "\n"
+	text := strings.Join(out, "\n") + "\n"
+	if o, err := Parse(g.src); err == nil {
+		text = fixLinkStyles(text, o.Edges)
+	}
+	return text
 }
 
 func firstCode(src string) string {

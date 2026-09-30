@@ -19,7 +19,7 @@ const (
 	sizePrefix = "atlas:size"
 )
 
-var entities = strings.NewReplacer("#quot;", `"`, "#lt;", "<", "#gt;", ">", "#amp;", "&", "#124;", "|", "#35;", "#")
+var entities = strings.NewReplacer("#quot;", `"`, "#lt;", "<", "#gt;", ">", "#amp;", "&", "#124;", "|", "#35;", "#", "#96;", "`")
 
 // unescape reads the entity codes Mermaid text uses for what cannot be written
 // as is; escape writes them.
@@ -45,7 +45,24 @@ func escape(s string) string {
 			i += 3
 		}
 	}
-	return strings.NewReplacer(`"`, "#quot;", "<", "#lt;", ">", "#gt;", "|", "#124;").Replace(s)
+	s = strings.NewReplacer(`"`, "#quot;", "<", "#lt;", ">", "#gt;", "|", "#124;").Replace(s)
+	// A backtick at either end would make Mermaid read a Markdown string.
+	if strings.HasPrefix(s, "`") {
+		s = "#96;" + s[1:]
+	}
+	if strings.HasSuffix(s, "`") {
+		s = s[:len(s)-1] + "#96;"
+	}
+	return s
+}
+
+func hasStr(l []string, s string) bool {
+	for _, x := range l {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func clampCoord(v, lo float64) float64 {
@@ -149,7 +166,7 @@ func (g *Graph) applyPositions(m Measure) {
 	g.Root.H = math.Max(g.Root.H, bottom+pagePad)
 	for _, e := range g.Edges {
 		if !e.skip && (touched[e.lf] || touched[e.lt]) {
-			e.free, e.span = true, 0
+			e.free, e.span, e.gap = true, 0, 0
 		}
 	}
 }
