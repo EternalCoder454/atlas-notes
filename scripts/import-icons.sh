@@ -19,15 +19,37 @@
 #   * A nominal 16px size, which is what these are drawn at in the toolbar. The
 #     viewBox is left alone; it defines the coordinate system, not the size.
 #
+# One style for the whole set, the same as Atlas Monitor's so the two apps read
+# as a pair: Material Symbols Outlined, weight 400, grade 0, optical size 20.
+# Google's repository names that combination "<name>_20px.svg" in the
+# "materialsymbolsoutlined" folder (the other weights, the filled and the
+# rounded forms have longer names), and 20 is the smallest optical size, the one
+# drawn for small sizes, which is what these are. Mixing in another weight or
+# a filled form for one icon shows at once beside the rest, so a new icon is
+# taken from that same file and nowhere else.
+#
+# Nothing here is borrowed from the desktop's icon theme: every icon the
+# interface draws is in this list, because a theme's own arrows and crosses are
+# another family at another weight, and differ from one desktop to the next.
+#
 # Run from the repository root:  scripts/import-icons.sh
+#                                scripts/import-icons.sh --fetch
 #
 # Sources are read from assets/icons-src/<material name>.svg and left in place;
-# the results are written to internal/app/icons/, which main.go embeds.
+# the results are written to internal/app/icons/, which main.go embeds. With
+# --fetch, a source that is not there yet is first downloaded from Google's
+# repository, from the file described above.
 set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")/.."
 src_dir=assets/icons-src
 out_dir=internal/app/icons
+official=https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web
+
+fetch=0
+if [ "${1:-}" = "--fetch" ]; then
+    fetch=1
+fi
 
 # <Material Symbols name>:<installed name, without the atlasnotes-/-symbolic wrapper>
 map=(
@@ -47,11 +69,18 @@ map=(
     # Window and navigation
     menu:menu
     home:home
+    today:today
     settings:settings
     left_panel_open:panel-left
     right_panel_open:panel-right
     search:search
     info:info
+
+    # Find bar
+    keyboard_arrow_up:chevron-up
+    keyboard_arrow_down:chevron-down
+    find_replace:find-replace
+    close:close
 
     # Vault panel
     folder:folder
@@ -71,7 +100,7 @@ map=(
 
     # Assistant
     chat:assistant
-    bolt:prompts
+    quick_phrases:prompts
     arrow_upward:send
     content_copy:copy
 )
@@ -81,6 +110,13 @@ mkdir -p "$out_dir"
 for pair in "${map[@]}"; do
     src="$src_dir/${pair%%:*}.svg"
     dst="$out_dir/atlasnotes-${pair##*:}-symbolic.svg"
+
+    if [ ! -f "$src" ] && [ "$fetch" = 1 ]; then
+        name="${pair%%:*}"
+        if ! curl -fsS -o "$src" "$official/$name/materialsymbolsoutlined/${name}_20px.svg"; then
+            rm -f "$src" # curl leaves an empty file behind when it fails
+        fi
+    fi
 
     if [ ! -f "$src" ]; then
         echo "  missing: $src"
