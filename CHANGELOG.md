@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a quote with `> `; Enter on an empty item ends it. Undo and redo step over
   the drawing of bullets, and the caret stays out of a task's hidden
   metadata, so a new line never takes its due date with it.
+- **A properties card for front matter.** A note that starts with a YAML
+  block shows it as a card: text, numbers, dates with a calendar, true or
+  false as a switch, lists and tags as chips, and Add property. An edit
+  rewrites only that property's lines, as one undo step, keeping quotes,
+  order, comments and line endings; anything the card cannot edit safely
+  (nested maps, block text) is shown and left alone. Tags in front matter
+  now count as the note's tags, and existing notes are read again once so
+  theirs do too.
+- **An outline beside the page.** A thin column of marks at the right edge,
+  one per heading, the current section in the accent colour; hover it for the
+  names and click one to go there. It appears once a note has three headings.
+  Ctrl+Shift+O shows it from the keyboard.
 - **Obsidian's Markdown reads as it should.** Callouts (`> [!note] Title`,
   and tip, info, warning, danger, success, question, quote, example, todo)
   are tinted cards with an icon, folded with `-` and unfolded with `+`, and
