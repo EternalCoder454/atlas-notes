@@ -222,7 +222,7 @@ func (g *Gantt) Scene(m Measure, avail float64) *Scene {
 			if g.excluded(day) {
 				a, b := math.Max(xOf(day), x0), math.Min(xOf(day.AddDate(0, 0, 1)), x1)
 				if b > a {
-					shade = append(shade, Prim{Kind: PrimBox, X: a, Y: rowsY, W: b - a, H: H - ganttPad - rowsY, Fill: RoleGroupStroke})
+					shade = append(shade, Prim{Kind: PrimBox, X: a, Y: rowsY, W: b - a, H: H - ganttPad - rowsY, Fill: RoleBox})
 				}
 			}
 			day = day.AddDate(0, 0, 1)
