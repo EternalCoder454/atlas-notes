@@ -26,7 +26,7 @@ const (
 	headSize   = 12.0
 	boxPadX    = 16.0
 	boxPadY    = 10.0
-	maxBoxText = 210.0
+	maxBoxText = 210.0 // the widest a line of a box's text runs before it wraps
 	crossGap   = 24.0
 	rankGapV   = 44.0
 	rankGapH   = 56.0
@@ -43,7 +43,23 @@ type drawnLine struct {
 }
 
 // Layout sizes and places every box and group and returns what to draw.
-func Layout(g *Graph, m Measure) *Scene {
+func Layout(g *Graph, m Measure) *Scene { return layoutWith(g, m, maxBoxText) }
+
+// LayoutFit is Layout for a page avail wide. Boxes wrap their text narrower, step
+// by step, until the diagram fits (or they cannot get narrower), so that a wide
+// diagram is taller rather than small.
+func LayoutFit(g *Graph, m Measure, avail float64) *Scene {
+	var sc *Scene
+	for _, w := range []float64{maxBoxText, 170, 140, 115} {
+		sc = layoutWith(g, m, w)
+		if sc.W <= avail {
+			break
+		}
+	}
+	return sc
+}
+
+func layoutWith(g *Graph, m Measure, textW float64) *Scene {
 	if m == nil {
 		m = ApproxMeasure
 	}
@@ -52,7 +68,7 @@ func Layout(g *Graph, m Measure) *Scene {
 	}
 	for _, it := range g.Order {
 		if !it.Group {
-			sizeBox(it, m)
+			sizeBox(it, m, textW)
 		}
 	}
 	for _, e := range g.Edges {
@@ -87,7 +103,7 @@ func wrap(text string, size float64, bold bool, m Measure, limit float64) []stri
 	return out
 }
 
-func sizeBox(it *Item, m Measure) {
+func sizeBox(it *Item, m Measure, textW float64) {
 	it.dl = it.dl[:0]
 	explicit := hasExplicitBold(it.Lines)
 	multi := len(it.Lines) > 1
@@ -101,7 +117,7 @@ func sizeBox(it *Item, m Measure) {
 				size, dim = subSize, true
 			}
 		}
-		for _, part := range wrap(l.Text, size, bold, m, maxBoxText) {
+		for _, part := range wrap(l.Text, size, bold, m, textW) {
 			w, h := m(part, size, bold)
 			it.dl = append(it.dl, drawnLine{text: part, size: size, bold: bold, dim: dim, w: w, h: h})
 			tw = math.Max(tw, w)

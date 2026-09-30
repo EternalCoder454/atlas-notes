@@ -44,6 +44,7 @@ type diagramBox struct {
 	area   *gtk.DrawingArea
 	font   *diagramFont
 	src    string // what scene was laid out from
+	avail  int    // and for what width
 	scene  *diagram.Scene
 	scale  float64
 }
@@ -367,7 +368,7 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 		e.view.AddOverlay(b.scroll, 0, tableParkY)
 		it.shown, it.x, it.y = true, 0, tableParkY
 	}
-	if b.scene == nil || b.src != it.src {
+	if b.scene == nil || b.src != it.src || b.avail != avail {
 		g, err := diagram.Parse(it.src)
 		if err != nil {
 			return 0, 0
@@ -376,7 +377,7 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 			pc := b.area.CreatePangoContext()
 			b.font = newDiagramFont(pango.NewLayout(pc), pc.FontDescription().Family())
 		}
-		b.scene, b.src = diagram.Layout(g, b.font.measure), it.src
+		b.scene, b.src, b.avail = diagram.LayoutFit(g, b.font.measure, float64(avail)), it.src, avail
 		b.area.QueueDraw()
 	}
 	sw, sh := b.scene.W, b.scene.H
