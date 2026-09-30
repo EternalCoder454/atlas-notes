@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
+
+	"atlas-notes/internal/checklist"
 )
 
 // hideMarkers is whether markdown markers are hidden outright rather than
@@ -151,6 +153,15 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		if rel := strings.Index(line[b:], "-->"); rel >= 0 {
 			hide(b, b+rel+len("-->"), false)
 			n = b // don't scan inline markup inside the metadata comment
+		}
+	}
+
+	// The Obsidian form of the same metadata (⏫ 📅 2026-07-01) is hidden on a
+	// rendered task line too, where the row's bar and date chip say it. A line
+	// still being edited is raw text and shows it, so it can be typed by hand.
+	if strings.HasPrefix(line, anchorChar) {
+		for _, r := range checklist.MetaRanges(line[len(anchorChar):]) {
+			hide(len(anchorChar)+r[0], len(anchorChar)+r[1], false)
 		}
 	}
 

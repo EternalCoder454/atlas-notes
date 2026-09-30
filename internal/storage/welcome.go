@@ -22,8 +22,8 @@ The toolbar above the note does the same thing with one click, and **Ctrl+B**, *
 Start a line with ` + "`- [ ]`" + `, or press **Ctrl+Shift+T**, and it becomes a real checkbox. Right-click a checkbox to set a priority or a due date.
 
 - [ ] Tick this off when you have read it
-- [ ] Set a priority and the colored bar shows it <!-- priority:medium -->
-- [ ] Give a task a due date and it appears beside the box <!-- priority:high due:2030-01-01 -->
+- [ ] Set a priority and the colored bar shows it 🔼
+- [ ] Give a task a due date and it appears beside the box ⏫ 📅 2030-01-01
 
 The counter above the note tracks how many are done.
 

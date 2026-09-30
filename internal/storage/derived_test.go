@@ -684,3 +684,20 @@ func TestUpdateLinksWithNothingToDo(t *testing.T) {
 		t.Errorf("a folder with nothing in it = %d, %v", n, err)
 	}
 }
+
+// The due index reads the Obsidian emoji form as well as the comment form.
+func TestDueIndexReadsEmojiForm(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "Plan", "- [ ] emoji ⏫ 📅 2026-03-01\n- [ ] comment <!-- due:2026-03-02 -->\n- [ ] bad 📅 2026-13-01\n")
+	due, err := s.DueTasks("2099-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DueTask{
+		{Path: "Plan", Line: 0, Text: "emoji", Due: "2026-03-01", Priority: "high"},
+		{Path: "Plan", Line: 1, Text: "comment", Due: "2026-03-02"},
+	}
+	if !slices.Equal(due, want) {
+		t.Errorf("due = %+v, want %+v", due, want)
+	}
+}

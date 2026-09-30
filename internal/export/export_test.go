@@ -768,3 +768,15 @@ func TestTagsSurviveExport(t *testing.T) {
 		}
 	}
 }
+
+// A task written in the Obsidian emoji form exports the same words as one
+// written with the comment.
+func TestParseReadsEmojiTasks(t *testing.T) {
+	bl := parse("- [ ] Book flights ⏫ 📅 2026-10-03\n")
+	if len(bl) != 1 || bl[0].detail != "high priority, due 3 October 2026" {
+		t.Fatalf("blocks = %+v", bl)
+	}
+	if got := bl[0].lines[0]; len(got) != 1 || got[0].text != "Book flights" {
+		t.Errorf("task text = %+v", got)
+	}
+}

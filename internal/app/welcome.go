@@ -15,6 +15,7 @@ import (
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"atlas-notes/internal/checklist"
 	"atlas-notes/internal/storage"
 	"atlas-notes/internal/ui"
 )
@@ -653,10 +654,15 @@ func isRule(line string) bool {
 
 // stripMarkers removes the markdown a snippet has no way to render: list
 // bullets and task boxes at the front, emphasis and code marks throughout, and
-// the HTML comment a task line carries its priority and due date in. That last
-// one is not decoration the reader can ignore — left in, the home screen shows
-// "Renew the travel insurance <!-- priority:high due:2026-10-05 -->".
+// the priority and due date a task line carries, as an HTML comment or as
+// Obsidian emoji. That last one is not decoration the reader can ignore — left
+// in, the home screen shows "Renew the travel insurance ⏫ 📅 2026-10-05".
 func stripMarkers(line string) string {
+	// A task's own parser knows both forms of its metadata (the comment and the
+	// Obsidian emoji), so it is asked rather than guessed at.
+	if it, ok := checklist.ParseLine(line); ok {
+		line = it.Text
+	}
 	for _, prefix := range []string{"- [ ] ", "- [x] ", "- [X] ", "> ", "- ", "* ", "+ "} {
 		if strings.HasPrefix(line, prefix) {
 			line = line[len(prefix):]
