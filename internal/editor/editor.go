@@ -117,6 +117,11 @@ type Editor struct {
 	// their "#". They are asked for when a suggestion popover opens.
 	NoteNames func() []string
 	TagNames  func() []string
+	// OnAssistant is called when a slash-menu entry for the assistant is chosen,
+	// with one of the Assistant* names, and OnInsertImage when Image is (see
+	// complete.go). Without them those entries are not offered.
+	OnAssistant   func(action string)
+	OnInsertImage func()
 
 	// LoadImage returns the bytes of the picture a note's "![](path)" names, given
 	// the path as written in the note. It runs on a goroutine, never on the main

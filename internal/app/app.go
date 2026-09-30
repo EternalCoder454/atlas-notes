@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"log"
@@ -69,8 +70,10 @@ type App struct {
 
 	// backlinksBar lists the notes that link to the open one; backlinksGen
 	// drops an answer that arrives after another note was opened.
-	backlinksBar *gtk.Box
-	backlinksGen int
+	backlinksBar    *gtk.Box
+	backlinksCancel context.CancelFunc // stops the mention search of a note left behind
+	mentionsBar     *gtk.Box           // under it: notes that name this one without linking
+	backlinksGen    int
 	// noteNamesCache is the note list behind the [[ suggestions, from
 	// noteNamesAt; see noteNamesTTL.
 	noteNamesCache []string
