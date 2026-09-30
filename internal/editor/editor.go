@@ -326,9 +326,12 @@ func (e *Editor) createTags() {
 	e.newTag("code", map[string]any{"family": "monospace", "scale": 0.94})
 	// A line of a fenced code block. The background is a neutral gray with alpha,
 	// so it lifts the block a little from a light page and from a dark one alike.
+	// The margins keep the code off the edges of its own background, which
+	// otherwise starts exactly where the first character does.
 	e.newTag("codeblock", map[string]any{
 		"family": "monospace", "scale": 0.94,
 		"paragraph-background": "rgba(128,128,128,0.14)",
+		"left-margin": 12, "right-margin": 12,
 	})
 	// Hidden markers are shrunk to nothing and drawn transparent rather than
 	// made invisible. GTK's invisible text is removed from the line's layout,

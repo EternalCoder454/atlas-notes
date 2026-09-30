@@ -55,9 +55,14 @@ func taskGroup(due, today, weekEnd string) int {
 }
 
 // groupTasks sorts tasks into their groups, keeping the order they came in.
+// A task with no words is left out: it is a box waiting to be filled in, as in
+// a template's "- [ ] ", and a row with nothing in it says nothing.
 func groupTasks(tasks []storage.DueTask, today, weekEnd string) [taskGroups][]storage.DueTask {
 	var out [taskGroups][]storage.DueTask
 	for _, t := range tasks {
+		if strings.TrimSpace(t.Text) == "" {
+			continue
+		}
 		g := taskGroup(t.Due, today, weekEnd)
 		out[g] = append(out[g], t)
 	}

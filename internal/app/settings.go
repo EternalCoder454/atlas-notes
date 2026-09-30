@@ -1148,8 +1148,10 @@ func (v *settingsView) buildUpdates() {
 	g.addRow(status, "Status", "version channel")
 
 	update := adw.NewButtonRow()
+	// Markup off before the title goes in: set after, GTK has already tried
+	// to read "&" as the start of an entity and logged a warning about it.
+	update.SetUseMarkup(false)
 	update.SetTitle("Update & Restart")
-	update.SetUseMarkup(false) // the ampersand is not markup
 	update.AddCSSClass("suggested-action")
 	update.ConnectActivated(func() {
 		a.cfg.UpdateChannel = channelFromIndex(channel.Selected())
