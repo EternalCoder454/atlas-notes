@@ -71,6 +71,7 @@ var paletteActions = []paletteAction{
 	{"find-next", "Next match", "find", true},
 	{"find-previous", "Previous match", "find", true},
 	{"home", "Home screen", "welcome start", false},
+	{"tasks", "Tasks", "todo due overdue checklist", false},
 	{"toggle-vault", "Show or hide the vault", "sidebar panel notes", false},
 	{"toggle-assistant", "Show or hide the assistant", "sidebar panel ai", false},
 	{"lock-now", "Lock protected notes now", "password secure", false},
