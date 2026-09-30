@@ -55,9 +55,10 @@ toolbarview.atlas-frame > .top-bar:backdrop {
 	font-size: 0.92em;
 }
 
+/* Faint, but not below what reads on the light frame (about 4:1). */
 .atlas-brand-version {
 	font-size: 0.8em;
-	color: alpha(currentColor, 0.5);
+	color: alpha(currentColor, 0.62);
 }
 
 /* The panes' own background is the frame's; the page draws over it. */
@@ -161,7 +162,7 @@ list.atlas-nav-footer {
 	font-size: 0.74em;
 	letter-spacing: 0.07em;
 	text-transform: uppercase;
-	color: alpha(currentColor, 0.55);
+	color: alpha(currentColor, 0.66);
 }
 
 .vault-count {
@@ -206,13 +207,13 @@ list.atlas-nav-footer {
 	background: transparent;
 }
 
-/* The vault's rows take the navigation's shape at a tighter height: a vault
-   can hold thousands of notes, and 38px rows would show a screenful of a
-   dozen. The selected note gets the same faint fill and accent pill. */
+/* The vault's rows take the navigation's shape and height (38px with their
+   padding), so the highlight is the same size wherever it sits: a faint fill
+   and the accent pill on the selected note. */
 .navigation-sidebar > row {
 	border-radius: 5px;
 	margin: 1px 0;
-	min-height: 32px;
+	min-height: 34px;
 	padding: 2px 6px;
 }
 

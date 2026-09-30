@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b8def"/>
+      <stop offset="1" stop-color="#2f6bd8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded app tile -->
+  <rect x="40" y="40" width="432" height="432" rx="104" fill="url(#bg)"/>
+
+  <!-- note card -->
+  <rect x="136" y="112" width="240" height="304" rx="28" fill="#ffffff"/>
+
+  <!-- checklist rows: checkbox + text line -->
+  <!-- row 1 (unchecked) -->
+  <rect x="168" y="168" width="36" height="36" rx="9" fill="none" stroke="#2f6bd8" stroke-width="10"/>
+  <line x1="224" y1="186" x2="336" y2="186" stroke="#cdd8e8" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- row 2 (checked) -->
+  <rect x="168" y="240" width="36" height="36" rx="9" fill="#34c759"/>
+  <path d="M177 258 l8 9 l16 -19" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="224" y1="258" x2="336" y2="258" stroke="#cdd8e8" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- row 3 (unchecked) -->
+  <rect x="168" y="312" width="36" height="36" rx="9" fill="none" stroke="#2f6bd8" stroke-width="10"/>
+  <line x1="224" y1="330" x2="316" y2="330" stroke="#cdd8e8" stroke-width="14" stroke-linecap="round"/>
+</svg>
