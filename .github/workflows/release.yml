@@ -59,6 +59,10 @@ jobs:
     # workflow is started by hand.
     if: github.ref != 'refs/heads/beta' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
+    # A cold build takes about 21 minutes (gotk4 under MSYS2); a warm one a few.
+    # Twice the cold time leaves room for a slow runner and still stops a hung
+    # build long before the six-hour default.
+    timeout-minutes: 45
     defaults:
       run:
         shell: msys2 {0}
@@ -230,6 +234,8 @@ jobs:
   android:
     name: Android
     runs-on: ubuntu-latest
+    # Two to four minutes normally; a cold gomobile build takes longer.
+    timeout-minutes: 20
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
