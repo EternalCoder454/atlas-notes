@@ -1,0 +1,84 @@
+# Flatpak manifest for Atlas Notes.
+#
+# Why this exists: Atlas Notes needs GTK 4.22, libadwaita 1.9 and GLib 2.88
+# (gotk4 compiles every binding against the newest headers), which Debian 13,
+# Ubuntu 24.04 and Linux Mint 22 do not ship. The GNOME 50 runtime does
+# (GTK 4.22.x, libadwaita 1.9.x, GLib 2.88.x), so a Flatpak runs there unchanged.
+#
+# Build from the repository root:
+#   flatpak-builder --user --install-deps-from=flathub --force-clean \
+#     --repo=repo build-dir packaging/flatpak/io.github.atlasnotes.yml
+#   flatpak build-bundle repo atlas-notes-X.flatpak io.github.atlasnotes
+#
+# The build downloads Go modules, so it needs network access (build-args below).
+# That is fine for a bundle built by our own CI. Flathub would require the
+# modules to be listed as sources instead.
+app-id: io.github.atlasnotes
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+command: atlas-notes
+
+finish-args:
+  # Windowing: Wayland, with X11 as the fallback where there is no Wayland.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # GPU rendering for GTK.
+  - --device=dri
+  # The local Ollama server on 127.0.0.1:11434, and the update check.
+  - --share=network
+  # Notifications go through the desktop portal with no extra permission.
+  #
+  # No filesystem access is granted. Notes live in the sandbox's own data
+  # directory (~/.var/app/io.github.atlasnotes). Picking pictures to embed and
+  # choosing an export destination use GtkFileDialog, which goes through the
+  # file chooser portal. To keep the vault in another folder, the person grants
+  # that one folder with `flatpak override`; see packaging/flatpak/README.md.
+
+build-options:
+  build-args:
+    - --share=network
+  env:
+    # go.mod asks for toolchain go1.27.1; the tarball below is that Go, so never
+    # go looking for another one.
+    GOTOOLCHAIN: local
+    GOFLAGS: -mod=readonly
+    CGO_ENABLED: "1"
+
+modules:
+  - name: atlas-notes
+    buildsystem: simple
+    build-commands:
+      - |
+        set -eu
+        export GOROOT="$PWD/.go-toolchain"
+        export PATH="$GOROOT/bin:$PATH"
+        export GOPATH="$PWD/.gopath" GOCACHE="$PWD/.gocache"
+        VERSION=$(sed -n 's/^var version = "\(.*\)"/\1/p' internal/app/version.go)
+        go version
+        go build -ldflags "-s -w -X 'atlas-notes/internal/app.version=$VERSION'" \
+          -o atlas-notes .
+      - install -Dm755 atlas-notes /app/bin/atlas-notes
+      # The app asks the icon theme for "atlas-notes" (internal/app/frame.go),
+      # the desktop file and the software centre want the app id. Same picture
+      # under both names.
+      - install -Dm644 assets/atlas-notes.svg /app/share/icons/hicolor/scalable/apps/io.github.atlasnotes.svg
+      - install -Dm644 assets/atlas-notes.svg /app/share/icons/hicolor/scalable/apps/atlas-notes.svg
+      - sed -e 's|^Exec=@BIN@|Exec=atlas-notes|' -e 's|^Icon=.*|Icon=io.github.atlasnotes|' packaging/io.github.atlasnotes.desktop > io.github.atlasnotes.desktop
+      - install -Dm644 io.github.atlasnotes.desktop /app/share/applications/io.github.atlasnotes.desktop
+      - install -Dm644 packaging/flatpak/io.github.atlasnotes.metainfo.xml /app/share/metainfo/io.github.atlasnotes.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .claude
+          - bin
+          - packaging/android
+      - type: archive
+        url: https://go.dev/dl/go1.27.1.linux-amd64.tar.gz
+        sha256: 63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+        strip-components: 1
+        dest: .go-toolchain
+        only-arches: [x86_64]
