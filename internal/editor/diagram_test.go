@@ -2,6 +2,7 @@ package editor
 
 import (
 	"bytes"
+	"os"
 	"testing"
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
@@ -13,6 +14,12 @@ const diagramDoc = "# T\n\n```mermaid\nflowchart TD\n  a[One<br>Sub] --> b[Two]\
 // from it; a diagram that cannot be drawn stays a code block. The buffer's text
 // is never changed. It needs a display, and is skipped without one.
 func TestDiagramBlockDrawnAndRevealed(t *testing.T) {
+	// GTK answers a second initialisation with yes after a first one failed, and
+	// the tests after this one would then crash, so a missing display is noticed
+	// first.
+	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		t.Skip("no display")
+	}
 	if !gtk.InitCheck() {
 		t.Skip("no display")
 	}
