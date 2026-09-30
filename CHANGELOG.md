@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--uninstall` removes the app and keeps your notes and settings, and `--purge`
   can delete those too after an explicit confirmation. The old
   `install-fedora.sh` URL still works.
+- **Diagrams in notes.** A ```` ```mermaid ```` flowchart is drawn in place: boxes
+  with a bold title and a quieter second line, groups with a heading, arrows
+  with labels, and highlighted boxes (any `style` or `classDef` colour becomes
+  the theme's accent). It is laid out automatically, fits the page (scrolling
+  sideways when it must), follows the theme in light and dark, and shows its
+  text when the caret is in it. Obsidian and GitHub draw the same text. The `/`
+  menu inserts a starter diagram. Exports carry it: SVG in HTML, a picture in
+  Word and OpenDocument. Anything else it cannot draw stays text, labelled
+  with the reason; oversized or malformed diagrams from a synced note are
+  refused rather than slowing the editor.
 - **A Flatpak, for distros too old to build Atlas Notes.** It needs GLib 2.88,
   GTK 4.22 and libadwaita 1.9, which Debian 13, Ubuntu 24.04 and Linux Mint 22
   don't have. Each release now carries an `atlas-notes-<version>.flatpak` on
