@@ -47,6 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Tasks page** (Ctrl+J, or Tasks under Home): every open task in the
   vault, grouped Overdue, Today, This week, Later and No date, with its note,
   priority and date. Ticking one completes it in its file.
+- **Open to the side.** A second note beside the first, from a note's menu in
+  the vault panel, a link's right-click menu, Ctrl+Shift+click or Alt+click on
+  a link, Ctrl+\\ or the command box. It saves, renames, moves, locks and
+  reloads like the main one, and the same note is never open in both.
+- **Split and merge notes.** Move a selection to a new note (Ctrl+Shift+M)
+  and a link to it takes its place, as one undo step. Merge a note into
+  another (Ctrl+Alt+M, or Merge into… in the vault panel): its text goes
+  under its own heading at the end, its front matter tags join the target's,
+  picture paths are fixed for the new folder, links to it point at that
+  heading, and it goes to the Trash. A version of both notes is kept.
+- **Version History shows what changed.** Beside Preview, Changes compares a
+  version with the note now, lines removed and added tinted and unchanged
+  runs folded away. It says so when two versions differ only in line endings.
 - **Find and replace in the open note.** Ctrl+F opens a find bar with a match
   count, previous and next, Match case, and a replace row (Ctrl+R) with Replace
   and Replace All; one undo reverts a Replace All. Matching is literal, by
@@ -90,6 +103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preview and restores one; the text replaced is kept too. A locked note's
   versions are sealed, locking seals the plain ones, and a password change
   reseals them.
+- **A bar along the bottom of the phone app**, where a thumb reaches: back
+  and forward through the notes you have opened, search, a new note, today's
+  note, and where your notes are kept. It hides while the keyboard is up.
 - **Capture on the phone.** Share text into Atlas Notes, or start a note from a
   launcher shortcut, a quick-settings tile or a home-screen widget; a new note
   opens with the keyboard up.
