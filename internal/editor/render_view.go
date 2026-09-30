@@ -164,7 +164,7 @@ func (d *deco) dress() {
 		limit := 16
 		if strings.EqualFold(b.lang, "mermaid") {
 			// One that could not be drawn says what it is, and why.
-			lang, limit = []rune(d.e.diagramNote(b)), 60
+			lang, limit = []rune(d.e.diagramNote(b)), 72
 		}
 		if len(lang) > limit {
 			lang = append(lang[:limit-1], '…')

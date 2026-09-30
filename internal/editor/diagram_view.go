@@ -406,5 +406,5 @@ func (e *Editor) diagramNote(b richBlock) string {
 	if r.ok {
 		return "Mermaid diagram"
 	}
-	return "Mermaid diagram, not drawn: " + r.msg
+	return "Mermaid: " + r.msg
 }

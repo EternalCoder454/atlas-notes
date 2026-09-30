@@ -207,9 +207,9 @@ func (p *parser) header(s string) error {
 	word := strings.ToLower(f[0])
 	if word != "flowchart" && word != "graph" {
 		if k, ok := diagramKinds[word]; ok {
-			return &UnsupportedError{Msg: "Atlas Notes draws flowcharts, not " + k}
+			return &UnsupportedError{Msg: "only flowcharts are drawn, not " + k}
 		}
-		return &UnsupportedError{Msg: "Atlas Notes draws flowcharts, and this is not one"}
+		return &UnsupportedError{Msg: "only flowcharts are drawn"}
 	}
 	dir := "TD"
 	if len(f) > 1 {
