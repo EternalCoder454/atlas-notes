@@ -605,6 +605,7 @@ func (e *Editor) tagLineFrom(lineNum int, line string, off, at int, key *caretKe
 func (e *Editor) foldChanged() {
 	e.rich.force = true
 	e.fenceStale = true
+	e.track.bad = true
 	e.markAllDirty()
 	e.scheduleReparse()
 }

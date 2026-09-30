@@ -2,6 +2,7 @@ package editor
 
 import (
 	"slices"
+	"sort"
 	"strings"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -100,6 +101,43 @@ func (e *Editor) scanOutline(raw string) {
 	s.scratch = next
 	if slices.Equal(next, s.heads) {
 		return
+	}
+	s.heads, s.scratch = next, s.heads
+	e.outlineChanged()
+}
+
+// patchOutline brings the heading list up to date after an edit inside line ln,
+// whose text is now l, when no other line changed: the same result as scanOutline,
+// for the cost of one line. The caller has seen that the line is not in a code
+// block or the front matter.
+func (e *Editor) patchOutline(ln int, l string) {
+	s := &e.outline
+	i, found := sort.Find(len(s.heads), func(i int) int { return ln - s.heads[i].line })
+	var h heading
+	ok := false
+	if l != "" && l[0] == '#' {
+		if lvl := headingLevel(l); lvl > 0 {
+			if t := headingText(l[lvl+1:]); t != "" {
+				h, ok = heading{ln, lvl, t}, true
+			}
+		}
+	}
+	if !found && !ok {
+		return
+	}
+	if found && ok && s.heads[i] == h {
+		return
+	}
+	next := append(s.scratch[:0], s.heads...)
+	switch {
+	case found && ok:
+		next[i] = h
+	case found:
+		next = append(next[:i], next[i+1:]...)
+	default:
+		next = append(next, heading{})
+		copy(next[i+1:], next[i:])
+		next[i] = h
 	}
 	s.heads, s.scratch = next, s.heads
 	e.outlineChanged()

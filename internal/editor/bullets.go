@@ -272,7 +272,7 @@ func (e *Editor) renderBullets(from, to, revealLine int) {
 func (e *Editor) applyBulletEdits(edits []bulletEdit, irreversible bool) {
 	// A swap is neither an edit that needs another render pass nor one that can
 	// change where a code fence is, so what the edit handlers noted is put back.
-	from, to, full, stale := e.dirtyFrom, e.dirtyTo, e.fullDirty, e.fenceStale
+	from, to, full, stale, track := e.dirtyFrom, e.dirtyTo, e.fullDirty, e.fenceStale, e.track
 	e.markLayoutStale()
 	e.withLoading(func() {
 		if irreversible {
@@ -286,7 +286,7 @@ func (e *Editor) applyBulletEdits(edits []bulletEdit, irreversible bool) {
 			e.replaceChar(ed)
 		}
 	})
-	e.dirtyFrom, e.dirtyTo, e.fullDirty, e.fenceStale = from, to, full, stale
+	e.dirtyFrom, e.dirtyTo, e.fullDirty, e.fenceStale, e.track = from, to, full, stale, track
 }
 
 // replaceChar swaps the one character at a line and column. The new character is
