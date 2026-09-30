@@ -80,7 +80,7 @@ func parseLine(line string, caret int, key *caretKey) []span {
 		}
 		add("marker", s, e)
 	}
-	// dim leaves a marker visible but recessive — used for list bullets, where
+	// dim leaves a marker visible but recessive. It is used for list bullets, where
 	// hiding the character would change the text's shape. A shown quote bar needs
 	// no dimming: the quote's own gray already covers it.
 	dim := func(s, e int) { add("marker", s, e) }
