@@ -58,6 +58,10 @@ func (a *App) bindImages(rel string) {
 			a.toast("Couldn't find that picture")
 			return
 		}
+		if devRun() { // see openURL: nothing leaves a test run for the desktop
+			log.Printf("atlas-notes: dev run, not opening %s", file)
+			return
+		}
 		gtk.NewFileLauncher(gio.NewFileForPath(file)).Launch(context.Background(), &a.win.Window, nil)
 	}
 }
@@ -169,6 +173,14 @@ func (a *App) openURL(raw string) {
 	case "http", "https", "mailto":
 	default:
 		a.toast("Only web and email links are opened")
+		return
+	}
+	// A benchmark, a screenshot or a test run drives the window on a virtual
+	// display, but a launcher hands the address to the real desktop's browser
+	// through the session bus. A run that clicked a link opened a browser on
+	// the desktop of whoever ran it. Such runs open nothing.
+	if devRun() {
+		log.Printf("atlas-notes: dev run, not opening %s", u.Redacted())
 		return
 	}
 	gtk.NewURILauncher(u.String()).Launch(context.Background(), &a.win.Window, nil)
