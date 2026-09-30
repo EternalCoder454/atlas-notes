@@ -4,6 +4,14 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.8.2
+- Draw flowcharts, Gantt charts and sequence diagrams right in your notes
+- Build a flowchart by dragging boxes and connecting them, with no typing needed
+- Install, update or remove Atlas Notes on any Linux distro with one command
+- On older distros such as Ubuntu 24.04 and Linux Mint 22 it installs as a Flatpak
+- Typing is about seven times faster, and a large vault indexes faster
+- The Update button knows whether a package manager or Flatpak installed the app
+
 ## 0.8.1
 - On your phone, opening a note no longer shows an error at the bottom of the screen
 
