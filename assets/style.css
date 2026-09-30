@@ -772,14 +772,16 @@ list.atlas-nav-footer {
 	margin-right: 0.4em;
 }
 
-.checklist-item checkbutton {
+.checklist-item checkbutton,
+.atlas-embed-task checkbutton {
 	min-height: 0;
 	min-width: 0;
 	padding: 0;
 	margin: 0;
 }
 
-.checklist-item checkbutton check {
+.checklist-item checkbutton check,
+.atlas-embed-task checkbutton check {
 	min-width: 0.72em;
 	min-height: 0.72em;
 	margin: 0;
@@ -1209,6 +1211,22 @@ window.atlas-glass .atlas-page .tasks-open {
 	color: alpha(@window_fg_color, 0.6);
 }
 .atlas-embed-title:hover { color: @accent_color; }
+.atlas-embed-h1 { font-size: 1.2em; font-weight: 700; }
+.atlas-embed-h2 { font-size: 1.1em; font-weight: 700; }
+.atlas-embed-h3 { font-weight: 700; }
+.atlas-embed-quote {
+	padding-left: 10px;
+	border-left: 2px solid alpha(@window_fg_color, 0.25);
+	color: alpha(@window_fg_color, 0.75);
+}
+.atlas-embed-code {
+	font-family: monospace;
+	font-size: 0.94em;
+	padding: 6px 8px;
+	border-radius: 6px;
+	background-color: alpha(@window_fg_color, 0.06);
+}
+.atlas-embed-done { opacity: 0.6; }
 
 /* ---- The properties card ---- */
 

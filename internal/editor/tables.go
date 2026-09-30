@@ -2,6 +2,7 @@ package editor
 
 import (
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -325,17 +326,46 @@ func cleanText(s string) string {
 // closed by this function, so the result is always well formed.
 func cellMarkup(cell string) string {
 	var b strings.Builder
-	writeInline(&b, cleanText(cell), 0)
+	writeInline(&b, cleanText(cell), 0, false)
 	return b.String()
 }
 
-// writeInline writes the markup for s to b.
-func writeInline(b *strings.Builder, s string, depth int) {
+// linkedMarkup is cellMarkup for text read in a page rather than a grid: a link's
+// text and a web address are drawn in the link colour, the way the editor draws
+// them.
+func linkedMarkup(text string) string {
+	var b strings.Builder
+	writeInline(&b, cleanText(text), 0, true)
+	return b.String()
+}
+
+// urlRun finds a web address in plain text.
+var urlRun = regexp.MustCompile(`https?://[^\s<>]+`)
+
+// writeLinked writes plain text with its web addresses in the link colour.
+func writeLinked(b *strings.Builder, s string) {
+	at := 0
+	for _, m := range urlRun.FindAllStringIndex(s, -1) {
+		end := m[0] + len(strings.TrimRight(s[m[0]:m[1]], ".,;:!?)"))
+		b.WriteString(escapeMarkup(s[at:m[0]]))
+		b.WriteString(`<span foreground="` + linkColor + `" underline="single">` + escapeMarkup(s[m[0]:end]) + `</span>`)
+		at = end
+	}
+	b.WriteString(escapeMarkup(s[at:]))
+}
+
+// writeInline writes the markup for s to b. links draws the links in colour.
+func writeInline(b *strings.Builder, s string, depth int, links bool) {
 	start := 0 // where the text not yet written begins
 	flush := func(end int) {
-		if end > start {
-			b.WriteString(escapeMarkup(s[start:end]))
+		if end <= start {
+			return
 		}
+		if links {
+			writeLinked(b, s[start:end])
+			return
+		}
+		b.WriteString(escapeMarkup(s[start:end]))
 	}
 	i := 0
 	for i < len(s) {
@@ -367,7 +397,7 @@ func writeInline(b *strings.Builder, s string, depth int) {
 				if tag, n, end := emphasis(s, i); end >= 0 {
 					flush(i)
 					b.WriteString("<" + tag + ">")
-					writeInline(b, s[i+n:end], depth+1)
+					writeInline(b, s[i+n:end], depth+1, links)
 					b.WriteString("</" + tag + ">")
 					i = end + n
 					start = i
@@ -382,10 +412,16 @@ func writeInline(b *strings.Builder, s string, depth int) {
 			if at < len(s) && s[at] == '[' {
 				if text, end, ok := linkText(s, at); ok {
 					flush(i)
+					if links {
+						b.WriteString(`<span foreground="` + linkColor + `">`)
+					}
 					if depth < maxInlineDepth {
-						writeInline(b, text, depth+1)
+						writeInline(b, text, depth+1, false)
 					} else {
 						b.WriteString(escapeMarkup(text))
+					}
+					if links {
+						b.WriteString("</span>")
 					}
 					i = end
 					start = i
