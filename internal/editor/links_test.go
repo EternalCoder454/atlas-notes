@@ -376,77 +376,77 @@ func TestByteOffset(t *testing.T) {
 func TestLinkSpans(t *testing.T) {
 	h := hidden()
 	cases := []struct {
-		name   string
-		line   string
-		reveal bool
-		want   [][2]string
+		name  string
+		line  string
+		caret int // -1 when the caret is not on the line
+		want  [][2]string
 	}{
-		{"wiki link and tag after accents and emoji", "é [[Note]] 😀 #tag", false, [][2]string{
+		{"wiki link and tag after accents and emoji", "é [[Note]] 😀 #tag", -1, [][2]string{
 			{"wikilink", "[[Note]]"}, {h, "[["}, {h, "]]"}, {"hashtag", "#tag"},
 		}},
-		{"revealed keeps the brackets", "é [[Note]] 😀 #tag", true, [][2]string{
+		{"the caret in a link keeps its brackets", "é [[Note]] 😀 #tag", 5, [][2]string{
 			{"wikilink", "[[Note]]"}, {"hashtag", "#tag"},
 		}},
-		{"alias hides the target and heading", "[[Work/Todo#Top|the list]] é", false, [][2]string{
+		{"alias hides the target and heading", "[[Work/Todo#Top|the list]] é", -1, [][2]string{
 			{"wikilink", "[[Work/Todo#Top|the list]]"}, {h, "[["}, {h, "]]"}, {h, "Work/Todo#Top|"},
 		}},
-		{"no alias shows the heading", "[[Todo#Top]]", false, [][2]string{
+		{"no alias shows the heading", "[[Todo#Top]]", -1, [][2]string{
 			{"wikilink", "[[Todo#Top]]"}, {h, "[["}, {h, "]]"},
 		}},
-		{"an empty alias does not hide the target", "[[Todo|]]", false, [][2]string{
+		{"an empty alias does not hide the target", "[[Todo|]]", -1, [][2]string{
 			{"wikilink", "[[Todo|]]"}, {h, "[["}, {h, "]]"},
 		}},
-		{"markdown link shows its text", "é [text](https://x.org/é) 😀", false, [][2]string{
+		{"markdown link shows its text", "é [text](https://x.org/é) 😀", -1, [][2]string{
 			{"url", "text"}, {h, "["}, {h, "](https://x.org/é)"},
 		}},
-		{"markdown link, revealed", "é [text](https://x.org/é) 😀", true, [][2]string{
+		{"markdown link, caret in it", "é [text](https://x.org/é) 😀", 4, [][2]string{
 			{"url", "text"},
 		}},
-		{"a link with no text is left as written", "[](https://x.org)", false, [][2]string{
+		{"a link with no text is left as written", "[](https://x.org)", -1, [][2]string{
 			{"url", "[](https://x.org)"},
 		}},
-		{"bare URL keeps its sentence out", "é see https://example.com/a?b=1. 😀", false, [][2]string{
+		{"bare URL keeps its sentence out", "é see https://example.com/a?b=1. 😀", -1, [][2]string{
 			{"url", "https://example.com/a?b=1"},
 		}},
-		{"embedded note leaves the bang", "![[Note]] x", false, [][2]string{
+		{"embedded note leaves the bang", "![[Note]] x", -1, [][2]string{
 			{"wikilink", "[[Note]]"}, {h, "[["}, {h, "]]"},
 		}},
-		{"images stay plain", "![[pic.png]] ![alt](pic.png) é", false, nil},
-		{"code stays plain", "`[[x]]` and `#y` then #z", false, [][2]string{{"hashtag", "#z"}}},
-		{"headings are not tags", "## Heading", false, nil},
-		{"no links", "plain text é 😀", false, nil},
-		{"empty", "", false, nil},
+		{"images stay plain", "![[pic.png]] ![alt](pic.png) é", -1, nil},
+		{"code stays plain", "`[[x]]` and `#y` then #z", -1, [][2]string{{"hashtag", "#z"}}},
+		{"headings are not tags", "## Heading", -1, nil},
+		{"no links", "plain text é 😀", -1, nil},
+		{"empty", "", -1, nil},
 
 		// Lines that start with the character standing in for a checkbox.
-		{"anchor then tag", anchorChar + "#work today", false, [][2]string{{"hashtag", "#work"}}},
-		{"anchor then wiki link", anchorChar + "call [[Ünï]] é", false, [][2]string{
+		{"anchor then tag", anchorChar + "#work today", -1, [][2]string{{"hashtag", "#work"}}},
+		{"anchor then wiki link", anchorChar + "call [[Ünï]] é", -1, [][2]string{
 			{"wikilink", "[[Ünï]]"}, {h, "[["}, {h, "]]"},
 		}},
-		{"anchor, accents, markdown link", anchorChar + "café [text](https://x.org/é) 😀", false, [][2]string{
+		{"anchor, accents, markdown link", anchorChar + "café [text](https://x.org/é) 😀", -1, [][2]string{
 			{"url", "text"}, {h, "["}, {h, "](https://x.org/é)"},
 		}},
-		{"task metadata is not scanned", anchorChar + "task #a <!-- p:high #b [[c]] -->", false, [][2]string{
+		{"task metadata is not scanned", anchorChar + "task #a <!-- p:high #b [[c]] -->", -1, [][2]string{
 			{"hashtag", "#a"},
 		}},
 	}
 	for _, c := range cases {
-		spans := linkSpans(c.line, c.reveal)
+		spans := linkSpans(c.line, c.caret)
 		if got := covered(c.line, spans); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: linkSpans(%q, %v) covers %q, want %q", c.name, c.line, c.reveal, got, c.want)
+			t.Errorf("%s: linkSpans(%q, %d) covers %q, want %q", c.name, c.line, c.caret, got, c.want)
 		}
 	}
 
 	t.Run("offsets are characters, not bytes", func(t *testing.T) {
 		// "é" is two bytes and one character; a byte offset would be 1 too far.
-		if got := linkSpans("é[[a]]", true); !reflect.DeepEqual(got, []span{{"wikilink", 1, 6}}) {
+		if got := linkSpans("é[[a]]", 2); !reflect.DeepEqual(got, []span{{"wikilink", 1, 6}}) {
 			t.Errorf("é[[a]] = %v", got)
 		}
 		// The anchor is three bytes and one character, and it counts in the
 		// buffer as one.
-		if got := linkSpans(anchorChar+"é #t", true); !reflect.DeepEqual(got, []span{{"hashtag", 3, 5}}) {
+		if got := linkSpans(anchorChar+"é #t", 0); !reflect.DeepEqual(got, []span{{"hashtag", 3, 5}}) {
 			t.Errorf("anchor line = %v", got)
 		}
-		if got := linkSpans("😀 #t", true); !reflect.DeepEqual(got, []span{{"hashtag", 2, 4}}) {
+		if got := linkSpans("😀 #t", 0); !reflect.DeepEqual(got, []span{{"hashtag", 2, 4}}) {
 			t.Errorf("emoji line = %v", got)
 		}
 	})
@@ -460,7 +460,7 @@ func TestLinkSpansAllocateNothingWithoutLinks(t *testing.T) {
 		"",
 	}
 	for _, line := range lines {
-		if n := testing.AllocsPerRun(50, func() { _ = linkSpans(line, false) }); n != 0 {
+		if n := testing.AllocsPerRun(50, func() { _ = linkSpans(line, -1) }); n != 0 {
 			t.Errorf("linkSpans(%q) allocates %v times", line, n)
 		}
 	}
@@ -589,14 +589,16 @@ func TestLinkSpansStayInBounds(t *testing.T) {
 		}
 		line := b.String()
 		chars := utf8.RuneCountInString(line)
-		for _, reveal := range []bool{false, true} {
-			for _, sp := range linkSpans(line, reveal) {
+		base := linkSpans(line, -1)
+		for caret := -1; caret <= chars+1; caret++ {
+			got := linkSpans(line, caret)
+			for _, sp := range got {
 				if sp.start < 0 || sp.start > sp.end || sp.end > chars {
-					t.Fatalf("linkSpans(%q, %v): %+v is outside 0..%d", line, reveal, sp, chars)
+					t.Fatalf("linkSpans(%q, %d): %+v is outside 0..%d", line, caret, sp, chars)
 				}
-				if reveal && (sp.tag == "invisible" || sp.tag == "marker") {
-					t.Fatalf("linkSpans(%q, true) hides %+v", line, sp)
-				}
+			}
+			if !onlyUnhides(base, got) {
+				t.Fatalf("linkSpans(%q, %d) = %v, which is not %v with some markers shown", line, caret, got, base)
 			}
 		}
 		for off := -1; off <= chars+1; off++ {
