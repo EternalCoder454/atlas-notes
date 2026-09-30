@@ -83,6 +83,7 @@ var paletteActions = []paletteAction{
 	{"italic", "Italic", "format", true},
 	{"code", "Inline code", "format", true},
 	{"task", "Turn the line into a task", "checkbox todo", true},
+	{"show-outline", "Show outline", "headings contents toc sections", true},
 	{"heading1", "Heading", "title format", true},
 	{"heading2", "Subheading", "format", true},
 	{"body-text", "Plain text", "paragraph format", true},
@@ -333,6 +334,10 @@ func buildPalette(input string, in paletteInput) []palEntry {
 	return out
 }
 
+// paletteIcons are the commands that have an icon of their own in the box, by
+// action name; the rest share the command icon.
+var paletteIcons = map[string]string{"show-outline": "atlasnotes-outline-symbolic"}
+
 func palIcon(k palKind) string {
 	switch k {
 	case palNote:
@@ -525,7 +530,11 @@ func (v *paletteView) row(e palEntry) *gtk.ListBoxRow {
 	box.SetMarginBottom(6)
 	box.SetMarginStart(12)
 	box.SetMarginEnd(12)
-	box.Append(gtk.NewImageFromIconName(palIcon(e.Kind)))
+	icon := palIcon(e.Kind)
+	if own := paletteIcons[e.Target]; own != "" && e.Kind == palAction {
+		icon = own
+	}
+	box.Append(gtk.NewImageFromIconName(icon))
 
 	title := gtk.NewLabel(e.Title)
 	title.SetXAlign(0)

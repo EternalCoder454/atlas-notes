@@ -1209,3 +1209,90 @@ window.atlas-glass .atlas-page .tasks-open {
 	color: alpha(@window_fg_color, 0.6);
 }
 .atlas-embed-title:hover { color: @accent_color; }
+
+/* ---- The properties card ---- */
+
+/* A note's front matter as a card at the top of the page. The tints are alphas of
+   the foreground colour, so the card suits a light page and a dark one alike, and
+   the chips take the accent. */
+.atlas-props {
+	padding: 8px 12px 6px 12px;
+	border-radius: 12px;
+	border: 1px solid alpha(@window_fg_color, 0.10);
+	background-color: alpha(@window_fg_color, 0.04);
+}
+.atlas-props-title {
+	font-size: 0.8em;
+	font-weight: 700;
+	color: alpha(@window_fg_color, 0.55);
+}
+.atlas-props-source,
+.atlas-prop-remove {
+	min-width: 22px;
+	min-height: 22px;
+	padding: 0;
+	opacity: 0.55;
+}
+.atlas-props-source:hover,
+.atlas-prop-remove:hover { opacity: 1; }
+.atlas-prop-remove { opacity: 0; }
+.atlas-prop-row:hover .atlas-prop-remove { opacity: 0.55; }
+.atlas-prop-row:hover .atlas-prop-remove:hover { opacity: 1; }
+.atlas-prop-row { min-height: 34px; }
+.atlas-prop-icon { color: alpha(@window_fg_color, 0.55); }
+.atlas-prop-name { color: alpha(@window_fg_color, 0.65); }
+.atlas-prop-entry,
+.atlas-prop-add-chip {
+	min-height: 26px;
+	padding: 0 8px;
+	border-radius: 6px;
+	border: none;
+	box-shadow: none;
+	background-color: transparent;
+}
+.atlas-prop-entry:focus-within,
+.atlas-prop-add-chip:focus-within { background-color: alpha(@window_fg_color, 0.07); }
+.atlas-prop-entry:hover { background-color: alpha(@window_fg_color, 0.04); }
+.atlas-prop-add-chip { min-width: 0; }
+.atlas-prop-date { padding: 0 8px; min-height: 26px; }
+.atlas-prop-readonly { color: alpha(@window_fg_color, 0.5); font-style: italic; padding: 0 8px; }
+.atlas-chip {
+	border-radius: 999px;
+	padding: 0 2px 0 10px;
+	background-color: alpha(@accent_color, 0.14);
+	color: @accent_color;
+}
+.atlas-chip-text { font-size: 0.92em; }
+.atlas-chip:hover { background-color: alpha(@accent_color, 0.22); }
+.atlas-chip-remove {
+	min-width: 18px;
+	min-height: 18px;
+	padding: 0;
+	margin: 2px 0;
+	border-radius: 999px;
+	opacity: 0.6;
+}
+.atlas-chip-remove:hover { opacity: 1; }
+.atlas-props-add {
+	padding: 2px 8px;
+	min-height: 26px;
+	color: alpha(@window_fg_color, 0.6);
+}
+.atlas-props-add:hover { color: @window_fg_color; }
+
+/* ---- The outline rail ---- */
+
+/* A column of small marks at the page's right edge, one per heading, the section
+   being read in the accent colour. Its list opens on hover. */
+.atlas-outline-rail { padding: 10px 4px; }
+.atlas-outline-mark {
+	min-height: 3px;
+	margin: 2px 0;
+	border-radius: 2px;
+	background-color: alpha(@window_fg_color, 0.26);
+}
+.atlas-outline-rail:hover .atlas-outline-mark { background-color: alpha(@window_fg_color, 0.45); }
+.atlas-outline-mark.current,
+.atlas-outline-rail:hover .atlas-outline-mark.current { background-color: @accent_color; }
+.atlas-outline-item { padding: 3px 10px; min-height: 26px; }
+.atlas-outline-item.current { color: @accent_color; font-weight: 700; }

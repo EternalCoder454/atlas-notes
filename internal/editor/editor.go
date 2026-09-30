@@ -107,6 +107,11 @@ type Editor struct {
 	// rich is the state of the quotes, callouts, code blocks and folds (see
 	// render.go).
 	rich richState
+	// props is the state of the properties card drawn in place of a note's front
+	// matter (see props.go).
+	props propsState
+	// outline is the note's headings and the rail that shows them (see outline.go).
+	outline outlineState
 	// forceReparse lets the next render pass run with text selected (see
 	// unfoldAtCaret).
 	forceReparse bool
@@ -214,6 +219,9 @@ func New() *Editor {
 		if keyval != gdk.KEY_Return && keyval != gdk.KEY_KP_Enter {
 			return false
 		}
+		if e.cardFocused() {
+			return false // Enter in the properties card is the card's
+		}
 		if state&(gdk.ShiftMask|gdk.ControlMask|gdk.AltMask) != 0 || e.buffer.HasSelection() {
 			return false
 		}
@@ -231,6 +239,7 @@ func New() *Editor {
 	e.installComplete()
 	e.installImages()
 	e.installRender()
+	e.installOutline()
 
 	e.buffer.ConnectMarkSet(func(_ *gtk.TextIter, mark *gtk.TextMark) {
 		if mark.Name() == "selection_bound" {
@@ -283,7 +292,7 @@ func New() *Editor {
 }
 
 // Widget returns the scrollable editor widget.
-func (e *Editor) Widget() gtk.Widgetter { return e.scroll }
+func (e *Editor) Widget() gtk.Widgetter { return e.outline.rail.frame }
 
 // createTags defines the rendered look of each markdown construct. Spacing is
 // part of the styling: headings get air above them and list items hang their
@@ -354,11 +363,13 @@ func (e *Editor) newTag(name string, props map[string]any) {
 // SetContent replaces the text without firing OnChanged, then re-renders. The
 // caret is placed at the top, so opening a note shows its beginning.
 func (e *Editor) SetContent(s string) {
-	e.clearItems()  // the old note's checkboxes go with its text
-	e.clearImages() // and so do its pictures
-	e.clearTables() // and its tables
-	e.clearRich()   // and its folds
-	e.clearEmbeds() // and its embedded notes
+	e.clearItems()   // the old note's checkboxes go with its text
+	e.clearImages()  // and so do its pictures
+	e.clearTables()  // and its tables
+	e.clearRich()    // and its folds
+	e.clearProps()   // and its properties
+	e.clearOutline() // and its outline
+	e.clearEmbeds()  // and its embedded notes
 	e.closeSuggest()
 	e.sg.dismissed = -1 // an Escape in the last note says nothing about this one
 
@@ -532,6 +543,7 @@ func (e *Editor) reparse() {
 	// A table is drawn or shown whole, so a pass that touches one covers it.
 	from, to = e.widenForTables(from, to, lastLine)
 	from, to = e.widenForRich(from, to, lastLine)
+	from, to = e.widenForProps(from, to)
 	e.lastCursor = cursorLine
 	e.clearDirty()
 
@@ -543,6 +555,7 @@ func (e *Editor) reparse() {
 	e.syncImages(from, to)
 	e.syncTables(from, to)
 	e.syncEmbeds(from, to)
+	e.syncProps(from)
 	e.syncRich(revealLine)
 	e.hideFoldedRows()
 
@@ -575,6 +588,12 @@ func (e *Editor) refreshFence(from, to, lastLine int) (int, int) {
 	e.fence, e.fenceLines, e.fenceStale = cur, lastLine+1, false
 	// The same text is at hand for finding out whether a table is possible.
 	e.hasPipe = strings.IndexByte(raw, '|') >= 0
+	// The front matter, if the note has one, and the headings, so that the rail
+	// (see outline.go) can follow them.
+	if hi, moved := e.scanProps(raw); moved {
+		from, to = 0, max(to, hi)
+	}
+	e.scanOutline(raw)
 	if e.scanRich(raw, from, to, lastLine+1) {
 		from, to = 0, lastLine
 	}
@@ -704,7 +723,9 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 		for nextTable < len(tables) && lineNum >= tables[nextTable].line+tables[nextTable].lines {
 			nextTable++
 		}
-		if e.rich.hiddenAt(lineNum) {
+		if e.inFront(lineNum) {
+			e.tagFrontLine(lineNum, parse, cursorLine >= 0 && cursorLine <= e.props.doc.End, at, keyed)
+		} else if e.rich.hiddenAt(lineNum) {
 			e.tagFolded(lineNum, parse)
 		} else if role := roleOf(e.fence, lineNum, parse); role != fenceNone {
 			e.tagFenceLine(lineNum, parse, role, revealed(e.rich.blockAt(lineNum), cursorLine))

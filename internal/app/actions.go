@@ -56,6 +56,7 @@ func (a *App) registerActions() {
 		{"italic", []string{"<Control>i"}, func() { a.withEditor((*editor.Editor).ToggleItalic) }},
 		{"code", []string{"<Control>e"}, func() { a.withEditor((*editor.Editor).ToggleCode) }},
 		{"task", []string{"<Control><Shift>t"}, func() { a.withEditor((*editor.Editor).ToggleTask) }},
+		{"show-outline", []string{"<Control><Shift>o"}, a.showOutline},
 		{"heading1", []string{"<Control>1"}, func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(1) }) }},
 		{"heading2", []string{"<Control>2"}, func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(2) }) }},
 		{"body-text", []string{"<Control>0"}, func() { a.withEditor(func(e *editor.Editor) { e.SetHeading(0) }) }},
@@ -268,6 +269,7 @@ func (a *App) showShortcuts() {
 			{"Ctrl+0", "Plain text"},
 			{"Ctrl+Shift+T", "Turn the line into a task"},
 			{"Ctrl+Shift+I", "Insert an image from a file"},
+			{"Ctrl+Shift+O", "Show the outline of the note"},
 		}},
 		{"App", []shortcutRow{
 			{"Ctrl+Shift+L", "Lock protected notes now"},
@@ -328,4 +330,15 @@ func (a *App) showAbout() {
 	about.SetWebsite("https://github.com/EternalCoder454/atlas-notes")
 	about.SetIssueURL("https://github.com/EternalCoder454/atlas-notes/issues")
 	about.Present(a.win)
+}
+
+// showOutline opens the list of the open note's headings, which is what the rail
+// at the page's edge shows on hover. A note with too few headings has no outline.
+func (a *App) showOutline() {
+	if a.editor == nil || !a.noteOpen() {
+		return
+	}
+	if !a.editor.ShowOutline() {
+		a.toast("This note needs three headings for an outline")
+	}
 }
