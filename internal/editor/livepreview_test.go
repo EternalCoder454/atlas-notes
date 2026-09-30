@@ -115,11 +115,12 @@ func TestBlockPrefixesFollowTheCaret(t *testing.T) {
 		{"## Title", 4, []string{"## "}},
 		{"#### Deep", 5, nil},
 		{"#### Deep", 6, []string{"#### "}},
-		// A quote's ">" is never hidden: it is the quote's bar, dimmed away
-		// from the caret (checked below).
-		{"> Quote", -1, nil},
+		// A quote's "> " goes like a heading's "#"; the bar beside the quote is a
+		// widget (see render.go).
+		{"> Quote", -1, []string{"> "}},
 		{"> Quote", 1, nil},
-		{"> Quote", 4, nil},
+		{"> Quote", 2, nil},
+		{"> Quote", 4, []string{"> "}},
 		// A heading's inline markers are the caret's business, not the prefix's.
 		{"# A **b** c", 6, []string{"# "}},
 		{"# A **b** c", 2, []string{"**", "**"}},
@@ -129,18 +130,6 @@ func TestBlockPrefixesFollowTheCaret(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("parseLineSpans(%q, %d) hides %q, want %q", c.line, c.caret, got, c.want)
 		}
-	}
-	// The quote bar is dimmed away from the caret, and plain beside it.
-	dimmed := func(caret int) bool {
-		for _, sp := range parseLineSpans("> Quote", caret) {
-			if sp.tag == "marker" && sp.start == 0 && sp.end == 1 {
-				return true
-			}
-		}
-		return false
-	}
-	if !dimmed(-1) || !dimmed(4) || dimmed(1) {
-		t.Errorf("quote bar: dimmed at -1 %v, at 4 %v, at 1 %v; want true, true, false", dimmed(-1), dimmed(4), dimmed(1))
 	}
 	// List bullets stay visible wherever the caret is: dimmed, never hidden.
 	for _, caret := range []int{-1, 0, 2, 5} {
