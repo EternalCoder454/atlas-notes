@@ -50,7 +50,7 @@ func TestMergeNoteAppendsRewritesLinksAndTrashes(t *testing.T) {
 		t.Errorf("target is %q, want %q", got, want)
 	}
 	third, _ := s.ReadNote("Third")
-	if want := "See [[Target]] and [[Target#Part|the part]] and [[Target]].\n"; third != want {
+	if want := "See [[Target#Source|Source]] and [[Target#Part|the part]] and [[Target]].\n"; third != want {
 		t.Errorf("links are %q, want %q", third, want)
 	}
 	if s.NoteExists("Source") {
@@ -96,6 +96,9 @@ func TestMergeNoteKeepsTheTextWhenTheTrashFails(t *testing.T) {
 	if _, err := s.MergeNote("A", "B"); !errors.Is(err, ErrTrashFailed) {
 		t.Fatalf("err = %v, want ErrTrashFailed", err)
 	}
+	if got, _ := s.ReadNote("B"); got != "b\n" {
+		t.Errorf("B is %q after a failed merge", got)
+	}
 	if !s.NoteExists("A") {
 		t.Error("the note is gone though it could not be trashed")
 	}
@@ -114,5 +117,55 @@ func TestExportedCreateNoteNeverWritesOverANote(t *testing.T) {
 	}
 	if got, _ := s.ReadNote("N"); got != "one" {
 		t.Errorf("N is %q", got)
+	}
+}
+
+func TestMergedTextDemotesHeadingsAndKeepsCodeAlone(t *testing.T) {
+	got := MergedText("x", "N", "# N\n\n# Big\n## Small\n```\n# not a heading\n```\n")
+	for _, want := range []string{"\n## Big\n", "\n### Small\n", "\n# not a heading\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestMergedTextNumbersADuplicateHeading(t *testing.T) {
+	got, heading := mergedText("# T\n\n## N\n\nold\n", "N", "new", "", "")
+	if heading != "N 2" || !strings.Contains(got, "\n## N 2\n") {
+		t.Errorf("heading %q in %q", heading, got)
+	}
+}
+
+func TestMergedTextFrontMatter(t *testing.T) {
+	got := MergedText("---\ntags: [a]\n---\nbody", "N", "---\ntags: [b, a]\n---\n# N\ntext")
+	if !strings.HasPrefix(got, "---\ntags: [a, b]\n---\nbody") || strings.Count(got, "---") != 2 {
+		t.Errorf("got %q", got)
+	}
+	if got := MergedText("plain", "N", "---\ntags: [b]\n---\ntext"); strings.Contains(got, "---") {
+		t.Errorf("front matter leaked: %q", got)
+	}
+}
+
+func TestMergedTextRelinksPictures(t *testing.T) {
+	got, _ := mergedText("x", "N", "![](../attachments/a.png) ![](pic.png) [w](https://x.y)", "Work", "")
+	for _, want := range []string{"](attachments/a.png)", "](Work/pic.png)", "](https://x.y)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestMergeNoteRestoresTheTargetWhenTheTrashFails(t *testing.T) {
+	s := testStore(t)
+	tr := newFakeTrash(t)
+	tr.fail = errors.New("no trash here")
+	s.Trash = tr.trash
+	s.WriteNote("A", "# A\n\nx\n")
+	s.WriteNote("B", "b\n")
+	if _, err := s.MergeNote("A", "B"); err == nil {
+		t.Fatal("no error")
+	}
+	if got, _ := s.ReadNote("B"); got != "b\n" {
+		t.Errorf("B is %q after a failed merge", got)
 	}
 }
