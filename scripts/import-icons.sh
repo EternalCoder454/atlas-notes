@@ -103,6 +103,52 @@ map=(
     quick_phrases:prompts
     arrow_upward:send
     content_copy:copy
+    auto_awesome:sparkle
+    summarize:summarize
+
+    # Note properties
+    text_fields:property-text
+    numbers:property-number
+    calendar_month:property-date
+    sell:tag
+    list:property-list
+
+    # Callouts
+    edit_note:callout-note
+    lightbulb_2:callout-tip
+    warning:warning
+    error:error
+    check_circle:callout-success
+    help:callout-question
+    list_alt:callout-example
+    task_alt:callout-todo
+
+    # Editor
+    ink_highlighter:highlight
+    table:table
+    image:image
+    link:link
+    add_link:link-add
+    toc:outline
+    chevron_right:chevron-right
+    keyboard_command_key:command
+
+    # Versions, splitting and panes
+    difference:diff
+    restore_from_trash:restore
+    call_split:split-note
+    call_merge:merge-note
+    splitscreen_right:split-right
+
+    # Tasks
+    view_kanban:tasks-board
+    alarm:alarm
+    inbox:inbox
+    event:event
+
+    # Going back and forward
+    arrow_back:back
+    arrow_forward:forward
 )
 
 fail=0
