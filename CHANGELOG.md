@@ -22,7 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the theme's accent). It is laid out automatically, fits the page (scrolling
   sideways when it must), follows the theme in light and dark, and shows its
   text when the caret is in it. Obsidian and GitHub draw the same text. The `/`
-  menu inserts a starter diagram. Exports carry it: SVG in HTML, a picture in
+  menu inserts a starter diagram. **Gantt charts** (sections, done, active and
+  critical tasks, milestones, `after` dependencies, weekends excluded, a line
+  for today) and **sequence diagrams** (participants and actors, every arrow
+  kind, activation bars, notes, and loop, alt, opt, par, critical, break and
+  rect frames) are drawn too, each with its own `/` menu entry. Exports carry it: SVG in HTML, a picture in
   Word and OpenDocument. Anything else it cannot draw stays text, labelled
   with the reason; oversized or malformed diagrams from a synced note are
   refused rather than slowing the editor.
