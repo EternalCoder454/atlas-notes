@@ -32,8 +32,25 @@ func (a *App) wireEditorLinks() {
 	e.OnOpenTag = a.showTagged
 	e.OnOpenURL = a.openURL
 	e.NoteNames = a.noteNames
+	e.ReadNote = a.readEmbedded
 	e.TagNames = a.tagNames
 	e.OnImageError = func(err error) { a.toast(imageErrorText(err)) }
+}
+
+// readEmbedded is the text of the note an "![[Note]]" embed names, found the way
+// a link to it is (see openLinkedNote) but never created: an embed that leads
+// nowhere is a note that is not there, not a note to make.
+func (a *App) readEmbedded(target string) (string, error) {
+	if a.store == nil {
+		return "", errors.New("no vault is open")
+	}
+	notes := a.noteNames()
+	for _, t := range []string{target, strings.TrimSuffix(target, ".md")} {
+		if rel := markup.Resolve(t, notes); rel != "" {
+			return a.store.ReadNote(rel)
+		}
+	}
+	return "", errors.New("note not found")
 }
 
 // bindImages points the editor's pictures at the note being opened: a
