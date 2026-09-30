@@ -13,6 +13,14 @@ func BenchmarkParseLineSpans(b *testing.B) {
 	}
 }
 
+// BenchmarkParseLineSpansCaret is the caret's own line: the caret sits inside the
+// bold, so its markers are left out and the rest are hidden.
+func BenchmarkParseLineSpansCaret(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		parseLineSpans(richLine, 10)
+	}
+}
+
 func BenchmarkParseLineSpansHeading(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		parseLineSpans("## A heading with **bold** in it", -1)
