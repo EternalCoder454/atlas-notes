@@ -17,7 +17,7 @@
 # ~/.local/share/atlas-notes are yours, not the package's.
 
 pkgname=atlas-notes
-pkgver=0.8.1
+pkgver=0.8.2
 pkgrel=1
 pkgdesc="Fast local-first notes and checklists with an optional local AI assistant"
 arch=('x86_64' 'aarch64')
@@ -28,7 +28,7 @@ makedepends=('go>=1.26' 'gcc' 'pkgconf' 'gobject-introspection')
 checkdepends=('desktop-file-utils')
 optdepends=('ollama: runs the local model the optional AI assistant talks to')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
-sha256sums=('a960afd2e19a33ae186f0fa333cf24cf246f8771f1ba82aa75294dfa63a01bea')
+sha256sums=('39a0732522359bd40627d6bbbe5fe13b5ab1187126504fc8a8b48d22acca98a0')
 
 build() {
     cd "$pkgname-$pkgver"
