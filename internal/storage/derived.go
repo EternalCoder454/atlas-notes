@@ -60,18 +60,29 @@ CREATE TABLE IF NOT EXISTS note_due (
 CREATE INDEX IF NOT EXISTS idx_note_due_due  ON note_due(due);
 CREATE INDEX IF NOT EXISTS idx_note_due_note ON note_due(note_id);
 
--- A note that becomes locked leaves all three at once.
+-- Open tasks with no date. note_due holds the dated ones, and the Tasks page
+-- lists both, so the two together are every open task in the vault.
+CREATE TABLE IF NOT EXISTS note_undated (
+	note_id  INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+	line     INTEGER NOT NULL,
+	text     TEXT    NOT NULL,
+	priority TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_note_undated_note ON note_undated(note_id);
+
+-- A note that becomes locked leaves all of them at once.
 CREATE TRIGGER IF NOT EXISTS derived_lock AFTER UPDATE OF locked ON notes
 WHEN new.locked = 1 BEGIN
 	DELETE FROM note_links WHERE note_id = new.id;
 	DELETE FROM note_tags  WHERE note_id = new.id;
 	DELETE FROM note_due   WHERE note_id = new.id;
+	DELETE FROM note_undated WHERE note_id = new.id;
 END;
 `
 
 // derivedTables are the tables deriveContent keeps, named once so the delete
 // and the schema cannot disagree about what a note's rows are.
-var derivedTables = []string{"note_links", "note_tags", "note_due"}
+var derivedTables = []string{"note_links", "note_tags", "note_due", "note_undated"}
 
 // migrateDerived adds the tables to a database that does not have them. New
 // tables are empty, so every note is queued for reading, exactly as when the
@@ -81,7 +92,7 @@ func (s *Store) migrateDerived() error {
 	var existing int
 	if err := s.db.QueryRow(`
 		SELECT count(*) FROM sqlite_master
-		WHERE type = 'table' AND name IN ('note_links', 'note_tags', 'note_due')`).Scan(&existing); err != nil {
+		WHERE type = 'table' AND name IN ('note_links', 'note_tags', 'note_due', 'note_undated')`).Scan(&existing); err != nil {
 		return err
 	}
 	if _, err := s.db.Exec(derivedSchema); err != nil {
@@ -126,9 +137,19 @@ func deriveContent(tx *sql.Tx, id int64, body string) error {
 		}
 	}
 
+	fenced := false
 	for n, line := range strings.Split(body, "\n") {
+		// "- [ ]" inside a code block is code, as the editor treats it, and a
+		// list of every open task must not offer it.
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			continue
+		}
 		it, ok := checklist.ParseLine(line)
-		if !ok || it.Checked || !validDate(it.DueDate) {
+		if !ok || it.Checked {
 			continue
 		}
 		// A priority that is not one of the known ones sorts as none, so it is
@@ -136,6 +157,14 @@ func deriveContent(tx *sql.Tx, id int64, body string) error {
 		priority := it.Priority
 		if !priority.Valid() {
 			priority = checklist.PriorityNone
+		}
+		if !validDate(it.DueDate) {
+			if _, err := tx.Exec(
+				`INSERT INTO note_undated(note_id, line, text, priority) VALUES (?, ?, ?, ?)`,
+				id, n, it.Text, string(priority)); err != nil {
+				return err
+			}
+			continue
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO note_due(note_id, line, text, due, priority) VALUES (?, ?, ?, ?, ?)`,
