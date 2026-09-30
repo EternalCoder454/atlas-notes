@@ -866,3 +866,32 @@ window.atlas-glass dialog-host > dialog sheet list.boxed-list {
 	background-color: alpha(@window_bg_color, 0.94);
 	background-image: linear-gradient(@card_bg_color, @card_bg_color);
 }
+
+/* ---- Tables (live preview) ----
+ *
+ * A Markdown table drawn as a grid while the caret is elsewhere (see
+ * internal/editor/tables.go). Hairlines between cells, from each cell's right
+ * and bottom edges and the grid's top and left, so no line is drawn twice.
+ * One colour on every edge that has one: a border whose sides differ in
+ * colour is drawn by GTK's software renderer as a gradient mesh, its slowest
+ * path.
+ */
+
+.md-table {
+	border-style: solid;
+	border-color: alpha(@window_fg_color, 0.16);
+	border-width: 1px 0 0 1px;
+	margin: 2px 0 6px 0;
+}
+
+.md-table-cell {
+	padding: 5px 10px;
+	border-style: solid;
+	border-color: alpha(@window_fg_color, 0.16);
+	border-width: 0 1px 1px 0;
+}
+
+.md-table-head {
+	font-weight: bold;
+	background-color: alpha(@window_fg_color, 0.05);
+}
