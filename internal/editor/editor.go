@@ -51,6 +51,11 @@ type Editor struct {
 	fence      []bool
 	fenceLines int
 	fenceStale bool
+	// track says whether the edits since the last note-wide scan let it be
+	// skipped (see fastedit.go).
+	track editTrack
+	// pointer is the default seat's pointer, for buttonDown.
+	pointer *gdk.Device
 	// lastKey is what the last render pass left revealed around the caret, and
 	// keyValid whether that pass got as far as knowing. A caret move that would
 	// leave the key as it is changes nothing on screen and skips the pass (see
@@ -177,7 +182,8 @@ const (
 )
 
 func New() *Editor {
-	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1, shown: -1, fenceStale: true}
+	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1, shown: -1, fenceStale: true,
+		track: editTrack{bad: true, line: -1, plain: -1}}
 
 	e.view = gtk.NewTextView()
 	e.view.SetWrapMode(gtk.WrapWordChar)
@@ -202,9 +208,11 @@ func New() *Editor {
 	e.buffer.ConnectInsertText(func(location *gtk.TextIter, text string, _ int) {
 		line := location.Line()
 		e.markDirty(line, line+strings.Count(text, "\n"))
+		e.noteEdit(line, line, text)
 	})
 	e.buffer.ConnectDeleteRange(func(start, end *gtk.TextIter) {
 		e.markDirty(start.Line(), end.Line())
+		e.noteEdit(start.Line(), end.Line(), "")
 	})
 
 	e.buffer.ConnectChanged(func() {
@@ -558,7 +566,13 @@ func (e *Editor) reparse() {
 	from = clamp(from, lastLine)
 	to = clamp(to, lastLine)
 	if e.fenceStale {
-		from, to = e.refreshFence(from, to, lastLine)
+		if e.plainEditPass(lastLine) {
+			// Typing in a line the note-wide scans have nothing to find in (see
+			// fastedit.go).
+			e.fenceStale = false
+		} else {
+			from, to = e.refreshFence(from, to, lastLine)
+		}
 	}
 	// A table is drawn or shown whole, so a pass that touches one covers it.
 	from, to = e.widenForTables(from, to, lastLine)
@@ -606,6 +620,7 @@ func (e *Editor) refreshFence(from, to, lastLine int) (int, int) {
 		cur = markup.InCodeFence(raw)
 	}
 	e.fence, e.fenceLines, e.fenceStale = cur, lastLine+1, false
+	e.scanned(raw)
 	// The same text is at hand for finding out whether a table is possible.
 	e.hasPipe = strings.IndexByte(raw, '|') >= 0
 	// The front matter, if the note has one, and the headings, so that the rail
@@ -1047,19 +1062,24 @@ func (e *Editor) buttonDown() bool {
 	if e.pressing {
 		return true
 	}
-	display := e.view.Display()
-	if display == nil {
-		return false
+	// The seat's pointer is looked up once: finding it is several calls into GTK,
+	// and this runs on every render pass.
+	if e.pointer == nil {
+		display := e.view.Display()
+		if display == nil {
+			return false
+		}
+		seat := display.DefaultSeat()
+		if seat == nil {
+			return false
+		}
+		p := gdk.BaseSeat(seat).Pointer()
+		if p == nil {
+			return false
+		}
+		e.pointer = gdk.BaseDevice(p)
 	}
-	seat := display.DefaultSeat()
-	if seat == nil {
-		return false
-	}
-	pointer := gdk.BaseSeat(seat).Pointer()
-	if pointer == nil {
-		return false
-	}
-	return gdk.BaseDevice(pointer).ModifierState()&gdk.Button1Mask != 0
+	return e.pointer.ModifierState()&gdk.Button1Mask != 0
 }
 
 // whenHandsFree runs what was held back once the button is up and nothing is

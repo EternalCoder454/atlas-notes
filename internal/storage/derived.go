@@ -145,7 +145,7 @@ const derivedVersion = 1
 // deriveContent replaces one note's links, tags and due tasks with what its text
 // says now. It runs inside the caller's transaction, beside the search index
 // write, and is only ever called for a note that is not locked.
-func deriveContent(tx *sql.Tx, id int64, body string) error {
+func deriveContent(tx execer, id int64, body string) error {
 	for _, table := range derivedTables {
 		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE note_id = ?`, id); err != nil {
 			return err
@@ -647,4 +647,40 @@ func (s *Store) rewriteLinks(moves []move, before, after []string) (int, error) 
 		return changed, fmt.Errorf("%d notes could not be updated, the first: %w", failed, first)
 	}
 	return changed, nil
+}
+
+// execer is what indexing writes through: a transaction, or a stmtCache over one.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// stmtCache runs a transaction's statements through prepared ones, each prepared
+// the first time it is used. database/sql prepares a statement afresh on every
+// Exec, and indexing a note runs a dozen of them.
+type stmtCache struct {
+	tx    *sql.Tx
+	stmts map[string]*sql.Stmt
+}
+
+func newStmtCache(tx *sql.Tx) *stmtCache {
+	return &stmtCache{tx: tx, stmts: map[string]*sql.Stmt{}}
+}
+
+func (c *stmtCache) Exec(query string, args ...any) (sql.Result, error) {
+	st, ok := c.stmts[query]
+	if !ok {
+		var err error
+		if st, err = c.tx.Prepare(query); err != nil {
+			return nil, err
+		}
+		c.stmts[query] = st
+	}
+	return st.Exec(args...)
+}
+
+// Close releases the prepared statements. The transaction is the caller's.
+func (c *stmtCache) Close() {
+	for _, st := range c.stmts {
+		st.Close()
+	}
 }
