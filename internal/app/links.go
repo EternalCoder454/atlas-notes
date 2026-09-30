@@ -232,16 +232,22 @@ func (a *App) onLinksChanged() {
 	a.editor.SetContent(text)
 }
 
-// buildBacklinks is the bar under a note that lists the notes linking to it.
-// It is hidden while there are none, which is most of the time.
+// buildBacklinks is the strip under a note: the bar that lists the notes
+// linking to it, and under it a quieter one for notes that only mention it.
+// Both are hidden while they have nothing to say, which is most of the time.
 func (a *App) buildBacklinks() *gtk.Box {
-	a.backlinksBar = gtk.NewBox(gtk.OrientationHorizontal, 4)
-	a.backlinksBar.AddCSSClass("backlinks-bar")
-	a.backlinksBar.SetMarginStart(16)
-	a.backlinksBar.SetMarginEnd(16)
-	a.backlinksBar.SetMarginBottom(4)
-	a.backlinksBar.SetVisible(false)
-	return a.backlinksBar
+	strip := gtk.NewBox(gtk.OrientationVertical, 0)
+	for _, bar := range []**gtk.Box{&a.backlinksBar, &a.mentionsBar} {
+		*bar = gtk.NewBox(gtk.OrientationHorizontal, 4)
+		(*bar).AddCSSClass("backlinks-bar")
+		(*bar).SetMarginStart(16)
+		(*bar).SetMarginEnd(16)
+		(*bar).SetMarginBottom(4)
+		(*bar).SetVisible(false)
+		strip.Append(*bar)
+	}
+	a.mentionsBar.AddCSSClass("mentions-bar")
+	return strip
 }
 
 // refreshBacklinks fills the bar for the open note. The query runs off the
@@ -254,12 +260,14 @@ func (a *App) refreshBacklinks() {
 	rel := a.currentNote
 	if rel == "" {
 		a.backlinksBar.SetVisible(false)
+		a.mentionsBar.SetVisible(false)
 		return
 	}
 	a.backlinksGen++
 	gen := a.backlinksGen
 	go func() {
 		links, err := a.store.Backlinks(rel)
+		mentions, merr := a.store.UnlinkedMentions(rel, mentionsCap)
 		coreglib.IdleAdd(func() bool {
 			if gen != a.backlinksGen || a.closing {
 				return false
@@ -268,6 +276,10 @@ func (a *App) refreshBacklinks() {
 				log.Printf("atlas-notes: backlinks: %v", err)
 			}
 			a.showBacklinks(links)
+			if merr != nil {
+				log.Printf("atlas-notes: unlinked mentions: %v", merr)
+			}
+			a.showMentions(rel, mentions)
 			return false
 		})
 	}()
@@ -306,6 +318,84 @@ func (a *App) showBacklinks(links []string) {
 		bar.Append(btn)
 	}
 	bar.SetVisible(true)
+}
+
+// mentionsCap is how many unlinked mentions are looked for; the bar lists the
+// first few and counts the rest, and a note named "Notes" would otherwise have
+// the whole vault.
+const mentionsCap = 20
+
+// mentionsShown is how many of them get a button of their own.
+const mentionsShown = 3
+
+// showMentions fills the quiet second bar: "Mentioned in N notes", and for the
+// first few a name and a Link button that makes the mention a real link. rel
+// is the note the bar is for, which is what those buttons link to.
+func (a *App) showMentions(rel string, notes []string) {
+	bar := a.mentionsBar
+	for c := bar.FirstChild(); c != nil; c = bar.FirstChild() {
+		bar.Remove(c)
+	}
+	if len(notes) == 0 {
+		bar.SetVisible(false)
+		return
+	}
+	count := fmt.Sprint(len(notes))
+	if len(notes) >= mentionsCap {
+		count += "+"
+	}
+	word := "notes"
+	if len(notes) == 1 {
+		word = "note"
+	}
+	label := gtk.NewLabel("Mentioned in " + count + " " + word)
+	label.AddCSSClass("dim-label")
+	label.AddCSSClass("caption")
+	bar.Append(label)
+	for i, from := range notes {
+		if i == mentionsShown {
+			break
+		}
+		from := from
+		name := gtk.NewLabel(path.Base(from))
+		name.AddCSSClass("dim-label")
+		name.AddCSSClass("caption")
+		name.SetTooltipText(from)
+		bar.Append(name)
+
+		btn := gtk.NewButton()
+		content := gtk.NewBox(gtk.OrientationHorizontal, 4)
+		content.Append(gtk.NewImageFromIconName("atlasnotes-link-add-symbolic"))
+		content.Append(gtk.NewLabel("Link"))
+		btn.SetChild(content)
+		btn.AddCSSClass("flat")
+		btn.AddCSSClass("caption")
+		btn.SetTooltipText("Link the mention in " + path.Base(from))
+		btn.ConnectClicked(func() { a.linkMention(rel, from) })
+		bar.Append(btn)
+	}
+	bar.SetVisible(true)
+}
+
+// linkMention turns the mention in another note into a link to the open one.
+// The write goes through the store, so it is saved, indexed and kept in
+// history like any edit; the bars are then filled again, where the note now
+// counts under "Linked from".
+func (a *App) linkMention(rel, from string) {
+	if a.store == nil || rel != a.currentNote {
+		return
+	}
+	done, err := a.store.LinkMention(rel, from)
+	switch {
+	case err != nil:
+		log.Printf("atlas-notes: link mention: %v", err)
+		a.toast("Couldn't link that note: " + err.Error())
+	case !done:
+		a.toast("That note no longer mentions this one")
+	default:
+		a.toast("Linked in " + path.Base(from))
+	}
+	a.refreshBacklinks()
 }
 
 // changeNoteFormat switches the vault to another note format and converts

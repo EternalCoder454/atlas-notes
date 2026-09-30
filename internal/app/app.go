@@ -70,6 +70,7 @@ type App struct {
 	// backlinksBar lists the notes that link to the open one; backlinksGen
 	// drops an answer that arrives after another note was opened.
 	backlinksBar *gtk.Box
+	mentionsBar  *gtk.Box // under it: notes that name this one without linking
 	backlinksGen int
 	// noteNamesCache is the note list behind the [[ suggestions, from
 	// noteNamesAt; see noteNamesTTL.
