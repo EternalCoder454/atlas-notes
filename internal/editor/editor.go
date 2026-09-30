@@ -54,6 +54,8 @@ type Editor struct {
 	// track says whether the edits since the last note-wide scan let it be
 	// skipped (see fastedit.go).
 	track editTrack
+	// pointer is the default seat's pointer, for buttonDown.
+	pointer *gdk.Device
 	// lastKey is what the last render pass left revealed around the caret, and
 	// keyValid whether that pass got as far as knowing. A caret move that would
 	// leave the key as it is changes nothing on screen and skips the pass (see
@@ -1060,19 +1062,24 @@ func (e *Editor) buttonDown() bool {
 	if e.pressing {
 		return true
 	}
-	display := e.view.Display()
-	if display == nil {
-		return false
+	// The seat's pointer is looked up once: finding it is several calls into GTK,
+	// and this runs on every render pass.
+	if e.pointer == nil {
+		display := e.view.Display()
+		if display == nil {
+			return false
+		}
+		seat := display.DefaultSeat()
+		if seat == nil {
+			return false
+		}
+		p := gdk.BaseSeat(seat).Pointer()
+		if p == nil {
+			return false
+		}
+		e.pointer = gdk.BaseDevice(p)
 	}
-	seat := display.DefaultSeat()
-	if seat == nil {
-		return false
-	}
-	pointer := gdk.BaseSeat(seat).Pointer()
-	if pointer == nil {
-		return false
-	}
-	return gdk.BaseDevice(pointer).ModifierState()&gdk.Button1Mask != 0
+	return e.pointer.ModifierState()&gdk.Button1Mask != 0
 }
 
 // whenHandsFree runs what was held back once the button is up and nothing is
