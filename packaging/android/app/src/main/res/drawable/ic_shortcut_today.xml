@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The Today shortcut's icon: a calendar with today marked, in white on the same
-  disc of the logo's blue as ic_shortcut_new_note, and placed the same way. The
-  calendar is drawn in a 960-unit box with its origin at the bottom left, like
-  the Material Symbols, and see ui/Icons.kt (IconToday) for the shape.
+  The Today shortcut's icon: the Material "event" calendar in white on the same
+  disc of the logo's blue as ic_shortcut_new_note, and placed the same way. It is
+  drawn in a 960-unit box with its origin at the bottom left, like the Material
+  Symbols; see ui/Icons.kt (IconToday).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
@@ -20,6 +20,6 @@
         android:scaleY="0.7">
         <path
             android:fillColor="#FFFFFFFF"
-            android:pathData="M144,-768 H816 V-144 H144 Z M216,-616 V-216 H744 V-616 Z M552,-380 a60,60 0 1,1 120,0 a60,60 0 1,1 -120,0 Z M288,-840 H360 V-696 H288 Z M600,-840 H672 V-696 H600 Z" />
+            android:pathData="M508-267.77q-28-27.78-28-68Q480-376 507.77-404q27.78-28 68-28Q616-432 644-404.23q28 27.78 28 68Q672-296 644.23-268q-27.78 28-68 28Q536-240 508-267.77ZM216-96q-29.7 0-50.85-21.5Q144-139 144-168v-528q0-29 21.15-50.5T216-768h72v-96h72v96h240v-96h72v96h72q29.7 0 50.85 21.5Q816-725 816-696v528q0 29-21.15 50.5T744-96H216Zm0-72h528v-360H216v360Zm0-432h528v-96H216v96Zm0 0v-96 96Z" />
     </group>
 </vector>

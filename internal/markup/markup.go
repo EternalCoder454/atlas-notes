@@ -543,3 +543,53 @@ func RewriteLinks(text, oldRel, newRel string, before, after []string) (string, 
 	}
 	return strings.Join(lines, "\n"), changed
 }
+
+// AddLinkHeading gives the links in text that point at oldRel, and name no
+// heading, the heading and an alias, so that once they are rewritten to another
+// note they still read as they did and lead to the part that came from oldRel:
+// [[Source]] becomes [[Source#heading|Source]]. Which links mean oldRel is judged
+// as RewriteLinks judges it, against before, the vault as it was. A link that
+// already has a heading or an alias is left alone.
+func AddLinkHeading(text, oldRel, heading string, before []string) (string, int) {
+	oldPath := strings.ToLower(oldRel)
+	oldBase := strings.ToLower(path.Base(oldRel))
+	bareMeantOld := strings.EqualFold(Resolve(oldBase, before), oldRel)
+
+	lines := strings.Split(text, "\n")
+	changed := 0
+	fence := ""
+	for n, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if fence != "" {
+			if closesFence(trimmed, fence) {
+				fence = ""
+			}
+			continue
+		}
+		if f := openFence(trimmed); f != "" {
+			fence = f
+			continue
+		}
+		var b strings.Builder
+		last := 0
+		for _, sp := range Line(line, false) {
+			if sp.Kind != KindWikiLink || sp.Heading != "" || sp.Alias != "" || line[sp.Start] == '!' {
+				continue
+			}
+			t := strings.ToLower(strings.Trim(sp.Target, "/"))
+			isPath := strings.Contains(t, "/")
+			if !(isPath && t == oldPath) && !(!isPath && t == oldBase && bareMeantOld) {
+				continue
+			}
+			b.WriteString(line[last:sp.Start])
+			b.WriteString("[[" + strings.Trim(sp.Target, "/") + "#" + heading + "|" + path.Base(strings.Trim(sp.Target, "/")) + "]]")
+			last = sp.End
+			changed++
+		}
+		if last > 0 {
+			b.WriteString(line[last:])
+			lines[n] = b.String()
+		}
+	}
+	return strings.Join(lines, "\n"), changed
+}

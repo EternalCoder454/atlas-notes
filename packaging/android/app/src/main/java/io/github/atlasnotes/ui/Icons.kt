@@ -127,21 +127,37 @@ val IconFolder: ImageVector by lazy {
     )
 }
 
+val IconArrowBack: ImageVector by lazy {
+    symbol(
+        "arrow_back",
+        "m313-440 224 224-57 56-320-320 320-320 57 56-224 224h487v80H313Z",
+    )
+}
+
+val IconArrowForward: ImageVector by lazy {
+    symbol(
+        "arrow_forward",
+        "M630-444H192v-72h438L429-717l51-51 288 288-288 288-51-51 201-201Z",
+    )
+}
+
+val IconMenu: ImageVector by lazy {
+    symbol(
+        "menu",
+        "M144-264v-72h672v72H144Zm0-180v-72h672v72H144Zm0-180v-72h672v72H144Z",
+    )
+}
+
 /**
- * A calendar with today marked, for opening the day's note.
- *
- * The project's icon set has none, so this one is drawn by hand in the same
- * 960-unit box and is only straight lines and one circle: the frame with a
- * solid header, the two binder rings, and the day. The frame runs clockwise
- * and the window inside it counter-clockwise, which is what cuts it out; the
- * day runs clockwise again to fill it back in. The same shape, in white on the
- * logo's blue, is drawable/ic_shortcut_today.
+ * A calendar with a day marked, for opening today's note. Material's own "event";
+ * the same shape, in white on the logo's blue, is drawable/ic_shortcut_today.
  */
 val IconToday: ImageVector by lazy {
     symbol(
-        "today",
-        "M144-768H816V-144H144Z M216-616V-216H744V-616Z " +
-            "M552-380a60 60 0 1 1 120 0a60 60 0 1 1-120 0Z " +
-            "M288-840H360V-696H288Z M600-840H672V-696H600Z",
+        "event",
+        "M508-267.77q-28-27.78-28-68Q480-376 507.77-404q27.78-28 68-28Q616-432 644-404.23q28 27.78 28 68Q" +
+            "672-296 644.23-268q-27.78 28-68 28Q536-240 508-267.77ZM216-96q-29.7 0-50.85-21.5Q144-139 144-168" +
+            "v-528q0-29 21.15-50.5T216-768h72v-96h72v96h240v-96h72v96h72q29.7 0 50.85 21.5Q816-725 816-696v" +
+            "528q0 29-21.15 50.5T744-96H216Zm0-72h528v-360H216v360Zm0-432h528v-96H216v96Zm0 0v-96 96Z",
     )
 }

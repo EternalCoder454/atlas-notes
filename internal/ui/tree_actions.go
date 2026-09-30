@@ -49,6 +49,24 @@ func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
 		box.Append(b)
 	}
 
+	// addIcon is add for the entries that come with a small picture.
+	addIcon := func(icon, label string, fn func()) {
+		b := gtk.NewButton()
+		row := gtk.NewBox(gtk.OrientationHorizontal, 8)
+		row.Append(gtk.NewImageFromIconName(icon))
+		l := gtk.NewLabel(label)
+		l.SetXAlign(0)
+		row.Append(l)
+		b.SetChild(row)
+		b.AddCSSClass("flat")
+		b.SetHAlign(gtk.AlignFill)
+		b.ConnectClicked(func() {
+			pop.Popdown()
+			fn()
+		})
+		box.Append(b)
+	}
+
 	folder := folderFor(n)
 	add("New Note", false, func() { t.promptNewNote(folder) })
 	add("New Folder", false, func() { t.promptNewFolder(folder) })
@@ -79,6 +97,14 @@ func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
 		if !n.isFolder && t.OnExport != nil {
 			add("Export…", false, func() { t.OnExport(n.rel) })
 		}
+		if !n.isFolder && t.OnOpenSide != nil {
+			box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+			addIcon("atlasnotes-split-right-symbolic", "Open to the Side", func() { t.OnOpenSide(n.rel) })
+		}
+		if !n.isFolder && t.OnMerge != nil {
+			addIcon("atlasnotes-merge-note-symbolic", "Merge into…", func() { t.OnMerge(n.rel) })
+		}
+		box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
 		add("Delete", true, func() { t.promptDelete(n) })
 	}
 
@@ -155,8 +181,11 @@ func (t *Tree) promptRename(n *node) {
 				return
 			}
 		}
-		// The open note follows first, so that reloading it after the links
-		// were rewritten reads it under its new name.
+		// The open notes follow first, so that reloading them after the links
+		// were rewritten reads them under their new names.
+		if t.OnRenamed != nil {
+			t.OnRenamed(n.rel, newRel, n.isFolder)
+		}
 		if t.OnMoved != nil {
 			switch {
 			case n.isFolder && strings.HasPrefix(t.currentRel, n.rel+"/"):

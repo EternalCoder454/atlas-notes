@@ -125,6 +125,14 @@ type Tree struct {
 	OnExport func(rel string)
 	// OnMoved is invoked after a note is dragged into another folder.
 	OnMoved func(oldRel, newRel string)
+	// OnRenamed is invoked after any note or folder is renamed or moved, with the
+	// old and new path, so the app can follow a note it has open somewhere other
+	// than the main pane. OnMoved, which came first, is only for the main pane's.
+	OnRenamed func(oldRel, newRel string, isFolder bool)
+	// OnOpenSide and OnMerge are the menu's "Open to the Side" and "Merge
+	// into…" for a note.
+	OnOpenSide func(rel string)
+	OnMerge    func(rel string)
 	// OnBeforeRename fires before a rename or a move, so the app can save the
 	// open note: renaming rewrites links in other notes' files, and the open
 	// one may be among them.
@@ -875,6 +883,9 @@ func (t *Tree) moveInto(srcRel, folderRel string) bool {
 			t.message("Couldn't move it: " + err.Error())
 			return false
 		}
+	}
+	if t.OnRenamed != nil {
+		t.OnRenamed(srcRel, newRel, false)
 	}
 	if t.OnMoved != nil {
 		t.OnMoved(srcRel, newRel)

@@ -81,8 +81,13 @@ func (a *App) syncEditorAccent() {
 	if a.editor == nil {
 		return
 	}
+	setColor := func(c string) {
+		for _, e := range a.allEditors() {
+			e.SetLinkColor(c)
+		}
+	}
 	if t, ok := theme.ByID(a.cfg.Theme); ok && t.ID != "light" && t.ID != "dark" {
-		a.editor.SetLinkColor(t.LinkColor())
+		setColor(t.LinkColor())
 		return
 	}
 	mgr := adw.StyleManagerGetDefault()
@@ -90,7 +95,7 @@ func (a *App) syncEditorAccent() {
 		return
 	}
 	if c := mgr.AccentColorRGBA(); c != nil {
-		a.editor.SetLinkColor(fmt.Sprintf("#%02x%02x%02x",
+		setColor(fmt.Sprintf("#%02x%02x%02x",
 			int(c.Red()*255+0.5), int(c.Green()*255+0.5), int(c.Blue()*255+0.5)))
 	}
 }

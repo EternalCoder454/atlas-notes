@@ -65,6 +65,10 @@ func humanSize(n int64) string {
 	}
 }
 
+// historyOpensOnChanges makes the dialog open on its Changes page. Only the
+// screenshot tooling sets it; people open on Preview and switch.
+var historyOpensOnChanges bool
+
 // showHistory opens the version history of the note on screen.
 func (a *App) showHistory() {
 	if a.store == nil || !a.noteOpen() {
@@ -85,7 +89,8 @@ func (a *App) showHistory() {
 	dialog.SetContentHeight(520)
 
 	toolbar := adw.NewToolbarView()
-	toolbar.AddTopBar(adw.NewHeaderBar())
+	header := adw.NewHeaderBar()
+	toolbar.AddTopBar(header)
 
 	if len(versions) == 0 {
 		empty := adw.NewStatusPage()
@@ -149,13 +154,26 @@ func (a *App) showHistory() {
 	previewScroll.SetHExpand(true)
 	previewScroll.SetVExpand(true)
 
+	// The same version can be read two ways: as it was, or as what changed
+	// between it and the note now. One stack holds both, and the toggle in the
+	// header bar picks.
+	changes := newChangesView()
+	pages := gtk.NewStack()
+	pages.SetHExpand(true)
+	pages.SetVExpand(true)
+	pages.AddNamed(previewScroll, "preview")
+	pages.AddNamed(changes.widget, "changes")
+	pages.SetVisibleChildName("preview")
+	header.SetTitleWidget(historyModeSwitch(pages, changes, historyOpensOnChanges))
+
 	body := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	body.Append(listScroll)
 	body.Append(gtk.NewSeparator(gtk.OrientationVertical))
-	body.Append(previewScroll)
+	body.Append(pages)
 	toolbar.SetContent(body)
 
-	restore := gtk.NewButtonWithLabel("Restore This Version")
+	restore := gtk.NewButton()
+	restore.SetChild(iconLabel("atlasnotes-restore-symbolic", "Restore This Version"))
 	restore.AddCSSClass("suggested-action")
 	restore.SetSensitive(false)
 	toolbar.AddBottomBar(historyButtons(dialog, restore))
@@ -166,6 +184,7 @@ func (a *App) showHistory() {
 		restore.SetSensitive(false)
 		if row == nil || row.Index() < 0 || row.Index() >= len(versions) {
 			preview.Buffer().SetText("")
+			changes.message("")
 			return
 		}
 		v := versions[row.Index()]
@@ -173,11 +192,16 @@ func (a *App) showHistory() {
 		switch {
 		case errors.Is(err, storage.ErrLocked):
 			preview.Buffer().SetText("Unlock the vault to see this version.")
+			changes.message("Unlock the vault to see this version.")
 		case err != nil:
 			log.Printf("atlas-notes: read version %q of %q: %v", v.ID, rel, err)
 			preview.Buffer().SetText("Couldn't read this version: " + err.Error())
+			changes.message("Couldn't read this version: " + err.Error())
 		default:
 			preview.Buffer().SetText(text)
+			// The note as it is on screen, saved or not: that is the text a
+			// restore would replace.
+			changes.show(text, a.editorContent())
 			selected = &v
 			restore.SetSensitive(true)
 		}
@@ -193,6 +217,50 @@ func (a *App) showHistory() {
 	// The newest version is what people came to look at, and selecting it
 	// fills the preview, so the dialog never opens with an empty right side.
 	list.SelectRow(list.RowAtIndex(0))
+}
+
+// historyModeSwitch is the linked pair of toggles that chooses what the right
+// side of the dialog shows for the selected version.
+func historyModeSwitch(pages *gtk.Stack, view *changesView, changesFirst bool) *gtk.Box {
+	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	box.AddCSSClass("linked")
+	preview := gtk.NewToggleButtonWithLabel("Preview")
+	preview.SetActive(true)
+	preview.SetTooltipText("The version as it was")
+	changes := gtk.NewToggleButton()
+	changes.SetChild(iconLabel("atlasnotes-diff-symbolic", "Changes"))
+	changes.SetGroup(preview)
+	changes.SetTooltipText("What differs between this version and the note now")
+	preview.ConnectToggled(func() {
+		if preview.Active() {
+			pages.SetVisibleChildName("preview")
+			view.setVisible(false)
+		}
+	})
+	changes.ConnectToggled(func() {
+		if changes.Active() {
+			pages.SetVisibleChildName("changes")
+			view.setVisible(true)
+		}
+	})
+	box.Append(preview)
+	box.Append(changes)
+	if changesFirst {
+		changes.SetActive(true)
+	}
+	return box
+}
+
+// iconLabel is a small icon and a word side by side, for a button that carries
+// both. The icon is left out when the theme does not have it.
+func iconLabel(icon, text string) *gtk.Box {
+	box := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	box.SetHAlign(gtk.AlignCenter)
+	if hasIcon(icon) {
+		box.Append(gtk.NewImageFromIconName(icon))
+	}
+	box.Append(gtk.NewLabel(text))
+	return box
 }
 
 // historyButtons is the bottom bar: Close, and Restore when there is a version

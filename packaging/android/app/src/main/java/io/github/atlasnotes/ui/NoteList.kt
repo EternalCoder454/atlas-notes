@@ -11,12 +11,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.github.atlasnotes.Capture
 import io.github.atlasnotes.Vault
 import io.github.atlasnotes.VaultModel
 
@@ -37,38 +41,32 @@ fun NoteList(model: VaultModel) {
         topBar = {
             TopAppBar(
                 title = { Text("Atlas Notes") },
-                actions = {
-                    // Goes through the same queue as the shortcut, so it waits
-                    // for the vault to open and saves the note on screen first.
-                    IconButton(onClick = { model.capture(Capture.today()) }) {
-                        Icon(IconToday, contentDescription = "Today")
-                    }
-                    IconButton(onClick = { model.showFolder = true }) {
-                        Icon(IconFolder, contentDescription = "Where your notes are")
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
         },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { model.create() },
-                icon = { Icon(IconAdd, contentDescription = null) },
-                text = { Text("New note") },
-            )
-        },
+        bottomBar = { BottomBar(model) },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             model.update?.let { rel ->
                 UpdateCard(rel, onDismiss = { model.dismissUpdate() })
             }
 
+            // The bar's search button lands here with the box focused.
+            val focus = remember { FocusRequester() }
+            val keyboard = LocalSoftwareKeyboardController.current
+            LaunchedEffect(model.focusSearch) {
+                if (model.focusSearch) {
+                    focus.requestFocus()
+                    keyboard?.show()
+                    model.searchFocused()
+                }
+            }
             SearchField(
                 value = model.query,
                 onValueChange = { model.updateQuery(it) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).focusRequester(focus),
             )
 
             val tag = model.tagQuery
@@ -94,7 +92,7 @@ fun NoteList(model: VaultModel) {
                         )
                     }
                     LazyColumn(
-                        contentPadding = PaddingValues(bottom = 96.dp),
+                        contentPadding = PaddingValues(bottom = 16.dp),
                     ) {
                         items(shown, key = { it.path }) { note ->
                             NoteRow(note, foundByText = model.foundByText(note)) { model.open(note) }
@@ -197,7 +195,7 @@ private fun EmptyState(searching: Boolean, tag: String?) {
                 when {
                     tag != null -> "Tags are written like #idea in a note."
                     searching -> "Try a shorter search."
-                    else -> "Tap New note to start one."
+                    else -> "Tap + below to start one."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
