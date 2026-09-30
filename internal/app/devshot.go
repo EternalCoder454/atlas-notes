@@ -114,6 +114,12 @@ func (a *App) runDevView() {
 			a.openNote(arg)
 			historyOpensOnChanges = true
 			a.showHistory()
+		case "side":
+			// "side=Ideas|Projects/Atlas Roadmap": the second note is opened
+			// beside the first (arg is "side note|main note").
+			side, main, _ := strings.Cut(arg, "|")
+			a.openNote(main)
+			a.openToSide(side)
 		case "templates":
 			a.actionNewFromTemplate()
 		case "item-menu":

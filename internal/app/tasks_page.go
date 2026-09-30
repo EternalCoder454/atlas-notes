@@ -276,6 +276,7 @@ func (a *App) showTasks() {
 	}
 	a.closeFind(false)
 	a.flushDirty() // a note edited just before must be on disk before it is read
+	a.closeSide()  // and no editor may hold a note that ticking is about to change
 	a.backlinksGen++
 	a.currentNote = ""
 	a.dirty = false

@@ -52,18 +52,34 @@ func (a *App) buildEditorPage() *gtk.Box {
 	a.editor.OnChanged = a.onEditorChanged
 	a.editor.OnReparsed = a.onEditorReparsed
 	a.wireEditorLinks()
+	a.editor.SetSideHandlers(a.openLinkToSide, func() { a.splitSelection(a.editor, a.currentNote) })
 	page.Append(a.buildFindBar())
 
-	clamp := adw.NewClamp()
-	clamp.SetMaximumSize(editorMaxWidth)
-	clamp.SetTighteningThreshold(editorMaxWidth)
-	clamp.SetChild(a.editor.Widget())
-	clamp.SetVExpand(true)
-	page.Append(clamp)
+	// The editor sits in a paned so that a second note can be opened beside it
+	// (see sidepane.go). With no second note it is the only child, and looks as
+	// it did.
+	a.sidePaned = gtk.NewPaned(gtk.OrientationHorizontal)
+	a.sidePaned.SetStartChild(newClamp(a.editor))
+	a.sidePaned.SetResizeStartChild(true)
+	a.sidePaned.SetShrinkStartChild(false)
+	a.sidePaned.SetResizeEndChild(true)
+	a.sidePaned.SetShrinkEndChild(false)
+	a.sidePaned.SetVExpand(true)
+	page.Append(a.sidePaned)
 
 	page.Append(a.buildBacklinks())
 	page.Append(a.buildStatusBar())
 	return page
+}
+
+// newClamp puts an editor in the centred column its text is read in.
+func newClamp(e *editor.Editor) *adw.Clamp {
+	clamp := adw.NewClamp()
+	clamp.SetMaximumSize(editorMaxWidth)
+	clamp.SetTighteningThreshold(editorMaxWidth)
+	clamp.SetChild(e.Widget())
+	clamp.SetVExpand(true)
+	return clamp
 }
 
 // buildNoteHeader is the title row: the folder the note lives in, its name as a
@@ -174,11 +190,12 @@ func (a *App) buildFormatBar() *gtk.Box {
 
 // withEditor runs a formatting command and returns focus to the document.
 func (a *App) withEditor(fn func(*editor.Editor)) {
-	if a.editor == nil {
+	ed := a.activeEditor() // with two panes, the one the caret is in
+	if ed == nil {
 		return
 	}
-	fn(a.editor)
-	a.editor.Focus()
+	fn(ed)
+	ed.Focus()
 }
 
 // findSearchDelayMs is how long the find entry waits after the last keystroke
@@ -520,6 +537,7 @@ func (a *App) showWelcome() {
 	// Typing from the last moment before the autosave would otherwise go
 	// with the note: the editor is emptied below.
 	a.flushDirty()
+	a.closeSide()    // there is no note left for it to be beside
 	a.backlinksGen++ // an answer for the note being left is no longer wanted
 	a.welcomeBuilt = true
 	a.currentNote = ""

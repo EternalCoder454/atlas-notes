@@ -214,6 +214,7 @@ func (a *App) onBeforeRename() { a.flushDirty() }
 // rewritten on disk. If the open note was one of them, the editor is holding
 // the old text, so it is read again. Nothing is lost: it was saved first.
 func (a *App) onLinksChanged() {
+	a.sideLinksChanged()
 	a.refreshBacklinks()
 	if a.store == nil || a.currentNote == "" || a.dirty {
 		return

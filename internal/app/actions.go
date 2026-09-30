@@ -32,11 +32,14 @@ func (a *App) registerActions() {
 		{"new-folder", []string{"<Control><Shift>n"}, a.actionNewFolder},
 		{"new-from-template", []string{"<Control><Alt>n"}, a.actionNewFromTemplate},
 		{"today", []string{"<Control>d"}, a.actionToday},
-		{"save", []string{"<Control>s"}, a.saveCurrent},
+		{"save", []string{"<Control>s"}, a.saveAll},
 		{"rename", []string{"F2"}, a.actionRename},
 		{"export", []string{"<Control><Shift>e"}, a.exportCurrent},
 		{"history", []string{"<Control><Shift>h"}, a.showHistory},
 		{"insert-image", []string{"<Control><Shift>i"}, a.insertImage},
+		{"move-selection", []string{"<Control><Shift>m"}, a.actionSplitNote},
+		{"merge-into", []string{"<Control><Alt>m"}, a.actionMerge},
+		{"open-side", []string{"<Control>backslash"}, a.actionOpenSide},
 		{"search", []string{"<Control>k", "<Control><Shift>f"}, a.actionFocusSearch},
 		{"command-box", []string{"<Control>p"}, a.showPalette},
 		{"find", []string{"<Control>f"}, a.actionFind},
@@ -78,7 +81,9 @@ func (a *App) registerActions() {
 // noteActionNames are the commands that act on the note on screen. They are
 // disabled, not just ignored, while there is none, so their menu entries grey
 // out and their shortcuts do nothing on the home screen.
-var noteActionNames = map[string]bool{"history": true, "insert-image": true}
+var noteActionNames = map[string]bool{
+	"history": true, "insert-image": true, "move-selection": true, "merge-into": true, "open-side": true,
+}
 
 // noteActions holds each App's note commands, so that syncNoteActions can reach
 // them: the action map hands back a generic action, which cannot be enabled or
@@ -241,6 +246,9 @@ func (a *App) showShortcuts() {
 			{"Ctrl+S", "Save now"},
 			{"F2", "Rename the open note"},
 			{"Ctrl+Shift+H", "Version history of the open note"},
+			{"Ctrl+Shift+M", "Move the selected text to a new note"},
+			{"Ctrl+Alt+M", "Merge the open note into another"},
+			{"Ctrl+\\", "Open another note to the side"},
 		}},
 		{"Moving around", []shortcutRow{
 			{"Ctrl+P", "Command box: notes, commands, settings, tags"},

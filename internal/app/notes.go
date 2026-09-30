@@ -35,6 +35,9 @@ func (a *App) openNote(rel string) {
 		a.toast("Couldn't open that note: " + err.Error())
 		return
 	}
+	if a.side != nil && a.side.rel == rel {
+		a.dropSide() // saved by the flush above; one note is never open in two panes
+	}
 	a.currentNote = rel
 	a.dirty = false
 	a.cfg.LastNote = rel
@@ -56,6 +59,7 @@ func (a *App) openNote(rel string) {
 // currentNote also stops a pending autosave from re-creating the file.
 func (a *App) onDeleted(rel string, isFolder bool) {
 	a.forgetFavourite(rel, isFolder)
+	a.sideDeleted(rel, isFolder)
 	affected := a.currentNote != "" &&
 		(a.currentNote == rel || (isFolder && strings.HasPrefix(a.currentNote, rel+"/")))
 	if !affected {
@@ -270,12 +274,22 @@ func (a *App) saveCurrent() {
 	}()
 }
 
-// flushDirty writes the open note synchronously when it has unsaved changes,
+// flushDirty writes the open notes, the side pane's as well as the main one's,
+// synchronously when they have unsaved changes,
 // returning whether a write happened. It first waits for any in-flight async
 // save to finish, so the newest content always wins on disk. Used where the save
 // must complete before the next step: switching notes, renaming, or shutting
 // down.
 func (a *App) flushDirty() bool {
+	wrote := a.flushMain()
+	if a.side != nil && a.side.flush() {
+		wrote = true
+	}
+	return wrote
+}
+
+// flushMain is flushDirty for the main pane's note.
+func (a *App) flushMain() bool {
 	if a.store == nil || a.editor == nil || a.currentNote == "" {
 		return false
 	}

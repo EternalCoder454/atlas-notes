@@ -1172,3 +1172,17 @@ window.atlas-glass .atlas-page .tasks-open {
 	opacity: 0.7;
 	min-height: 0;
 }
+
+/* The second note beside the first: a slim title row over its own editor. */
+.side-pane {
+	border-left: 1px solid alpha(currentColor, 0.15);
+}
+
+.side-header {
+	padding: 6px 10px 6px 16px;
+	border-bottom: 1px solid alpha(currentColor, 0.1);
+}
+
+.side-title {
+	font-weight: 700;
+}

@@ -83,6 +83,8 @@ type App struct {
 	outerPaned     *gtk.Paned
 	innerPaned     *gtk.Paned
 	centerStack    *gtk.Stack
+	sidePaned      *gtk.Paned // holds the note editor, and the side pane beside it when there is one
+	side           *sidePane  // the second note, or nil (see sidepane.go)
 	formatBar      *gtk.Box
 
 	titleEntry    *gtk.Entry
