@@ -98,6 +98,11 @@ type Editor struct {
 	sg suggester
 	// img is the state of the pictures shown under image lines (see images.go).
 	img imageState
+	// tbl is the state of the tables drawn in place of their Markdown (see
+	// tables.go), and hasPipe whether the note has a pipe anywhere, which is what a
+	// table needs; it is worked out with the fence (see refreshFence).
+	tbl     tableState
+	hasPipe bool
 
 	// OnOpenNote, OnOpenTag and OnOpenURL are called when a link is clicked: a
 	// note link with its target and heading (either may be a bare name or a
@@ -224,7 +229,7 @@ func New() *Editor {
 	})
 
 	// When a selection goes away, run what was held back while it existed: the
-	// render pass (see reparse), the pictures' spacing (see placeImages) and the
+	// render pass (see reparse), the pictures' and tables' spacing (see placeBlocks) and the
 	// find highlights (see finder.schedule). All of them change tags.
 	e.buffer.NotifyProperty("has-selection", e.runHeld)
 
@@ -324,6 +329,7 @@ func (e *Editor) newTag(name string, props map[string]any) {
 func (e *Editor) SetContent(s string) {
 	e.clearItems()  // the old note's checkboxes go with its text
 	e.clearImages() // and so do its pictures
+	e.clearTables() // and its tables
 	e.closeSuggest()
 	e.sg.dismissed = -1 // an Escape in the last note says nothing about this one
 
@@ -492,6 +498,8 @@ func (e *Editor) reparse() {
 	if e.fenceStale {
 		from, to = e.refreshFence(from, to, lastLine)
 	}
+	// A table is drawn or shown whole, so a pass that touches one covers it.
+	from, to = e.widenForTables(from, to, lastLine)
 	e.lastCursor = cursorLine
 	e.clearDirty()
 
@@ -501,6 +509,7 @@ func (e *Editor) reparse() {
 	e.renderBullets(from, to, revealLine)
 	e.tagRange(from, to, revealLine, caretCol)
 	e.syncImages(from, to)
+	e.syncTables(from, to)
 
 	if e.OnReparsed != nil {
 		e.OnReparsed()
@@ -529,6 +538,8 @@ func (e *Editor) refreshFence(from, to, lastLine int) (int, int) {
 		cur = markup.InCodeFence(raw)
 	}
 	e.fence, e.fenceLines, e.fenceStale = cur, lastLine+1, false
+	// The same text is at hand for finding out whether a table is possible.
+	e.hasPipe = strings.IndexByte(raw, '|') >= 0
 	if fenceChanged(old, cur, oldLines, lastLine+1, to) {
 		to = lastLine
 	}
@@ -622,9 +633,18 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 	bullets := e.swappedBullets(from, text)
 	e.buffer.RemoveAllTags(start, end)
 
+	lines := strings.Split(text, "\n")
+	// Tables are looked for only where there is a pipe, and a line without one
+	// costs nothing more than the search for it.
+	var tables []tableAt
+	if e.hasPipe && strings.IndexByte(text, '|') >= 0 {
+		tables = e.findTablesIn(lines, from, bullets)
+	}
+	nextTable := 0
+
 	key := caretKey{line: -1}
 	lineNum := from
-	for _, line := range strings.Split(text, "\n") {
+	for _, line := range lines {
 		// The caret is only looked for on its own line, and the key says what it
 		// revealed there.
 		at, keyed := -1, (*caretKey)(nil)
@@ -643,8 +663,20 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 		if marker != 0 {
 			parse = restoreMarker(line, marker)
 		}
+		for nextTable < len(tables) && lineNum >= tables[nextTable].line+tables[nextTable].lines {
+			nextTable++
+		}
 		if role := roleOf(e.fence, lineNum, parse); role != fenceNone {
 			e.tagFenceLine(lineNum, parse, role)
+		} else if nextTable < len(tables) && lineNum >= tables[nextTable].line {
+			tb := &tables[nextTable]
+			e.tagTableLine(lineNum, parse, tb, cursorLine >= tb.line && cursorLine < tb.line+tb.lines)
+			if keyed != nil {
+				// What caretPassNeeded will ask about this line, so that a caret
+				// moving in a table's Markdown does not draw it again for nothing.
+				parseLine(parse, at, keyed)
+				linkSpansKey(parse, at, keyed)
+			}
 		} else {
 			e.tagLine(lineNum, parse, at, keyed)
 		}
