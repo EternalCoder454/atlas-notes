@@ -309,3 +309,38 @@ func TestEmbedLineAndTextAreClipped(t *testing.T) {
 		t.Error("clipRunes split a character")
 	}
 }
+
+func TestMathAndFootnoteDefinitions(t *testing.T) {
+	has := func(l string, caret int, tag string) bool {
+		for _, s := range parseLineSpans(l, caret) {
+			if s.tag == tag {
+				return true
+			}
+		}
+		return false
+	}
+	if h := hiddenText("$$E = mc^2$$", parseLineSpans("$$E = mc^2$$", -1)); !reflect.DeepEqual(h, []string{"$$", "$$"}) {
+		t.Errorf("display math hides %q", h)
+	}
+	if !has("$$E = mc^2$$", -1, "mathline") || has("x $$E$$ y", -1, "mathline") {
+		t.Error("only a display formula alone on its line is centred")
+	}
+	if h := hiddenText("see $x^2$ now", parseLineSpans("see $x^2$ now", -1)); !reflect.DeepEqual(h, []string{"$", "$"}) {
+		t.Errorf("inline math hides %q", h)
+	}
+	if h := hiddenText("see $x^2$ now", parseLineSpans("see $x^2$ now", 6)); len(h) != 0 {
+		t.Errorf("caret in math still hides %q", h)
+	}
+	for _, l := range []string{"costs $5 and $10", "$ 5$", "$5 $", "a $5$10 b", `\$x$`, "just $"} {
+		if has(l, -1, "math") || has(l, -1, "mathblock") {
+			t.Errorf("%q was taken for math", l)
+		}
+	}
+	const def = "[^1]: the text"
+	if h := hiddenText(def, parseLineSpans(def, -1)); !reflect.DeepEqual(h, []string{"[^", "]:"}) {
+		t.Errorf("footnote definition hides %q", h)
+	}
+	if h := hiddenText(def, parseLineSpans(def, 1)); len(h) != 0 {
+		t.Errorf("caret in the label still hides %q", h)
+	}
+}

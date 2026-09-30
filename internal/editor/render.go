@@ -8,6 +8,7 @@ import (
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+	"github.com/diamondburned/gotk4/pkg/pango"
 )
 
 // This file draws the block constructs Obsidian notes lean on: quotes, callouts,
@@ -490,6 +491,12 @@ var richTagDefs = []struct {
 	{"highlight", map[string]any{"background": "rgba(255,208,0,0.30)"}},
 	{"footref", map[string]any{"scale": 0.72, "rise": 5000, "foreground": linkColor}},
 	{"footdef", map[string]any{"scale": 0.9, "foreground": "#9a9a9a"}},
+	{"footnum", map[string]any{"scale": 0.8, "rise": 4000}},
+	// Math has no TeX engine behind it: the formula is set in a serif italic, and a
+	// display one that is a line by itself is centred, a little larger.
+	{"math", map[string]any{"family": "serif", "style": pango.StyleItalic}},
+	{"mathblock", map[string]any{"family": "serif", "style": pango.StyleItalic, "scale": 1.15}},
+	{"mathline", map[string]any{"justification": gtk.JustifyCenter, "pixels-above-lines": 4, "pixels-below-lines": 4}},
 	// A callout's lines sit inside its card: room on the left for the icon.
 	{"callout", map[string]any{"left-margin": calloutIndent, "right-margin": 28, "pixels-below-lines": 2}},
 	{"calloutfirst", map[string]any{"pixels-above-lines": 12}},

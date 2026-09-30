@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"strings"
+
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
@@ -159,6 +161,9 @@ func (d *deco) dress() {
 		// A long language name is cut short, so it cannot push the copy button out
 		// of the block.
 		lang := []rune(b.lang)
+		if strings.EqualFold(b.lang, "mermaid") {
+			lang = []rune("Mermaid diagram") // there is no renderer, so say what it is
+		}
 		if len(lang) > 16 {
 			lang = append(lang[:15], '…')
 		}
