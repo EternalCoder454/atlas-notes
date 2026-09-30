@@ -1,0 +1,67 @@
+name: Tests
+
+# go vet and go test on every push to beta and every pull request. The release
+# workflow builds the artifacts but never ran the tests, so a failing test was
+# only ever seen on someone's machine.
+#
+# Fedora 44 in a container rather than the runner's own Ubuntu: the app needs
+# GLib 2.88, GTK 4.22 and libadwaita 1.9 (see scripts/install.sh), which Ubuntu
+# 24.04 does not have. Tests that need a display skip themselves, since the
+# container has none.
+on:
+  push:
+    branches: [beta]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "NOTICE"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "NOTICE"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request makes the older run pointless. Pushes to
+# beta are left to finish, so every commit there keeps a result.
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: vet and test
+    runs-on: ubuntu-latest
+    container: fedora:44
+    # Cold, compiling gotk4 in go vet takes about twelve minutes (measured on
+    # the first runs); warm, the build cache setup-go restores skips most of it.
+    timeout-minutes: 30
+    steps:
+      - name: Install the build dependencies
+        run: >-
+          dnf install -y --setopt=install_weak_deps=False
+          git tar gzip gcc pkgconf-pkg-config
+          gtk4-devel libadwaita-devel gobject-introspection-devel
+
+      - uses: actions/checkout@v4
+
+      # Reads the toolchain line in go.mod, and caches the module download and
+      # the build cache on go.sum, which is most of the cold build.
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # The container runs as root on a checkout the runner created, and git
+      # refuses to read a repository owned by another user. go vet asks git for
+      # the build's VCS stamp.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...

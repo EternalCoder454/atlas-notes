@@ -99,11 +99,16 @@ func TestSetVaultPathRefusesFoldersItCannotUse(t *testing.T) {
 	os.Chmod(readOnly, 0o555)
 	t.Cleanup(func() { os.Chmod(readOnly, 0o755) })
 
-	for name, dir := range map[string]string{
-		"missing":   filepath.Join(t.TempDir(), "not there"),
-		"a file":    file,
-		"read-only": readOnly,
-	} {
+	cases := map[string]string{
+		"missing": filepath.Join(t.TempDir(), "not there"),
+		"a file":  file,
+	}
+	// Root writes to a read-only folder all the same (the CI container runs
+	// as root), so that case only means something for anyone else.
+	if os.Geteuid() != 0 {
+		cases["read-only"] = readOnly
+	}
+	for name, dir := range cases {
 		if err := SetVaultPath(dir); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
