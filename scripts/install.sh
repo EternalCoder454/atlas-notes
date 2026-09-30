@@ -89,12 +89,12 @@ PKGS=""
 detect_distro() {
 	local id="" like="" name=""
 	if [ -r /etc/os-release ]; then
-		# shellcheck disable=SC1091
 		# Sourced in a subshell: os-release is shell syntax, and its variables
 		# (VERSION, NAME, ...) must not leak into this script's own.
-		id="$(. /etc/os-release && printf '%s' "${ID:-}")"
-		like="$(. /etc/os-release && printf '%s' "${ID_LIKE:-}")"
-		name="$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-${NAME:-}}")"
+		# shellcheck source=/dev/null
+		{ read -r id; read -r like; read -r name; } < <(
+			. /etc/os-release
+			printf '%s\n%s\n%s\n' "${ID:-}" "${ID_LIKE:-}" "${PRETTY_NAME:-${NAME:-}}")
 	fi
 	[ -n "$name" ] && DISTRO="$name"
 	local word
@@ -351,7 +351,7 @@ path_hint() {
 	case ":$PATH:" in
 		*":$PREFIX/bin:"*) ;;
 		*) warn "$PREFIX/bin is not on your PATH. Add it (for example in ~/.bashrc):"
-		   printf '       export PATH="%s/bin:\$PATH"\n' "$PREFIX" ;;
+		   echo "       export PATH=\"$PREFIX/bin:\$PATH\"" ;;
 	esac
 }
 
