@@ -35,12 +35,14 @@
 
 set -euo pipefail
 
-# The oldest libraries the app builds and runs against. libadwaita 1.6 is the
-# one that matters: adw.ButtonRow, used by Settings and the dialogs, arrived in
-# it. GTK 4.14 is what 1.6 itself needs. Distros older than that (Ubuntu 24.04
-# and Linux Mint 22 ship libadwaita 1.5) cannot build the app.
-MIN_ADW="1.6"
-MIN_GTK="4.14"
+# The oldest libraries the app builds against. They are set by gotk4 v0.4.1, not
+# by the app's own code: its bindings are generated against GLib 2.88, GTK 4.22
+# and libadwaita 1.9 and compile every function in them, so older headers fail
+# with "could not determine what C.g_get_monotonic_time_ns refers to" (seen on
+# Debian 13, GLib 2.84). Debian 13, Ubuntu 24.04 and Linux Mint 22 are too old.
+MIN_GLIB="2.88"
+MIN_ADW="1.9"
+MIN_GTK="4.22"
 # The oldest Go that can fetch the toolchain named in go.mod by itself.
 MIN_GO_MINOR=21
 
@@ -264,7 +266,12 @@ check_libs() {
 	[ -n "$gtk" ] || die "GTK 4 development files not found. $(dep_hint gtk)"
 	[ -n "$adw" ] || die "libadwaita development files not found. $(dep_hint adw)"
 	$pc --exists gobject-introspection-1.0 2>/dev/null || die "gobject-introspection development files not found. $(dep_hint gi)"
-	say "Found GTK $gtk and libadwaita $adw."
+	local glib
+	glib="$($pc --modversion glib-2.0 2>/dev/null || true)"
+	say "Found GLib ${glib:-?}, GTK $gtk and libadwaita $adw."
+	if [ -n "$glib" ] && ! version_ge "$glib" "$MIN_GLIB"; then
+		die "$DISTRO ships GLib $glib, and Atlas Notes needs $MIN_GLIB or newer (with GTK $MIN_GTK and libadwaita $MIN_ADW; you have $gtk and $adw). Use a newer release of the distro, or build inside a container or toolbox that has newer libraries."
+	fi
 	if ! version_ge "$adw" "$MIN_ADW"; then
 		die "$DISTRO ships libadwaita $adw, and Atlas Notes needs $MIN_ADW or newer (GTK $MIN_GTK or newer; you have $gtk). Use a newer release of the distro, or build inside a container or toolbox that has a newer libadwaita."
 	fi

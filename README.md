@@ -207,11 +207,13 @@ lists them all.
 
 ### What you need
 
-Atlas Notes needs **libadwaita 1.6 or newer** and **GTK 4.14 or newer**. That
-means Fedora 41 or newer, Debian 13 (trixie) or newer, Ubuntu 24.10 or newer,
-Arch and openSUSE Tumbleweed. **Ubuntu 24.04 and Linux Mint 22 ship
-libadwaita 1.5 and cannot build it.** The installer stops before building and
-says which version it found.
+Atlas Notes needs **GLib 2.88, GTK 4.22 and libadwaita 1.9 or newer**. The
+GTK bindings it uses (gotk4 0.4.1) are generated against those releases and will
+not compile against older headers. That means Fedora 44 or newer, Arch Linux
+and openSUSE Tumbleweed today, and the distros that follow GNOME 50. **Debian 13
+(GLib 2.84), Ubuntu 24.04 and Linux Mint 22 (libadwaita 1.5) are too old**; the
+installer stops before building and says which version it found. On those, build
+inside a container or toolbox with a newer distro.
 
 ### Per distro
 
@@ -219,8 +221,8 @@ says which version it found.
   yourself (or for COPR), use `packaging/atlas-notes.spec`:
   `rpmbuild -ba packaging/atlas-notes.spec`. Enable network access for the Go
   module download on COPR.
-- **Debian, Ubuntu, Linux Mint:** the one-liner uses `apt`, and downloads Go from
-  go.dev because the distro's is older than this project needs.
+- **Debian, Ubuntu, Linux Mint:** the one-liner uses `apt` and downloads Go from
+  go.dev, but only releases with GLib 2.88 or newer can build it (see above).
 - **Arch Linux and Manjaro:** the one-liner uses `pacman`. To get a proper
   package that `pacman` owns, build the PKGBUILD:
   `git clone https://github.com/EternalCoder454/atlas-notes.git && cd atlas-notes/packaging && makepkg -si`.
