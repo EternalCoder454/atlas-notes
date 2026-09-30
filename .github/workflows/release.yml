@@ -407,6 +407,22 @@ jobs:
           echo "Atlas Notes $VERSION"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      # The metainfo's release list is what the software centre shows. Make sure
+      # the version being built is the first entry, whatever the file says, so a
+      # release is never tagged with a stale one. A build from a tag uses the
+      # tag's own version; any other build uses version.go's.
+      - name: Put this version in the metainfo
+        run: |
+          set -eu
+          V="$VERSION"
+          case "$GITHUB_REF" in refs/tags/v*) V="${GITHUB_REF#refs/tags/v}" ;; esac
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          f=packaging/flatpak/io.github.atlasnotes.metainfo.xml
+          if ! grep -q "<release version=\"$V\"" "$f"; then
+            sed -i "s|<releases>|<releases>\n    <release version=\"$V\" date=\"$(date -u +%F)\" />|" "$f"
+          fi
+          grep -A3 '<releases>' "$f"
+
       # The bundle is named after the version, like the .apk and the .zip.
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:

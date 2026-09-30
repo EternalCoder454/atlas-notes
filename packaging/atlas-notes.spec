@@ -23,16 +23,17 @@ License:        MIT
 URL:            https://github.com/EternalCoder454/atlas-notes
 Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
-BuildRequires:  golang >= 1.25
+BuildRequires:  golang >= 1.26
 BuildRequires:  gcc
-BuildRequires:  pkgconfig(gtk4) >= 4.14
-BuildRequires:  pkgconfig(libadwaita-1) >= 1.6
-BuildRequires:  pkgconfig(glib-2.0)
+BuildRequires:  pkgconfig(gtk4) >= 4.22
+BuildRequires:  pkgconfig(libadwaita-1) >= 1.9
+BuildRequires:  pkgconfig(glib-2.0) >= 2.88
 BuildRequires:  pkgconfig(gobject-introspection-1.0)
 BuildRequires:  desktop-file-utils
 
-Requires:       gtk4
-Requires:       libadwaita >= 1.6
+Requires:       gtk4 >= 4.22
+Requires:       libadwaita >= 1.9
+Requires:       glib2 >= 2.88
 # The optional assistant talks to a local Ollama server; it is not packaged here.
 Suggests:       ollama
 
@@ -48,10 +49,10 @@ optional assistant runs on a local Ollama server; nothing is uploaded.
 %build
 export CGO_ENABLED=1
 # Position-independent, as Fedora's packaging guidelines expect of every
-# executable. The source path is not baked into the binary (the Makefile does
+# executable. The version is stamped in as the package's own. The source path is not baked into the binary (the Makefile does
 # that for source installs), so a packaged copy is never mistaken for one the
 # app can rebuild.
-go build -buildmode=pie -trimpath -ldflags="-s -w" -o %{name} .
+go build -buildmode=pie -trimpath -ldflags="-s -w -X atlas-notes/internal/app.version=%{version}" -o %{name} .
 
 %install
 install -Dm755 %{name} %{buildroot}%{_bindir}/%{name}
