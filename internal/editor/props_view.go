@@ -297,6 +297,7 @@ func (e *Editor) newPropRow() *propRow {
 	r.dateBtn.AddCSSClass("atlas-prop-date")
 	r.dateBtn.SetFocusOnClick(false)
 	r.dateBtn.SetVAlign(gtk.AlignCenter)
+	r.dateBtn.SetHAlign(gtk.AlignStart)
 	r.dateLbl = gtk.NewLabel("")
 	r.dateBtn.SetChild(r.dateLbl)
 	pop := gtk.NewPopover()

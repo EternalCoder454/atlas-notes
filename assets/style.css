@@ -1296,3 +1296,6 @@ window.atlas-glass .atlas-page .tasks-open {
 .atlas-outline-rail:hover .atlas-outline-mark.current { background-color: @accent_color; }
 .atlas-outline-item { padding: 3px 10px; min-height: 26px; }
 .atlas-outline-item.current { color: @accent_color; font-weight: 700; }
+.atlas-editor .atlas-prop-entry text,
+.atlas-editor .atlas-prop-add-chip text { background-color: transparent; }
+.atlas-prop-date, .atlas-prop-date label { font-weight: 400; }
