@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNoteNameFromText(t *testing.T) {
 	for in, want := range map[string]string{
@@ -25,5 +28,25 @@ func TestCleanNoteNameLimitsLength(t *testing.T) {
 	}
 	if got := cleanNoteName(long); len([]rune(got)) != noteNameLimit {
 		t.Errorf("length %d", len([]rune(got)))
+	}
+}
+
+func TestSplitReplacementKeepsTheNewlinesOfALineWiseSelection(t *testing.T) {
+	for text, want := range map[string]string{
+		"one\ntwo\n": "[[N]]\n",
+		"\nword":     "\n[[N]]",
+		"\n\nx\n\n":  "\n\n[[N]]\n\n",
+		"inline":     "[[N]]",
+	} {
+		if got := splitReplacement(text, "[[N]]"); got != want {
+			t.Errorf("splitReplacement(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
+
+func TestCleanNoteNameDropsWhatWouldBreakALink(t *testing.T) {
+	got := cleanNoteName("a#b^c[d]e|f")
+	if strings.ContainsAny(got, "#^[]|") || got != "abcde-f" {
+		t.Errorf("got %q", got)
 	}
 }

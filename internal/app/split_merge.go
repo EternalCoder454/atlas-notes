@@ -31,8 +31,10 @@ const noteNameLimit = 60
 func cleanNoteName(s string) string {
 	s = strings.Map(func(r rune) rune {
 		switch {
-		case r == '/' || r == '\\':
+		case r == '/' || r == '\\' || r == '|':
 			return '-'
+		case r == '#' || r == '^' || r == '[' || r == ']':
+			return -1 // they would end or change a [[link]] to the note
 		case unicode.IsControl(r):
 			return -1
 		}
@@ -108,14 +110,40 @@ func (a *App) actionSplitNote() {
 		a.toast("Open a note and select some text to move it")
 		return
 	}
-	a.splitSelection(a.activeEditor(), a.activeNote())
+	if a.sideFocused() {
+		p := a.side
+		a.splitSelection(func() (*editor.Editor, string) {
+			if a.side == p {
+				return p.ed, p.rel
+			}
+			return nil, ""
+		})
+		return
+	}
+	a.splitSelection(a.mainPane)
+}
+
+// mainPane is the main editor and the note it shows. Split asks for its pane
+// again when it acts, rather than holding on to one: the note in a pane can
+// change while a dialog is open.
+func (a *App) mainPane() (*editor.Editor, string) { return a.editor, a.currentNote }
+
+// splitReplacement is what goes where the selected text was: the link, with
+// the newlines the selection began and ended with kept around it. A selection
+// made by whole lines takes its last newline with it, and without it the line
+// after would join the link.
+func splitReplacement(text, link string) string {
+	lead := text[:len(text)-len(strings.TrimLeft(text, "\n"))]
+	trail := text[len(strings.TrimRight(text, "\n")):]
+	return lead + link + trail
 }
 
 // splitSelection asks for a name, makes a note of the text selected in ed (which
 // shows the note rel), and puts a link to it where the text was. The link
 // replaces the text as one step of ed's undo history, so a single Ctrl+Z brings
 // the text back, though the new note stays.
-func (a *App) splitSelection(ed *editor.Editor, rel string) {
+func (a *App) splitSelection(get func() (*editor.Editor, string)) {
+	ed, rel := get()
 	if a.store == nil || ed == nil || rel == "" {
 		return
 	}
@@ -124,7 +152,7 @@ func (a *App) splitSelection(ed *editor.Editor, rel string) {
 		a.toast("Select some text to move it to a new note")
 		return
 	}
-	if a.store.IsNoteLocked(rel) {
+	if a.store.NoteIsProtected(rel) {
 		// The new note would be written in the clear, and the text would leave the
 		// protection it is under.
 		a.toast("Text can't be moved out of a protected note, because the new note would not be protected")
@@ -137,11 +165,15 @@ func (a *App) splitSelection(ed *editor.Editor, rel string) {
 	a.askName("Move Selection to a New Note",
 		"The selected text goes into a new note, and a link to it takes its place here.",
 		"Move", initial, "atlasnotes-split-note-symbolic",
-		func(name string) { a.finishSplit(ed, rel, from, to, text, name) })
+		func(name string) { a.finishSplit(get, ed, rel, from, to, text, name) })
 }
 
 // finishSplit does the split once the name is known.
-func (a *App) finishSplit(ed *editor.Editor, rel string, from, to int, text, name string) {
+func (a *App) finishSplit(get func() (*editor.Editor, string), ed *editor.Editor, rel string, from, to int, text, name string) {
+	if cur, curRel := get(); cur != ed || curRel != rel {
+		a.toast("The pane changed while you were choosing a name, so nothing was moved")
+		return
+	}
 	name = cleanNoteName(name)
 	if name == "" {
 		a.toast("That name can't be used")
@@ -178,6 +210,7 @@ func (a *App) finishSplit(ed *editor.Editor, rel string, from, to int, text, nam
 	// A bare name when it says which note it means, the full path when another
 	// note by that name is nearer the root.
 	target := path.Base(newRel)
+	linked := false
 	if notes, err := a.store.ListNotes(); err == nil {
 		paths := make([]string, len(notes))
 		for i, n := range notes {
@@ -186,8 +219,12 @@ func (a *App) finishSplit(ed *editor.Editor, rel string, from, to int, text, nam
 		if !strings.EqualFold(markup.Resolve(target, paths), newRel) {
 			target = newRel
 		}
+		linked = strings.EqualFold(markup.Resolve(target, paths), newRel)
 	}
-	if !ed.ReplaceSpan(from, to, text, "[["+target+"]]") {
+	if !linked {
+		// A link that leads nowhere would leave the text in neither place.
+		a.toast("Made " + path.Base(newRel) + ", but couldn't link to it, so the text was copied and not removed")
+	} else if !ed.ReplaceSpan(from, to, text, splitReplacement(text, "[["+target+"]]")) {
 		a.toast("The note changed, so the text was copied to " + path.Base(newRel) + " but not removed")
 	} else {
 		a.flushDirty() // the source now has the link, not the text
@@ -258,7 +295,7 @@ func (a *App) mergeNotes(from, into string) {
 	if a.store == nil {
 		return
 	}
-	lockedFrom, lockedInto := a.store.IsNoteLocked(from), a.store.IsNoteLocked(into)
+	lockedFrom, lockedInto := a.store.NoteIsProtected(from), a.store.NoteIsProtected(into)
 	if (lockedFrom || lockedInto) && !a.store.IsUnlocked() {
 		a.ensureUnlocked(func() { a.mergeNotes(from, into) })
 		return
@@ -291,7 +328,11 @@ func (a *App) mergeNotes(from, into string) {
 		log.Printf("atlas-notes: merge %q into %q: %v", from, into, err)
 		a.toast("Merged, but not every link could be updated: " + err.Error())
 	default:
-		a.toast("Merged “" + path.Base(from) + "” into “" + path.Base(into) + "”. It is in the Trash")
+		msg := "Merged “" + path.Base(from) + "” into “" + path.Base(into) + "”. It is in the Trash"
+		if a.hasProtectedNotes() {
+			msg += ". Links inside protected notes were not updated"
+		}
+		a.toast(msg)
 	}
 	if !gone {
 		a.reloadOpen(into)
@@ -509,4 +550,20 @@ func pickRow(icon, rel string) *gtk.ListBoxRow {
 	row := gtk.NewListBoxRow()
 	row.SetChild(box)
 	return row
+}
+
+// hasProtectedNotes reports whether the vault has any protected notes. Their
+// text is not in the link index, so a rename or merge cannot rewrite the links
+// in them, and people are told.
+func (a *App) hasProtectedNotes() bool {
+	notes, err := a.store.ListNotes()
+	if err != nil {
+		return false
+	}
+	for _, n := range notes {
+		if n.Locked {
+			return true
+		}
+	}
+	return false
 }

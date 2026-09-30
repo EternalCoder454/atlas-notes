@@ -196,3 +196,23 @@ func TestFoldDiffOfNoChangesFoldsTheWholeNote(t *testing.T) {
 		t.Errorf("rows %+v, want one folded row of 4", rows)
 	}
 }
+
+func TestDiffOfHugeDifferingNotesSkipsTheSearch(t *testing.T) {
+	var a, b []string
+	for i := 0; i < 30000; i++ {
+		a = append(a, fmt.Sprint("old ", i))
+		b = append(b, fmt.Sprint("new ", i))
+	}
+	start := time.Now()
+	_, precise := diffLines(strings.Join(a, "\n"), strings.Join(b, "\n"))
+	if precise || time.Since(start) > time.Second {
+		t.Errorf("precise=%v after %v", precise, time.Since(start))
+	}
+}
+
+func TestDiffOfTextsThatDifferOnlyInTheFinalNewlineHasNoLineChanges(t *testing.T) {
+	lines, _ := diffLines("a\nb", "a\nb\n")
+	if add, del := diffCounts(lines); add != 0 || del != 0 {
+		t.Errorf("+%d -%d", add, del)
+	}
+}

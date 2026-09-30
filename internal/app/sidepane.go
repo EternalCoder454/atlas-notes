@@ -46,6 +46,7 @@ type sidePane struct {
 	gen      int  // bumped by every edit, so a waiting autosave can tell it was overtaken
 	pending  bool // an autosave timer is in flight
 	inFlight bool // an async save is running
+	seq      int  // counts the writes started, so a late completion can tell it was overtaken
 
 	savedRel  string // the note savedHash belongs to
 	savedHash uint64 // hash of what is on disk, to skip writes that change nothing
@@ -99,7 +100,7 @@ func (a *App) newSidePane() *sidePane {
 	p.dot.AddCSSClass("save-dot")
 	p.dot.AddCSSClass("save-saved")
 
-	closeBtn := findIconButton("atlasnotes-close-symbolic", "✕", "Close this pane", a.closeSide)
+	closeBtn := findIconButton("atlasnotes-close-symbolic", "✕", "Close this pane", func() { a.closeSide() })
 
 	head := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	head.AddCSSClass("side-header")
@@ -110,13 +111,19 @@ func (a *App) newSidePane() *sidePane {
 	e := editor.New()
 	p.ed = e
 	e.OnChanged = p.onChanged
-	e.OnOpenNote = a.openLinkedNote
-	e.OnOpenTag = a.showTagged
-	e.OnOpenURL = a.openURL
-	e.NoteNames = a.noteNames
-	e.TagNames = a.tagNames
-	e.OnImageError = func(err error) { a.toast(imageErrorText(err)) }
-	e.SetSideHandlers(a.openLinkToSide, func() { a.splitSelection(e, p.rel) })
+	// The same hooks as the main editor, from the one place that gives them. The
+	// slash menu's assistant and image entries are not offered here: they act on
+	// the main note.
+	a.wireEditor(e)
+	e.OnAssistant, e.OnInsertImage = nil, nil
+	e.SetSideHandlers(a.openLinkToSide, func() {
+		a.splitSelection(func() (*editor.Editor, string) {
+			if a.side == p {
+				return e, p.rel
+			}
+			return nil, ""
+		})
+	})
 
 	clamp := newClamp(e)
 	p.box = gtk.NewBox(gtk.OrientationVertical, 0)
@@ -145,6 +152,11 @@ func (a *App) openToSide(rel string) {
 		return
 	}
 	a.flushDirty() // the pane it replaces, and the main one, before anything is read
+	if a.side != nil && a.side.dirty {
+		// Loading over text that is not on disk would lose it.
+		a.toast("Couldn't save " + path.Base(a.side.rel) + ", so it was not replaced")
+		return
+	}
 	content, err := a.store.ReadNote(rel)
 	if errors.Is(err, storage.ErrLocked) {
 		a.ensureUnlocked(func() { a.openToSide(rel) })
@@ -157,7 +169,11 @@ func (a *App) openToSide(rel string) {
 	}
 	first := a.side == nil
 	if first {
-		a.side = a.newSidePane()
+		// The editor is built once and kept for the next time (see dropSide).
+		if a.sideSpare == nil {
+			a.sideSpare = a.newSidePane()
+		}
+		a.side = a.sideSpare
 		a.sidePaned.SetEndChild(a.side.box)
 		a.syncEditorAccent() // the new editor draws its links in the theme's colour
 	}
@@ -188,23 +204,26 @@ func (a *App) openLinkToSide(target, _ string) {
 	a.toast("There is no note called " + path.Base(target) + " yet. Click the link to make it")
 }
 
-// closeSide saves the side pane's note and closes the pane. If the save fails the
-// pane stays, with its text, rather than losing it.
-func (a *App) closeSide() {
+// closeSide saves the side pane's note and closes the pane. It reports whether
+// the pane is closed: if the save fails the pane stays, with its text, rather
+// than losing it.
+func (a *App) closeSide() bool {
 	p := a.side
 	if p == nil {
-		return
+		return true
 	}
 	p.flush()
 	if p.dirty {
 		a.toast("Couldn't save " + path.Base(p.rel) + ", so the pane was left open")
-		return
+		return false
 	}
 	a.dropSide()
+	return true
 }
 
 // dropSide closes the side pane without saving it: for a note that is gone, or
-// already saved.
+// already saved. Its editor is emptied, which also lets go of the pictures it
+// held, and kept to be used again.
 func (a *App) dropSide() {
 	p := a.side
 	if p == nil {
@@ -213,6 +232,10 @@ func (a *App) dropSide() {
 	hadFocus := p.ed.HasFocus()
 	a.side = nil // a waiting autosave sees this and does nothing
 	p.rel, p.dirty = "", false
+	p.savedRel = ""
+	p.ed.LoadImage, p.ed.SaveImage, p.ed.OnOpenImage = nil, nil, nil
+	p.ed.SetContent("")
+	p.dirty = false // emptying the editor is not an edit
 	if a.sidePaned != nil {
 		a.sidePaned.SetEndChild(nil)
 	}
@@ -239,11 +262,7 @@ func (p *sidePane) showName() {
 
 // bindImages points the pane's pictures at its note, as bindImages does for the
 // main editor.
-func (p *sidePane) bindImages() {
-	store, rel := p.a.store, p.rel
-	p.ed.LoadImage = func(mdPath string) ([]byte, error) { return store.ReadAttachment(rel, mdPath) }
-	p.ed.SaveImage = func(data []byte) (string, error) { return store.SaveAttachment(rel, data) }
-}
+func (p *sidePane) bindImages() { p.a.bindEditorImages(p.ed, p.rel) }
 
 func (p *sidePane) setDot(class string) {
 	for _, c := range []string{"save-saved", "save-unsaved", "save-saving"} {
@@ -293,6 +312,10 @@ func (p *sidePane) schedule() {
 
 // save writes the pane's note off the main thread. It shares the app's wait
 // group with the main pane's saves, so flushDirty waits for both.
+//
+// The pane stays dirty until the write is known to have worked and no edit came
+// after it, so a write that fails, or a pane closed while one runs, cannot lose
+// the text: flush sees a dirty pane and writes it again.
 func (p *sidePane) save() {
 	a := p.a
 	if a.store == nil || p.rel == "" || !p.dirty || p.inFlight {
@@ -304,8 +327,9 @@ func (p *sidePane) save() {
 		p.setDot("save-saved")
 		return
 	}
-	p.dirty = false
 	p.inFlight = true
+	p.seq++
+	seq, gen := p.seq, p.gen
 	p.setDot("save-saving")
 	a.saveWG.Add(1)
 	go func() {
@@ -316,18 +340,22 @@ func (p *sidePane) save() {
 			if err != nil {
 				log.Printf("atlas-notes: save %q: %v", rel, err)
 			}
-			if a.closing || a.side != p || p.rel != rel {
-				return false // closed, or on another note: its state stands
+			if a.closing || p.rel != rel {
+				return false // on another note now: its state stands
 			}
-			if err != nil {
-				p.dirty = true
-				p.setDot("save-unsaved")
-				return false
+			// Only if no later write has been made; see saveCurrent.
+			if err == nil && p.seq == seq {
+				p.remember(rel, content)
 			}
-			p.setDot("save-saved")
-			p.remember(rel, content)
-			if p.dirty {
-				p.schedule()
+			switch {
+			case a.side != p:
+			case err != nil:
+				p.setDot("save-unsaved") // still dirty: a flush tries again
+			case p.gen != gen:
+				p.schedule() // edits arrived while the write was in flight
+			default:
+				p.dirty = false
+				p.setDot("save-saved")
 			}
 			return false
 		})
@@ -350,6 +378,7 @@ func (p *sidePane) flush() bool {
 		p.dirty = false
 		return false
 	}
+	p.seq++
 	if err := a.store.WriteNote(p.rel, content); err != nil {
 		log.Printf("atlas-notes: save %q: %v", p.rel, err)
 		p.setDot("save-unsaved")
@@ -422,9 +451,27 @@ func (a *App) sideDeleted(rel string, isFolder bool) {
 }
 
 // closeSideIfLocked closes the side pane when its note is protected, for locking
-// the vault: its text must not stay on screen.
-func (a *App) closeSideIfLocked() {
-	if a.side != nil && a.store.IsNoteLocked(a.side.rel) {
-		a.dropSide() // flushDirty has already saved it
+// the vault: its text must not stay on screen. It reports whether it is safe to
+// go on, which it is not when the pane holds text that could not be saved.
+func (a *App) closeSideIfLocked() bool {
+	if a.side == nil || !a.store.NoteIsProtected(a.side.rel) {
+		return true
+	}
+	return a.closeSide()
+}
+
+// sideFocused reports whether the caret is in the side pane.
+func (a *App) sideFocused() bool { return a.side != nil && a.side.ed.HasFocus() }
+
+// mainOnly wraps a command that works on the main pane's note, so that with the
+// caret in the side pane it says so instead of acting on a note the person was
+// not looking at.
+func (a *App) mainOnly(fn func()) func() {
+	return func() {
+		if a.sideFocused() {
+			a.toast("That works on the note in the main pane. Click in it first")
+			return
+		}
+		fn()
 	}
 }

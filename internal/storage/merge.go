@@ -25,6 +25,13 @@ func (s *Store) CreateNote(rel, content string) (bool, error) {
 	return s.createNote(normalizeRel(rel), content)
 }
 
+// NoteIsProtected reports whether a note is stored encrypted, either itself or
+// because it is in a locked folder.
+func (s *Store) NoteIsProtected(rel string) bool {
+	rel = normalizeRel(rel)
+	return s.IsNoteLocked(rel) || s.lockedByFolder(rel)
+}
+
 // splitFrontMatter cuts a leading "---" block off text. front is the lines
 // between the fences, and body is what follows; front is nil when there is none.
 func splitFrontMatter(text string) (front []string, body string) {
@@ -238,8 +245,7 @@ func (s *Store) MergeNote(fromRel, intoRel string) (int, error) {
 	case s.Trash == nil:
 		return 0, ErrNoTrash
 	}
-	fromLocked := s.IsNoteLocked(fromRel) || s.lockedByFolder(fromRel)
-	intoLocked := s.IsNoteLocked(intoRel) || s.lockedByFolder(intoRel)
+	fromLocked, intoLocked := s.NoteIsProtected(fromRel), s.NoteIsProtected(intoRel)
 	if fromLocked && !intoLocked {
 		return 0, errors.New("a protected note can't be merged into one that is not protected")
 	}

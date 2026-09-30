@@ -52,7 +52,7 @@ func (a *App) buildEditorPage() *gtk.Box {
 	a.editor.OnChanged = a.onEditorChanged
 	a.editor.OnReparsed = a.onEditorReparsed
 	a.wireEditorLinks()
-	a.editor.SetSideHandlers(a.openLinkToSide, func() { a.splitSelection(a.editor, a.currentNote) })
+	a.editor.SetSideHandlers(a.openLinkToSide, func() { a.splitSelection(a.mainPane) })
 	page.Append(a.buildFindBar())
 
 	// The editor sits in a paned so that a second note can be opened beside it
@@ -537,7 +537,9 @@ func (a *App) showWelcome() {
 	// Typing from the last moment before the autosave would otherwise go
 	// with the note: the editor is emptied below.
 	a.flushDirty()
-	a.closeSide()    // there is no note left for it to be beside
+	if !a.closeSide() { // there is no note left for it to be beside
+		return
+	}
 	a.backlinksGen++ // an answer for the note being left is no longer wanted
 	a.welcomeBuilt = true
 	a.currentNote = ""

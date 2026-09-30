@@ -20,6 +20,9 @@ type changesView struct {
 	widget  *gtk.Box
 	summary *gtk.Label
 	rows    *gtk.Box
+
+	version, current string // what the page compares, once it is shown
+	visible, stale   bool
 }
 
 func newChangesView() *changesView {
@@ -58,19 +61,44 @@ func (c *changesView) clear() {
 // message replaces the view's content with a sentence, for a version that could
 // not be read.
 func (c *changesView) message(text string) {
+	c.stale = false
 	c.clear()
 	c.summary.SetText(text)
 }
 
-// show compares a version with the current text. Removed lines are the ones the
-// version has and the note no longer does, and added lines the other way round,
-// which is also what a restore would undo and redo.
+// show remembers what to compare. The comparison is made when the Changes page
+// is on screen, and again for each version chosen while it is: people open the
+// dialog to read a version, and a note of ten thousand lines should not be
+// compared with every one they click through.
 func (c *changesView) show(version, current string) {
+	c.version, c.current, c.stale = version, current, true
 	c.clear()
-	lines, precise := diffLines(version, current)
+	if c.visible {
+		c.render()
+	}
+}
+
+// setVisible is told when the Changes page is shown or hidden.
+func (c *changesView) setVisible(v bool) {
+	c.visible = v
+	if v && c.stale {
+		c.render()
+	}
+}
+
+// render draws the comparison of the remembered texts.
+func (c *changesView) render() {
+	c.stale = false
+	c.clear()
+	if c.version == c.current {
+		c.summary.SetText("This version is the same as the note now.")
+		return
+	}
+	lines, precise := diffLines(c.version, c.current)
 	added, removed := diffCounts(lines)
 	if added == 0 && removed == 0 {
-		c.summary.SetText("This version is the same as the note now.")
+		// The strings differ but no line does: only how the lines end.
+		c.summary.SetText("This version differs from the note now only in its line endings or a final newline.")
 		return
 	}
 	summary := fmt.Sprintf("Compared with the note now: %s only in this version (red), %s only in the note now (green).",

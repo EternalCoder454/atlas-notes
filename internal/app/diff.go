@@ -25,6 +25,13 @@ type diffLine struct {
 	Text string
 }
 
+// diffMaxLines is the most lines, both texts together after their shared ends
+// are stripped, that are compared at all. Past it the answer is the coarse one
+// without a search: the table below is sized by the edits, but the scan of the
+// lines is not free either, and a note that long that differs that much is not
+// one anybody reads line by line.
+const diffMaxLines = 40000
+
 // diffMaxEdits is how many added plus removed lines the search will look for
 // before it stops and treats the texts as wholly different. The search keeps a
 // table that grows with the square of this, so it is also the memory cap:
@@ -63,7 +70,12 @@ func diffLines(oldText, newText string) (out []diffLine, precise bool) {
 	for _, l := range a[:pre] {
 		out = append(out, diffLine{diffSame, l})
 	}
-	mid, precise := myers(midA, midB)
+	var mid []diffLine
+	if len(midA)+len(midB) > diffMaxLines {
+		mid, precise = append(marked(midA, diffDel), marked(midB, diffAdd)...), false
+	} else {
+		mid, precise = myers(midA, midB)
+	}
 	out = append(out, mid...)
 	for _, l := range a[len(a)-suf:] {
 		out = append(out, diffLine{diffSame, l})

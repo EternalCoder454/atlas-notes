@@ -245,6 +245,8 @@ func (a *App) saveCurrent() {
 	}
 	a.dirty = false
 	a.saveInFlight = true
+	a.saveSeq++
+	seq := a.saveSeq
 	a.setSaveState(saveSaving)
 
 	a.saveWG.Add(1)
@@ -265,7 +267,12 @@ func (a *App) saveCurrent() {
 				return false
 			}
 			a.setSaveState(saveSaved)
-			a.rememberSaved(rel, content)
+			// Only if no later write has been made: a flush that got in first
+			// wrote newer text, and recording this older text as what is on disk
+			// would let a return to it skip a write that is needed.
+			if a.saveSeq == seq {
+				a.rememberSaved(rel, content)
+			}
 			if a.dirty { // edits arrived while the write was in flight
 				a.scheduleAutosave()
 			}
@@ -302,6 +309,7 @@ func (a *App) flushMain() bool {
 		a.dirty = false
 		return false
 	}
+	a.saveSeq++
 	if err := a.store.WriteNote(a.currentNote, content); err != nil {
 		log.Printf("atlas-notes: save %q: %v", a.currentNote, err)
 		a.setSaveState(saveUnsaved)

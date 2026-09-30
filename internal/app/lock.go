@@ -270,7 +270,10 @@ func (a *App) lockNow() {
 	if a.store.IsNoteLocked(a.currentNote) {
 		a.showWelcome() // don't leave its text on screen
 	}
-	a.closeSideIfLocked()
+	if !a.closeSideIfLocked() {
+		a.toast("Couldn't save the note in the side pane, so nothing was locked")
+		return
+	}
 	a.store.Lock()
 	if a.tree != nil {
 		a.tree.ForceRefresh()

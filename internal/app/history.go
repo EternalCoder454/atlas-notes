@@ -164,7 +164,7 @@ func (a *App) showHistory() {
 	pages.AddNamed(previewScroll, "preview")
 	pages.AddNamed(changes.widget, "changes")
 	pages.SetVisibleChildName("preview")
-	header.SetTitleWidget(historyModeSwitch(pages, historyOpensOnChanges))
+	header.SetTitleWidget(historyModeSwitch(pages, changes, historyOpensOnChanges))
 
 	body := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	body.Append(listScroll)
@@ -221,7 +221,7 @@ func (a *App) showHistory() {
 
 // historyModeSwitch is the linked pair of toggles that chooses what the right
 // side of the dialog shows for the selected version.
-func historyModeSwitch(pages *gtk.Stack, changesFirst bool) *gtk.Box {
+func historyModeSwitch(pages *gtk.Stack, view *changesView, changesFirst bool) *gtk.Box {
 	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	box.AddCSSClass("linked")
 	preview := gtk.NewToggleButtonWithLabel("Preview")
@@ -234,11 +234,13 @@ func historyModeSwitch(pages *gtk.Stack, changesFirst bool) *gtk.Box {
 	preview.ConnectToggled(func() {
 		if preview.Active() {
 			pages.SetVisibleChildName("preview")
+			view.setVisible(false)
 		}
 	})
 	changes.ConnectToggled(func() {
 		if changes.Active() {
 			pages.SetVisibleChildName("changes")
+			view.setVisible(true)
 		}
 	})
 	box.Append(preview)
