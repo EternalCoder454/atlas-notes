@@ -1,0 +1,74 @@
+# Maintainer: EternalCoder454 <77252745+EternalCoder454@users.noreply.github.com>
+#
+# Arch package for Atlas Notes. Builds the tagged release and installs to /usr.
+#
+#   cd packaging && makepkg -si     build and install with pacman
+#   pacman -R atlas-notes           remove it again
+#
+# Updates come from pacman, not from the app. Atlas Notes notices that a package
+# manager owns its binary (it asks pacman who owns it), and its Update button
+# then shows the command that installs the newer version instead of rebuilding
+# over /usr/bin behind pacman's back. If this package is published to the AUR,
+# an AUR helper upgrades it in the ordinary way and the app suggests exactly
+# that; without one it suggests rebuilding from the newer PKGBUILD, which is the
+# only thing that works for a locally built package.
+#
+# Removing it leaves your notes and settings alone: ~/.config/atlas-notes and
+# ~/.local/share/atlas-notes are yours, not the package's.
+
+pkgname=atlas-notes
+pkgver=0.8.1
+pkgrel=1
+pkgdesc="Fast local-first notes and checklists with an optional local AI assistant"
+arch=('x86_64' 'aarch64')
+url="https://github.com/EternalCoder454/atlas-notes"
+license=('MIT')
+depends=('gtk4' 'libadwaita' 'glib2')
+makedepends=('go>=1.25' 'gcc' 'pkgconf')
+checkdepends=('desktop-file-utils')
+optdepends=('ollama: runs the local model the optional AI assistant talks to')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('a960afd2e19a33ae186f0fa333cf24cf246f8771f1ba82aa75294dfa63a01bea')
+
+build() {
+    cd "$pkgname-$pkgver"
+
+    # cgo is not optional: the GTK4 bindings are cgo. The source path is not
+    # baked into the binary (the Makefile does that for source installs), so a
+    # packaged copy is never mistaken for one the app can rebuild.
+    export CGO_ENABLED=1
+    export CGO_CPPFLAGS="${CPPFLAGS}"
+    export CGO_CFLAGS="${CFLAGS}"
+    export CGO_CXXFLAGS="${CXXFLAGS}"
+    export CGO_LDFLAGS="${LDFLAGS}"
+    export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
+
+    go build -ldflags "-linkmode=external -s -w" -o "$pkgname" .
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    # The test suites need a display and a home directory, so they are not run
+    # here. The desktop entry is checked once it has been generated.
+    sed 's|@BIN@|/usr/bin/'"$pkgname"'|g' packaging/io.github.atlasnotes.desktop \
+        > "$srcdir/check.desktop"
+    desktop-file-validate "$srcdir/check.desktop"
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+
+    install -Dm755 "$pkgname" "$pkgdir/usr/bin/$pkgname"
+    install -Dm644 assets/atlas-notes.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/atlas-notes.svg"
+
+    # The desktop file carries a placeholder for wherever the binary landed.
+    install -d "$pkgdir/usr/share/applications"
+    sed 's|@BIN@|/usr/bin/'"$pkgname"'|g' packaging/io.github.atlasnotes.desktop \
+        > "$pkgdir/usr/share/applications/io.github.atlasnotes.desktop"
+    chmod 644 "$pkgdir/usr/share/applications/io.github.atlasnotes.desktop"
+
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
