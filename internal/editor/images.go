@@ -592,7 +592,7 @@ func (it *imageItem) resize(_ *Editor, avail int) {
 // makes the line positions below trustworthy. Asking twice is one pass.
 func (e *Editor) queuePlace() {
 	s := &e.img
-	if s.queued || (len(s.items) == 0 && len(e.tbl.items) == 0 && len(e.emb.items) == 0 && len(e.rich.active) == 0 && len(e.items) == 0 && !e.props.on) {
+	if s.queued || (len(s.items) == 0 && len(e.tbl.items) == 0 && len(e.dia.items) == 0 && len(e.emb.items) == 0 && len(e.rich.active) == 0 && len(e.items) == 0 && !e.props.on) {
 		return
 	}
 	s.queued = true
@@ -610,11 +610,14 @@ func (e *Editor) queuePlace() {
 // the scroll range's change triggers and which is also queued here to be safe.
 func (e *Editor) placeBlocks() {
 	s := &e.img
-	blocks := make([]block, 0, len(s.items)+len(e.tbl.items)+len(e.emb.items))
+	blocks := make([]block, 0, len(s.items)+len(e.tbl.items)+len(e.dia.items)+len(e.emb.items))
 	for _, it := range s.items {
 		blocks = append(blocks, it)
 	}
 	for _, it := range e.tbl.items {
+		blocks = append(blocks, it)
+	}
+	for _, it := range e.dia.items {
 		blocks = append(blocks, it)
 	}
 	for _, it := range e.emb.items {

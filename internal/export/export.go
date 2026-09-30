@@ -40,6 +40,11 @@ type Options struct {
 	// written in the note. Nil, or an error, means the image is left out
 	// and its alt text (or file name) is written in its place.
 	Image func(path string) ([]byte, error)
+	// Diagram draws a Mermaid flowchart as a PNG and gives its size in pixels
+	// at one to one. Word and OpenDocument files hold it as a picture; nil, or
+	// an error, leaves the diagram as the code block it is. A web page needs no
+	// such help: it is given the diagram as SVG.
+	Diagram func(source string) (png []byte, w, h int, err error)
 }
 
 // Render turns a note into a document of the given format. title is the
@@ -192,6 +197,10 @@ func writeHTMLBlocks(b *strings.Builder, blocks []block) {
 			class := ""
 			if bl.lang != "" {
 				class = ` class="language-` + html.EscapeString(bl.lang) + `"`
+			}
+			if svg := mermaidSVG(bl); svg != "" {
+				b.WriteString(`<figure class="diagram">` + svg + "</figure>\n")
+				break
 			}
 			b.WriteString("<pre><code" + class + ">" + html.EscapeString(bl.code) + "</code></pre>\n")
 		case divider:

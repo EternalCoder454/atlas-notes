@@ -11,6 +11,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"atlas-notes/internal/editor"
 	"atlas-notes/internal/export"
 	"atlas-notes/internal/storage"
 )
@@ -69,7 +70,8 @@ func (a *App) exportNote(rel string) {
 // saveExport renders the note and asks where to put it.
 func (a *App) saveExport(rel, name, text string, f export.Format) {
 	// The note's pictures go into the document, read as the note names them.
-	opt := export.Options{Image: func(p string) ([]byte, error) { return a.store.ReadAttachment(rel, p) }}
+	opt := export.Options{Image: func(p string) ([]byte, error) { return a.store.ReadAttachment(rel, p) },
+		Diagram: editor.RenderDiagramPNG}
 	data, err := export.RenderWith(f.ID, name, text, opt)
 	if err != nil {
 		a.toast("Couldn't export: " + err.Error())

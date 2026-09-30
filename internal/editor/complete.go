@@ -740,6 +740,7 @@ var slashItems = []slashItem{
 	{label: "Quote", hint: ">", icon: "atlasnotes-quote-symbolic", keys: "blockquote", text: "> ", block: true},
 	{label: "Callout", hint: "> [!note]", icon: "atlasnotes-callout-note-symbolic", keys: "note admonition", text: "> [!note] ", block: true},
 	{label: "Table", hint: "2 by 2", icon: "atlasnotes-table-symbolic", keys: "grid", text: "| Name | Value |\n| --- | --- |\n| \x00 |  |\n|  |  |", block: true},
+	{label: "Diagram", hint: "flowchart", icon: "atlasnotes-code-symbolic", keys: "mermaid flowchart graph chart", text: "```mermaid\nflowchart TD\n  a[\x00First step<br>What it does] --> b[Second step<br>What it does]\n  subgraph g [A group]\n    direction LR\n    c[One] --> d[Two]\n  end\n  b --> g\n```", block: true},
 	{label: "Code block", hint: "```", icon: "atlasnotes-code-symbolic", keys: "fence snippet", text: "```\n\x00\n```", block: true},
 	{label: "Divider", hint: "---", icon: "atlasnotes-divider-symbolic", keys: "rule line separator", text: "---\n", block: true},
 	{label: "Image", hint: "from a file", icon: "atlasnotes-image-symbolic", keys: "picture photo", image: true},

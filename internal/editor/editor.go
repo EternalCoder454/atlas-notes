@@ -111,7 +111,10 @@ type Editor struct {
 	// tbl is the state of the tables drawn in place of their Markdown (see
 	// tables.go), and hasPipe whether the note has a pipe anywhere, which is what a
 	// table needs; it is worked out with the fence (see refreshFence).
-	tbl     tableState
+	tbl tableState
+	// dia is the state of the Mermaid flowcharts drawn in place of their code
+	// blocks (see diagram_view.go).
+	dia     diagramState
 	hasPipe bool
 	// rich is the state of the quotes, callouts, code blocks and folds (see
 	// render.go).
@@ -351,7 +354,7 @@ func (e *Editor) createTags() {
 	e.newTag("codeblock", map[string]any{
 		"family": "monospace", "scale": 0.94,
 		"paragraph-background": "rgba(128,128,128,0.14)",
-		"indent": codePadding,
+		"indent":               codePadding,
 	})
 	// Hidden markers are shrunk to nothing and drawn transparent rather than
 	// made invisible. GTK's invisible text is removed from the line's layout,
@@ -391,13 +394,14 @@ func (e *Editor) newTag(name string, props map[string]any) {
 // SetContent replaces the text without firing OnChanged, then re-renders. The
 // caret is placed at the top, so opening a note shows its beginning.
 func (e *Editor) SetContent(s string) {
-	e.clearItems()   // the old note's checkboxes go with its text
-	e.clearImages()  // and so do its pictures
-	e.clearTables()  // and its tables
-	e.clearRich()    // and its folds
-	e.clearProps()   // and its properties
-	e.clearOutline() // and its outline
-	e.clearEmbeds()  // and its embedded notes
+	e.clearItems()    // the old note's checkboxes go with its text
+	e.clearImages()   // and so do its pictures
+	e.clearTables()   // and its tables
+	e.clearDiagrams() // and its diagrams
+	e.clearRich()     // and its folds
+	e.clearProps()    // and its properties
+	e.clearOutline()  // and its outline
+	e.clearEmbeds()   // and its embedded notes
 	e.closeSuggest()
 	e.sg.dismissed = -1 // an Escape in the last note says nothing about this one
 
@@ -588,6 +592,7 @@ func (e *Editor) reparse() {
 	e.tagRange(from, to, revealLine, caretCol)
 	e.syncImages(from, to)
 	e.syncTables(from, to)
+	e.syncDiagrams(from, to)
 	e.syncEmbeds(from, to)
 	e.syncProps(from)
 	e.syncRich(revealLine)
@@ -762,6 +767,8 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 			e.tagFrontLine(lineNum, parse, cursorLine >= 0 && cursorLine <= e.props.doc.End, at, keyed)
 		} else if e.rich.hiddenAt(lineNum) {
 			e.tagFolded(lineNum, parse)
+		} else if blk := e.rich.blockAt(lineNum); blk != nil && e.drawsDiagram(blk, cursorLine) {
+			e.tagDiagramLine(lineNum, parse, blk)
 		} else if role := roleOf(e.fence, lineNum, parse); role != fenceNone {
 			e.tagFenceLine(lineNum, parse, role, revealed(e.rich.blockAt(lineNum), cursorLine))
 		} else if blk := e.rich.blockAt(lineNum); blk != nil && blk.kind == kindCallout {
