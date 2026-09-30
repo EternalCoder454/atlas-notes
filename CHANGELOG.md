@@ -88,6 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   home screen's Today card has a calendar rather than a history clock. The
   title bar keeps the app's name alone at its start; the panel toggles, New
   note and the menu are grouped at the end.
+- **Settings is one page that applies as you change it.** Appearance, Notes,
+  Assistant, Updates and About in one scroll, with a list of the five down the
+  left to jump between them and a search box over every setting. No Save
+  button: each change takes effect at once and is saved. Nothing hides behind
+  a sub-page or an expander: the prompt shortcuts are cards on the page, and
+  the paths that were folded into "System info" are in About. The theme picker
+  is ten circles under Appearance, with "Follow the desktop" beneath.
 - **Window transparency** (Settings, Appearance): off, subtle, medium or strong.
   True translucency rather than a blur: the frame and the page let the desktop
   through, text stays solid, and dialogs follow. Only where the desktop

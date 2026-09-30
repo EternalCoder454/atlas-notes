@@ -602,6 +602,9 @@ func summarizeOpening(content string) string {
 		if strings.HasPrefix(line, "#") {
 			continue // headings, including the note's own title
 		}
+		if strings.HasPrefix(line, "|") || strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			continue // a table row or a code fence reads as noise in one line
+		}
 		line = stripMarkers(line)
 		if line == "" {
 			continue

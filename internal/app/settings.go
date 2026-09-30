@@ -397,7 +397,7 @@ func (a *App) showSettingsPage(page string) {
 
 	v.dialog = adw.NewDialog()
 	v.dialog.SetTitle("Settings")
-	v.dialog.SetContentWidth(680)
+	v.dialog.SetContentWidth(760)
 	v.dialog.SetContentHeight(680)
 
 	v.content = gtk.NewBox(gtk.OrientationVertical, 30)
@@ -533,8 +533,11 @@ func (v *settingsView) buildNav() *gtk.Box {
 		}
 	})
 
+	// A fixed 170px: set to expand, the list passed that on to its box and
+	// took half the dialog, squeezing the settings into what was left.
 	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	box.SetSizeRequest(170, -1)
+	box.SetHExpand(false)
 	v.nav.SetHExpand(true)
 	box.Append(v.nav)
 	box.Append(gtk.NewSeparator(gtk.OrientationVertical))
