@@ -107,6 +107,16 @@ func (a *App) runDevView() {
 			case "history":
 				a.showHistory()
 			}
+		case "diagram-edit":
+			// "diagram-edit=Work/Plan": open a note and the flowchart editor on
+			// its first flowchart.
+			a.openNote(arg)
+			coreglib.TimeoutAdd(900, func() bool {
+				if a.editor != nil {
+					a.editor.EditFirstDiagram()
+				}
+				return false
+			})
 		case "history-diff":
 			// Edit the note on disk, so that the version the store keeps of what it
 			// said before differs from it, and open the history on Changes.

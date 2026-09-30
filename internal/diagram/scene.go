@@ -89,6 +89,15 @@ type Scene struct {
 	Label string // what kind of picture it is, for a screen reader: "Flowchart", "Gantt chart"
 	Desc  string // the box titles, for a screen reader
 	Prims []Prim
+	// Routes is where each drawn arrow runs, for the editor to hit-test.
+	Routes []Route
+}
+
+// Route is the path one arrow was drawn along, and where its label sits.
+type Route struct {
+	Edge  *Edge
+	Pts   []Pt
+	Label Pt
 }
 
 func shapeRadius(it *Item) float64 {
@@ -184,12 +193,20 @@ func rectSide(it *Item, side int, c float64) Pt {
 // sides chooses where an arrow leaves the source and enters the target.
 func sides(e *Edge) (int, int, bool) {
 	a, b := e.lf, e.lt
+	if e.free {
+		a, b = e.from, e.to // the boxes themselves, where they were put
+	}
 	const eps = 0.5
 	below := b.Y >= a.Y+a.H-eps
 	above := b.Y+b.H <= a.Y+eps
 	right := b.X >= a.X+a.W-eps
 	left := b.X+b.W <= a.X+eps
 	vert := vertical(e.lca.Dir)
+	if e.free {
+		dx := (b.X + b.W/2) - (a.X + a.W/2)
+		dy := (b.Y + b.H/2) - (a.Y + a.H/2)
+		vert = math.Abs(dy) >= math.Abs(dx)
+	}
 	tryV := func() (int, int, bool) {
 		if below {
 			return 2, 0, true
@@ -208,16 +225,30 @@ func sides(e *Edge) (int, int, bool) {
 		}
 		return 0, 0, false
 	}
+	var s, t int
+	var ok bool
 	if vert {
-		if s, t, ok := tryV(); ok {
-			return s, t, true
+		if s, t, ok = tryV(); !ok {
+			s, t, ok = tryH()
 		}
-		return tryH()
+	} else if s, t, ok = tryH(); !ok {
+		s, t, ok = tryV()
 	}
-	if s, t, ok := tryH(); ok {
-		return s, t, true
+	if !ok && e.free {
+		// Overlapping boxes: a straight way along the longer distance.
+		dx := (b.X + b.W/2) - (a.X + a.W/2)
+		dy := (b.Y + b.H/2) - (a.Y + a.H/2)
+		switch {
+		case vert && dy >= 0:
+			return 2, 0, true
+		case vert:
+			return 0, 2, true
+		case dx >= 0:
+			return 1, 3, true
+		}
+		return 3, 1, true
 	}
-	return tryV()
+	return s, t, ok
 }
 
 func (sc *Scene) routeEdges(g *Graph, m Measure) {
@@ -321,7 +352,9 @@ func (sc *Scene) routeEdges(g *Graph, m Measure) {
 			}
 		} else {
 			var near float64
-			if r.ss == 1 {
+			if e.free {
+				near = (a.X + b.X) / 2
+			} else if r.ss == 1 {
 				near = e.lt.X - math.Min(math.Max(e.gap, rankGapH)/2, (e.lt.X-(e.lf.X+e.lf.W))/2)
 			} else {
 				near = e.lt.X + e.lt.W + math.Min(math.Max(e.gap, rankGapH)/2, (e.lf.X-(e.lt.X+e.lt.W))/2)
@@ -334,10 +367,19 @@ func (sc *Scene) routeEdges(g *Graph, m Measure) {
 			}
 		}
 		pts = append(pts, b)
+		// No zero-length steps, so the arrowhead follows the real last segment.
+		tidy := pts[:1:1]
+		for _, q := range pts[1:] {
+			if math.Hypot(q.X-tidy[len(tidy)-1].X, q.Y-tidy[len(tidy)-1].Y) > 0.5 || len(tidy) < 2 {
+				tidy = append(tidy, q)
+			}
+		}
+		pts = tidy
 		w := 1.5
 		if e.Thick {
 			w = 3
 		}
+		sc.Routes = append(sc.Routes, Route{Edge: e, Pts: pts, Label: lab})
 		sc.Prims = append(sc.Prims, Prim{Kind: PrimPath, Pts: pts, Stroke: RoleLine, StrokeW: w, Dash: e.Dotted, Corner: 8})
 		if e.Head {
 			sc.Prims = append(sc.Prims, arrowhead(pts[len(pts)-2], b))
@@ -477,7 +519,11 @@ func xmlEscape(s string) string {
 // so that it does not cross the boxes between. It returns nil for the arrows
 // that need no such way. The last point it returns is the target's border.
 func (sc *Scene) detour(e *Edge, ss, ts int, a, b Pt) []Pt {
-	if e.span > -2 && e.span < 2 {
+	// The detour runs through the gaps between rank rows. An arrow to or from
+	// a box the person placed by hand has no rows to follow: its span still
+	// counts the ranks of the automatic layout, and a path through those gaps
+	// ended short of the placed box. It takes the direct elbow instead.
+	if e.free || (e.span > -2 && e.span < 2) {
 		return nil
 	}
 	vert := vertical(e.lca.Dir)

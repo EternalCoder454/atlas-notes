@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
@@ -27,8 +28,8 @@ func TestDiagramBlockDrawnAndRevealed(t *testing.T) {
 	e := New()
 	e.SetContent(diagramDoc)
 	e.Reparse()
-	if n := len(e.dia.items); n != 1 {
-		t.Fatalf("%d diagrams drawn, want 1 (the sequence diagram is not one)", n)
+	if n := len(e.dia.items); n != 2 {
+		t.Fatalf("%d diagrams drawn, want 2 (the flowchart and the sequence diagram)", n)
 	}
 	if got := e.Content(); got != diagramDoc {
 		t.Error("drawing the diagram changed the text")
@@ -37,8 +38,10 @@ func TestDiagramBlockDrawnAndRevealed(t *testing.T) {
 		e.buffer.PlaceCursor(iter)
 	}
 	e.Reparse()
-	if n := len(e.dia.items); n != 0 {
-		t.Errorf("%d diagrams drawn with the caret in the block, want 0", n)
+	// Only the block the caret is in turns back into text; the sequence
+	// diagram below it stays drawn.
+	if n := len(e.dia.items); n != 1 {
+		t.Errorf("%d diagrams drawn with the caret in the flowchart, want 1", n)
 	}
 }
 
@@ -78,5 +81,51 @@ func TestRenderDiagramPNGRefusesHugeDiagrams(t *testing.T) {
 	}
 	if _, _, _, err := RenderDiagramPNG(src); err == nil {
 		t.Error("a diagram too large to draw was drawn")
+	}
+}
+
+// Done replaces the block it was opened on, found again if lines were added
+// above it, and refuses when the block was edited meanwhile. Needs a display.
+func TestDiagramDoneReplacesTheRightLines(t *testing.T) {
+	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		t.Skip("no display")
+	}
+	if !gtk.InitCheck() {
+		t.Skip("no display")
+	}
+	const doc = "# T\n\n```mermaid\nflowchart TD\n  a[One] --> b[Two]\n```\n\nafter\n"
+	const orig = "flowchart TD\n  a[One] --> b[Two]\n"
+	const next = "flowchart TD\n  a[One] --> b[Two]\n  b --> c[Three]\n"
+	open := func(text string) (*Editor, *diagramEditor) {
+		e := New()
+		e.SetContent(text)
+		e.Reparse()
+		return e, &diagramEditor{e: e, first: 2, last: 5, orig: orig, buf: e.buffer}
+	}
+	e, d := open(doc)
+	if msg := e.replaceDiagramBlock(d, next); msg != "" {
+		t.Fatal(msg)
+	}
+	if got, want := e.Content(), strings.Replace(doc, orig, next, 1); got != want {
+		t.Errorf("content %q, want %q", got, want)
+	}
+	// Lines were added above the block: it is found where it moved to.
+	e, d = open("new line\nanother\n" + doc)
+	if msg := e.replaceDiagramBlock(d, next); msg != "" {
+		t.Fatal(msg)
+	}
+	if got, want := e.Content(), "new line\nanother\n"+strings.Replace(doc, orig, next, 1); got != want {
+		t.Errorf("moved: content %q, want %q", got, want)
+	}
+	// The block itself was edited: nothing is written.
+	edited := strings.Replace(doc, "One", "Uno", 1)
+	e, d = open(edited)
+	if msg := e.replaceDiagramBlock(d, next); msg == "" || e.Content() != edited {
+		t.Errorf("edited block was overwritten: %q", e.Content())
+	}
+	// The block is gone.
+	e, d = open("# T\n\nnothing\n")
+	if msg := e.replaceDiagramBlock(d, next); msg == "" || e.Content() != "# T\n\nnothing\n" {
+		t.Error("a missing block was written")
 	}
 }

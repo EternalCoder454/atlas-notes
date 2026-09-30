@@ -52,6 +52,9 @@ func Layout(g *Graph, m Measure) *Scene { return layoutWith(g, m, maxBoxText) }
 // by step, until the diagram fits (or they cannot get narrower), so that a wide
 // diagram is taller rather than small.
 func LayoutFit(g *Graph, m Measure, avail float64) *Scene {
+	if len(g.Pos) > 0 {
+		return layoutWith(g, m, maxBoxText) // placed by hand: the picture is scaled, not re-wrapped
+	}
 	var sc *Scene
 	for _, w := range []float64{maxBoxText, 170, 140, 115} {
 		sc = layoutWith(g, m, w)
@@ -79,6 +82,7 @@ func layoutWith(g *Graph, m Measure, textW float64) *Scene {
 	}
 	layoutGroup(g, g.Root, m, true)
 	place(g.Root, 0, 0)
+	g.applyPositions(m)
 	return buildScene(g, m)
 }
 

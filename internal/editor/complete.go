@@ -704,6 +704,8 @@ func (e *Editor) acceptSuggestion(idx int) {
 		e.OnAssistant(chosen.action)
 	case chosen.image && e.OnInsertImage != nil:
 		e.OnInsertImage()
+	case chosen.diagram:
+		e.EditDiagramAtCaret()
 	case chosen.text == "[[":
 		e.suggest(true) // the link's own suggestions take over
 	}
@@ -722,6 +724,7 @@ type slashItem struct {
 	block             bool
 	action            string // an assistant action, for OnAssistant
 	image             bool   // asks the app to insert a picture
+	diagram           bool   // opens the flowchart editor on what was inserted
 }
 
 // Assistant actions the slash menu hands to Editor.OnAssistant.
@@ -740,7 +743,7 @@ var slashItems = []slashItem{
 	{label: "Quote", hint: ">", icon: "atlasnotes-quote-symbolic", keys: "blockquote", text: "> ", block: true},
 	{label: "Callout", hint: "> [!note]", icon: "atlasnotes-callout-note-symbolic", keys: "note admonition", text: "> [!note] ", block: true},
 	{label: "Table", hint: "2 by 2", icon: "atlasnotes-table-symbolic", keys: "grid", text: "| Name | Value |\n| --- | --- |\n| \x00 |  |\n|  |  |", block: true},
-	{label: "Diagram", hint: "flowchart", icon: "atlasnotes-code-symbolic", keys: "mermaid flowchart graph chart", text: "```mermaid\nflowchart TD\n  a[\x00First step<br>What it does] --> b[Second step<br>What it does]\n  subgraph g [A group]\n    direction LR\n    c[One] --> d[Two]\n  end\n  b --> g\n```", block: true},
+	{label: "Diagram", hint: "flowchart", icon: "atlasnotes-code-symbolic", keys: "mermaid flowchart graph chart", text: "```mermaid\nflowchart TD\n  a[\x00First step<br>What it does] --> b[Second step<br>What it does]\n  subgraph g [A group]\n    direction LR\n    c[One] --> d[Two]\n  end\n  b --> g\n```", block: true, diagram: true},
 	{label: "Gantt chart", hint: "plan", icon: "atlasnotes-code-symbolic", keys: "mermaid gantt timeline schedule project plan", text: "```mermaid\ngantt\n  title \x00Project plan\n  dateFormat YYYY-MM-DD\n  section Build\n  Design :done, des, 2026-01-05, 5d\n  Build :active, bld, after des, 10d\n  Launch :milestone, after bld, 0d\n```", block: true},
 	{label: "Sequence diagram", hint: "messages", icon: "atlasnotes-code-symbolic", keys: "mermaid sequence messages flow actors", text: "```mermaid\nsequenceDiagram\n  participant A as \x00Alice\n  participant B as Bob\n  A->>B: Hello\n  B-->>A: Hi back\n```", block: true},
 	{label: "Code block", hint: "```", icon: "atlasnotes-code-symbolic", keys: "fence snippet", text: "```\n\x00\n```", block: true},
