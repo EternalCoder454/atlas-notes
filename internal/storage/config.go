@@ -128,6 +128,9 @@ type Config struct {
 	// discover what the editor understands. Someone who does can turn it off.
 	ShowFormatBar bool `json:"show_format_bar"`
 
+	// Theme is one of internal/theme's IDs, or "" to follow the desktop.
+	Theme string `json:"theme"`
+
 	// WindowTransparency lets the desktop show through the window's frame and
 	// page: off, subtle, medium or strong. Only where the display composites;
 	// see TransparencyLevels.

@@ -58,7 +58,12 @@ type App struct {
 	editor  *editor.Editor
 	sidebar *ui.Sidebar
 
-	homeNav      navRow // the Home entry, current while the home screen shows
+	homeNav navRow // the Home entry, current while the home screen shows
+	// themeCSS holds the chosen theme's colour overrides; appliedTheme is what
+	// it holds, so applying the same theme again restyles nothing.
+	themeCSS     *gtk.CSSProvider
+	themeApplied bool
+	appliedTheme string
 	appliedGlass string // the transparency class on the window, "" for none
 	leftToggle   *gtk.ToggleButton
 
@@ -190,10 +195,12 @@ func (a *App) activate() {
 	a.ai = ai.NewClient(cfg.Model, cfg.SystemPrompt)
 
 	a.loadCSS()
+	a.loadThemeCSS()
 	installIcons()
 	a.applyFontRendering()
 	mark("css")
 	a.buildWindow()
+	a.applyTheme() // before the window is shown, so it never opens in the wrong colours
 	mark("window-built")
 	a.win.SetVisible(true)
 	a.applyFontRendering() // now that the window's own screen is known

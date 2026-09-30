@@ -26,14 +26,26 @@ const (
 	tagHashtag  = "hashtag"
 	tagURL      = "url"
 
-	// linkColor reads on both the light and the dark theme, like the gray the
-	// dimmed markers use.
+	// linkColor is where links start, libadwaita's blue, which reads on both
+	// the light and the dark theme. The app replaces it with the theme's accent
+	// (SetLinkColor).
 	linkColor = "#3584e4"
 
 	// dragSlop is how far, in pixels, the pointer may move between press and
 	// release and still count as a click rather than the start of a selection.
 	dragSlop = 6.0
 )
+
+// SetLinkColor draws links, tags and web addresses in color, a CSS colour
+// such as "#88c0d0": a theme's accent. Text tags take a colour, not a CSS
+// name, so a theme reaches them through here rather than the stylesheet.
+func (e *Editor) SetLinkColor(color string) {
+	for _, name := range []string{tagWikiLink, tagHashtag, tagURL} {
+		if tag := e.tags[name]; tag != nil {
+			tag.SetObjectProperty("foreground", color)
+		}
+	}
+}
 
 // createLinkTags defines the look of links. It runs from createTags, ahead of
 // anything else that makes tags, so the find highlights created later keep
