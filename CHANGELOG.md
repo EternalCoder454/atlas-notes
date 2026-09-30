@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **One installer for every distro**: `scripts/install.sh` detects Fedora,
+  Debian, Ubuntu, Linux Mint, Arch and openSUSE (and their relatives), installs
+  the build dependencies with `dnf`, `apt`, `pacman` or `zypper`, fetches Go from
+  go.dev (checksum verified) when the distro's is too old, checks that GTK and
+  libadwaita are new enough, then builds and installs. `--update` rebuilds,
+  `--uninstall` removes the app and keeps your notes and settings, and `--purge`
+  can delete those too after an explicit confirmation. The old
+  `install-fedora.sh` URL still works.
+- **Packages**: `packaging/PKGBUILD` for Arch and `packaging/atlas-notes.spec` for
+  RPM and COPR.
+- The Update button knows how the app was installed. A copy owned by `pacman`,
+  `dnf`, `apt` or `zypper` is given that manager's update command instead of
+  being rebuilt over, and a copy with no source is pointed at the installer.
+  Settings shows how this copy was installed.
+
 ### Changed
 - **Typing is about seven times faster**: 0.014 ms a keystroke where 0.8.1
   took 0.102 (bench.sh, 10,000-note vault). An edit that stays inside one

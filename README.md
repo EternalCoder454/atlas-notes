@@ -7,8 +7,8 @@ The one time Atlas Notes reaches the network on its own is to ask whether a
 newer version has been published, which you can turn off.
 
 Built with GTK4 + libadwaita, so it looks and feels native on GNOME (and follows
-your light/dark theme). Tuned on Fedora; other distros work once the GTK4 devel
-packages are installed.
+your light/dark theme). Installs with one command on Fedora, Debian,
+Ubuntu, Arch and openSUSE (see [Install](#install)).
 
 <!-- Add a screenshot at docs/screenshot.png and uncomment:
 ![Atlas Notes](docs/screenshot.png)
@@ -154,43 +154,121 @@ can update the last one, shown rather than asserted.
 
 `ATLAS_DATA_HOME` and `ATLAS_CONFIG_HOME` override both anywhere.
 
-## Install on Fedora
+## Install
 
-One command installs the build dependencies, fetches the source, builds, and adds
-Atlas Notes to your app grid (it will ask for your `sudo` password for the
-dependencies):
+One command works on Fedora, Debian, Ubuntu, Linux Mint, Arch Linux, openSUSE
+and any other distro that has GTK 4 and libadwaita. It installs the build
+dependencies (asking for your `sudo` password), fetches the source, builds, and
+adds Atlas Notes to your app grid:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install-fedora.sh | bash
+curl -fsSL https://raw.githubusercontent.com/EternalCoder454/atlas-notes/main/scripts/install.sh | bash
 ```
 
 Prefer to read it first? Clone and run it locally:
 
 ```bash
 git clone https://github.com/EternalCoder454/atlas-notes.git
-bash atlas-notes/scripts/install-fedora.sh
+bash atlas-notes/scripts/install.sh
 ```
 
-The script:
+The older `scripts/install-fedora.sh` command still works; it runs the same
+installer.
 
-1. `sudo dnf install`s `golang gtk4-devel libadwaita-devel gcc pkgconf-pkg-config git make`.
-2. Clones the source into `~/.local/share/atlas-notes/src` (the same place the
-   in-app updater uses).
-3. Runs `make install` → installs the binary, `.desktop` entry, and icon under
-   `~/.local`.
-4. Installs Ollama and pulls the default model `qwen3.5:9b` (Q4_K_M, ~5.5 GB).
+The installer:
 
-Then launch **Atlas Notes** from the Activities/Super menu, or run `atlas-notes`.
+1. Reads `/etc/os-release` and installs the GTK 4 and libadwaita development
+   packages, a C compiler, `pkg-config`, `git` and `make` with `dnf`, `apt`,
+   `pacman` or `zypper`. On any other distro it prints exactly what is needed and
+   carries on as if you had set `SKIP_DEPS=1`. It uses `sudo` only when you are
+   not already root.
+2. Checks for Go. If there is none, or it is older than 1.21, it downloads the
+   official Go from go.dev (checking its SHA-256) into
+   `~/.local/share/atlas-notes/go`. A distro Go from 1.21 on is fine: it fetches
+   the exact toolchain the project names by itself.
+3. Checks that GTK and libadwaita are new enough and says so plainly if not.
+4. Clones the source into `~/.local/share/atlas-notes/src` (the same place the
+   in-app updater uses) and runs `make install`, which puts the binary, the
+   `.desktop` entry and the icon under `~/.local`.
+5. Installs Ollama and pulls the default model `qwen3.5:9b` (Q4_K_M, about
+   5.5 GB). Skip this with `SKIP_OLLAMA=1`.
 
-Useful toggles: `SKIP_OLLAMA=1` (don't touch Ollama), `SKIP_DEPS=1` (deps already
-installed), `ATLAS_NOTES_BRANCH=<name>`. Re-running the script updates an existing
-install.
+Then launch **Atlas Notes** from the Activities or Super menu, or run
+`atlas-notes`. Make sure `~/.local/bin` is on your `PATH`; the installer warns
+if it isn't.
 
-> Make sure `~/.local/bin` is on your `PATH` — the script warns if it isn't.
->
-> *Other distros are coming. For now, install the GTK4/libadwaita devel packages
-> with your package manager, then run the script with `SKIP_DEPS=1`, or [build from
-> source](#building-from-source).*
+The first build compiles all of `gotk4` and takes several minutes and a few GB
+of RAM. Later builds are cached.
+
+Options: `--branch NAME` (or `ATLAS_NOTES_BRANCH`) tracks a branch other than the
+default, `SKIP_DEPS=1` skips the package step, `SKIP_OLLAMA=1` skips Ollama, and
+`ATLAS_NOTES_REPO` clones from somewhere other than GitHub. `install.sh --help`
+lists them all.
+
+### What you need
+
+Atlas Notes needs **GLib 2.88, GTK 4.22 and libadwaita 1.9 or newer**. The
+GTK bindings it uses (gotk4 0.4.1) are generated against those releases and will
+not compile against older headers. That means Fedora 44 or newer, Arch Linux
+and openSUSE Tumbleweed today, and the distros that follow GNOME 50. **Debian 13
+(GLib 2.84), Ubuntu 24.04 and Linux Mint 22 (libadwaita 1.5) are too old**; the
+installer stops before building and says which version it found. A Flatpak for
+those distros is coming.
+
+### Per distro
+
+- **Fedora, RHEL and relatives:** the one-liner uses `dnf`. To build an RPM
+  yourself (or for COPR), use `packaging/atlas-notes.spec`:
+  `rpmbuild -ba packaging/atlas-notes.spec`. Enable network access for the Go
+  module download on COPR.
+- **Debian, Ubuntu, Linux Mint:** the one-liner uses `apt` and downloads Go from
+  go.dev, but only releases with GLib 2.88 or newer can build it (see above).
+- **Arch Linux and Manjaro:** the one-liner uses `pacman`. To get a proper
+  package that `pacman` owns, build the PKGBUILD:
+  `git clone https://github.com/EternalCoder454/atlas-notes.git && cd atlas-notes/packaging && makepkg -si`.
+- **openSUSE:** the one-liner uses `zypper`.
+- **Anything else:** install GTK 4 and libadwaita with their development files, a
+  C compiler, `pkg-config`, `git` and `make`, then run the installer with
+  `SKIP_DEPS=1`.
+
+### Updating
+
+- **In the app:** Settings, **App**, **Update & Restart**. For a copy built by the
+  installer it pulls, rebuilds, reinstalls and relaunches. For a copy a package
+  manager installed (the PKGBUILD or the RPM), it does not write over
+  `/usr/bin`; it shows the `pacman`, `dnf`, `apt` or `zypper` command to run
+  instead.
+- **Script:** `bash ~/.local/share/atlas-notes/src/scripts/install.sh --update`, or
+  re-run the one-liner.
+- **Package manager:** `sudo dnf upgrade atlas-notes`, `paru -Syu atlas-notes`,
+  or rebuild from the newer PKGBUILD.
+
+See [Updating](#updating) for the launch-time check and the channels.
+
+### Removing
+
+```bash
+bash ~/.local/share/atlas-notes/src/scripts/install.sh --uninstall
+```
+
+This removes the binary, the desktop entry, the icon, the source checkout, the
+private build cache (`~/.local/share/atlas-notes/cache`) and the Go toolchain the
+installer downloaded (if it did). Go's shared build cache is left alone. For a
+package, use the package manager: `sudo pacman -R atlas-notes`,
+`sudo dnf remove atlas-notes`.
+
+**Your notes and settings stay.** Uninstalling never touches them:
+
+- settings: `~/.config/atlas-notes`
+- notes (the vault): `~/.local/share/atlas-notes/vault`, or wherever
+  `vault_path` in `config.json` points
+- history and the search index: `~/.local/share/atlas-notes`
+
+To remove those as well, run `install.sh --purge` in a terminal. It asks before
+deleting settings and the search index, and will not delete your notes or their
+history unless you type `delete my notes` when asked. It refuses to run when
+piped, and never deletes a vault that lives outside Atlas Notes' own folder.
+Ollama and its models are not installed by the package and are not removed.
 
 ## Using the AI assistant
 
@@ -317,7 +395,10 @@ Other ways to update:
   source checkout (or clones one if missing), runs `git pull`, rebuilds,
   reinstalls, and relaunches. The same page shows where the binary and source
   live.
-- **Script:** re-run the Fedora installer — it pulls and reinstalls.
+- **Script:** `install.sh --update`, or re-run the [installer](#install). It pulls
+  and reinstalls.
+- **Package manager:** if you installed from the PKGBUILD or RPM, update through
+  `pacman`, `dnf` and friends. The Update button shows the command.
 - **Manual:** `git -C ~/.local/share/atlas-notes/src pull && make -C ~/.local/share/atlas-notes/src install`.
 
 **Channels.** Settings → **App** → *Update channel* picks which branch updates
