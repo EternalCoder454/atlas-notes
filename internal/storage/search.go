@@ -118,7 +118,7 @@ func (s *Store) purgeRemovedWords() error {
 // place a note's text is read into the index, for a save and for the content
 // pass alike. It runs inside the caller's transaction, which must only be for a
 // note that is not locked.
-func indexContent(tx *sql.Tx, id int64, body string) error {
+func indexContent(tx execer, id int64, body string) error {
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO notes_fts(rowid, body) VALUES (?, ?)`, id, body); err != nil {
 		return err
 	}
@@ -237,7 +237,10 @@ func (s *Store) ResolveContent(ctx context.Context) (int, error) {
 			resolveReadHook()
 		}
 
-		if err := s.writeResolved(ctx, func(tx *sql.Tx) error {
+		if err := s.writeResolved(ctx, func(rawTx *sql.Tx) error {
+			// Every note runs the same dozen statements; prepare each once per batch.
+			tx := newStmtCache(rawTx)
+			defer tx.Close()
 			for _, j := range jobs {
 				res, err := tx.Exec(`
 					UPDATE notes SET has_tasks = ?, indexed = 1
