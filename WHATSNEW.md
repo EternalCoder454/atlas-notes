@@ -4,6 +4,16 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.8.0
+- Notes read as they will print, and Obsidian's callouts, highlights and embeds look as they should
+- Link notes with [[Name]], tag them with #tag, and paste or drop pictures straight in
+- Ctrl+P finds any note, command or setting, and typing / in a note offers blocks and the assistant
+- A Tasks page, daily notes, templates, and reminders for what is due
+- Version history shows what changed, and notes can be split, merged or opened side by side
+- A properties card for front matter, and an outline beside the page
+- A new look after Windows 11, with ten colour themes and a simpler Settings page
+- Notes are plain Markdown files that Obsidian and any other app can open
+
 ## 0.7.1
 - Built with Go 1.27.1 and its latest security fixes
 - A newer version of the library that connects Atlas Notes to GTK

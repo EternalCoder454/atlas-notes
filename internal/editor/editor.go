@@ -168,13 +168,21 @@ type Editor struct {
 }
 
 // New builds the editor component.
+
+// viewMargin is the text view's own left and right margin, and codePadding
+// the room inside a code block's background before its text.
+const (
+	viewMargin  = 16
+	codePadding = 12
+)
+
 func New() *Editor {
 	e := &Editor{tags: map[string]*gtk.TextTag{}, dirtyFrom: -1, dirtyTo: -1, shown: -1, fenceStale: true}
 
 	e.view = gtk.NewTextView()
 	e.view.SetWrapMode(gtk.WrapWordChar)
-	e.view.SetLeftMargin(16)
-	e.view.SetRightMargin(16)
+	e.view.SetLeftMargin(viewMargin)
+	e.view.SetRightMargin(viewMargin)
 	e.view.SetTopMargin(12)
 	e.view.SetBottomMargin(12)
 	e.view.SetPixelsBelowLines(2)
@@ -326,12 +334,16 @@ func (e *Editor) createTags() {
 	e.newTag("code", map[string]any{"family": "monospace", "scale": 0.94})
 	// A line of a fenced code block. The background is a neutral gray with alpha,
 	// so it lifts the block a little from a light page and from a dark one alike.
-	// The margins keep the code off the edges of its own background, which
-	// otherwise starts exactly where the first character does.
+	// The indent keeps the code off the left edge of its own background, which
+	// otherwise starts exactly where the first character does. Not a margin: a
+	// tag's margin replaces the view's, and the paragraph background is not
+	// painted under it, which left a white notch beside every line of code.
+	// Each line of code is its own paragraph, so the indent reaches them all;
+	// only a line long enough to wrap continues at the edge.
 	e.newTag("codeblock", map[string]any{
 		"family": "monospace", "scale": 0.94,
 		"paragraph-background": "rgba(128,128,128,0.14)",
-		"left-margin": 12, "right-margin": 12,
+		"indent": codePadding,
 	})
 	// Hidden markers are shrunk to nothing and drawn transparent rather than
 	// made invisible. GTK's invisible text is removed from the line's layout,

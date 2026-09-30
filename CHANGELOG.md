@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-30
+
 ### Added
 - **Live preview.** Markdown's symbols show only around what the caret is in:
   the `**` of the bold word being edited, the brackets of that one link, a
@@ -40,7 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   highlighted and footnotes set small. `![[Note]]` and `![[Note#Heading]]`
   show that note or section in a bordered block, kept current when it
   changes; a protected note shows as such rather than its text. Code blocks
-  carry their language and a copy button. Headings fold from a chevron in
+  carry their language and a copy button, and room inside their background.
+  An embed draws what it shows: tables as tables, tasks with their boxes
+  and dates, code as code. `$$E = mc^2$$` and `$x$` are set in serif italic
+  with their dollar signs hidden (prices such as $5 stay prices), footnote
+  definitions read as a raised number and their text, and Mermaid blocks
+  are labelled as diagrams. Headings fold from a chevron in
   the margin, and a fold opens by itself when the caret, a find or a
   selection reaches into it.
 - **A command box on Ctrl+P.** One field for notes, commands (each with its
@@ -157,8 +164,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them**, `⏫ 📅 2026-10-01` after the text, so they read cleanly in Obsidian
   and anywhere else; the old `<!-- due:... -->` comment is still read, and a
   line is only rewritten when its date or priority is changed here. 🔺 and ⏬
-  read as high and low. Due dates line up: every task keeps the date's
-  room, so text starts at the same place with or without one.
+  read as high and low. A task's date chip sits after its text, so every
+  task's text starts right after its box, with a date or without.
 - **Notes are plain Markdown files by default.** The format is a setting of the
   vault (`.atlas-vault.json`, so every synced device agrees): plain `.md`,
   Zstandard `.md.zst`, Gzip `.md.gz` or XZ `.md.xz`. Every form is read whatever
