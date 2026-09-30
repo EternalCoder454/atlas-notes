@@ -36,6 +36,9 @@ import (
 // The parts that need no GTK (spotting an image line, fitting a size, deciding
 // where newlines go, the texture cache) are plain functions and are tested on
 // their own.
+//
+// Tables are laid over the text the same way, and share the placement below (see
+// block and placeBlocks); tables.go says the rest.
 
 const (
 	// maxImageHeight keeps a tall picture from taking over the screen.
@@ -73,18 +76,26 @@ type imageHit struct {
 	path string
 }
 
-// imageItem is one picture: the line it belongs to (held by a mark, so that
-// edits above it move it along), where its data stands, and its widget.
+// overlay is what anything laid over the text under a line has in common, a
+// picture or a table: the line it belongs to (held by a mark, so that edits above
+// it move it along), the spacing tag that keeps the text after the line clear of
+// it, and where it was last put.
+type overlay struct {
+	mark  *gtk.TextMark
+	pad   string // name of the spacing tag on the line, or "" for none
+	shown bool   // the widget is in the view as an overlay
+	x, y  int    // where the overlay was last put
+}
+
+// imageItem is one picture: its overlay bookkeeping, where its data stands, and
+// its widget.
 type imageItem struct {
-	mark       *gtk.TextMark
+	overlay
 	path       string
 	tex        *gdk.Texture
 	natW, natH int
 	failed     bool
 	box        *imageBox // nil until there is a picture or a failure note to show
-	pad        string    // name of the spacing tag on the line, or "" for none
-	shown      bool      // the box is in the view as an overlay
-	x, y       int       // where the overlay was last put
 }
 
 // imageBox is the widget for one picture, kept together so it can be reused for
@@ -202,16 +213,19 @@ func (e *Editor) tagImageLine(lineNum int, line string, reveal bool) {
 		}
 	}
 	if it := e.itemAt(lineNum); it != nil && it.path == sp.Target && it.pad != "" {
-		e.applyPad(it, lineNum, it.pad)
+		e.applyPad(&it.overlay, lineNum, it.pad)
 	}
 }
 
 // itemLine is the line a picture's mark is on, or -1 when the mark is gone.
-func (e *Editor) itemLine(it *imageItem) int {
-	if it.mark.Deleted() {
+func (e *Editor) itemLine(it *imageItem) int { return e.markLine(it.mark) }
+
+// markLine is the line a mark is on, or -1 when the mark is gone.
+func (e *Editor) markLine(mark *gtk.TextMark) int {
+	if mark.Deleted() {
 		return -1
 	}
-	iter := e.buffer.IterAtMark(it.mark)
+	iter := e.buffer.IterAtMark(mark)
 	if iter == nil {
 		return -1
 	}
@@ -293,7 +307,7 @@ func (e *Editor) addItem(h imageHit) {
 	}
 	// Left gravity keeps the mark in front of anything typed at the start of the
 	// line, so it stays on this line.
-	it := &imageItem{mark: e.buffer.CreateMark("", iter, true), path: h.path}
+	it := &imageItem{overlay: overlay{mark: e.buffer.CreateMark("", iter, true)}, path: h.path}
 	e.img.items = append(e.img.items, it)
 	if tex, ok := e.img.cache.get(h.path); ok {
 		e.setTexture(it, tex, nil)
@@ -500,10 +514,14 @@ func imagePad(h int) (name string, px int) {
 }
 
 // padPixels is the space the spacing tag called name puts under its line, and 0
-// for no tag.
+// for no tag. Tables have tags of their own (see tablePad).
 func padPixels(name string) int {
 	if name == "" {
 		return 0
+	}
+	if px, ok := strings.CutPrefix(name, tablePadPrefix); ok {
+		n, _ := strconv.Atoi(px)
+		return n
 	}
 	h, _ := strconv.Atoi(strings.TrimPrefix(name, "image-pad-"))
 	_, px := imagePad(h)
@@ -521,37 +539,92 @@ func (it *imageItem) fit(availW int) (w, h int) {
 	return fitImage(it.natW, it.natH, availW)
 }
 
-// queuePlace asks for the pictures to be placed once the text has been laid out.
-// Idle callbacks run after GTK has validated the layout, which is what makes the
-// line positions below trustworthy. Asking twice is one pass.
+// block is something the placement pass puts under a line of text: a picture or a
+// table. The pass is the same for both. What differs (how big the thing is, how
+// much space its line needs) is asked of the block.
+type block interface {
+	over() *overlay
+	// widget is what is laid over the text, or nil while there is nothing to show.
+	widget() gtk.Widgetter
+	// wantPad is the spacing tag the block's line should carry, given the width the
+	// view has to give, or "" for none.
+	wantPad(e *Editor, line, avail int) string
+	// ready reports whether the block can be sized yet. A view with no width has
+	// nothing to size against.
+	ready(avail int) bool
+	// resize gives the widget the size it is to be drawn at.
+	resize(e *Editor, avail int)
+}
+
+func (it *imageItem) over() *overlay { return &it.overlay }
+
+func (it *imageItem) widget() gtk.Widgetter {
+	if it.box == nil {
+		return nil
+	}
+	return it.box.box
+}
+
+func (it *imageItem) wantPad(_ *Editor, _, avail int) string {
+	if _, h := it.fit(avail); h > 0 {
+		name, _ := imagePad(h)
+		return name
+	}
+	return ""
+}
+
+func (it *imageItem) ready(avail int) bool {
+	w, _ := it.fit(avail)
+	return w > 0
+}
+
+func (it *imageItem) resize(_ *Editor, avail int) {
+	if it.failed {
+		return
+	}
+	w, h := it.fit(avail)
+	it.box.pic.SetSizeRequest(w, h)
+	it.box.box.SetSizeRequest(w, h)
+}
+
+// queuePlace asks for the pictures and tables to be placed once the text has been
+// laid out. Idle callbacks run after GTK has validated the layout, which is what
+// makes the line positions below trustworthy. Asking twice is one pass.
 func (e *Editor) queuePlace() {
 	s := &e.img
-	if s.queued || len(s.items) == 0 {
+	if s.queued || (len(s.items) == 0 && len(e.tbl.items) == 0) {
 		return
 	}
 	s.queued = true
 	coreglib.IdleAdd(func() bool {
 		s.queued = false
-		e.placeImages()
+		e.placeBlocks()
 		return false
 	})
 }
 
-// placeImages sizes every picture and puts it under its line.
+// placeBlocks sizes every picture and table and puts each under its line.
 //
-// It works in two steps. First each line gets the blank space its picture needs;
+// It works in two steps. First each line gets the blank space its block needs;
 // that changes the layout, so the positions are only read on the next pass, which
 // the scroll range's change triggers and which is also queued here to be safe.
-func (e *Editor) placeImages() {
+func (e *Editor) placeBlocks() {
 	s := &e.img
-	if len(s.items) == 0 {
+	blocks := make([]block, 0, len(s.items)+len(e.tbl.items))
+	for _, it := range s.items {
+		blocks = append(blocks, it)
+	}
+	for _, it := range e.tbl.items {
+		blocks = append(blocks, it)
+	}
+	if len(blocks) == 0 {
 		return
 	}
 	avail := e.view.Width() - e.view.LeftMargin() - e.view.RightMargin()
 
 	// The spacing is a tag, and tags must not change while text is selected: the
 	// person may be dragging, and GTK hit-tests the text with every move (see
-	// reparse). The pictures keep the spacing they have until the selection
+	// reparse). The blocks keep the spacing they have until the selection
 	// collapses, which queues this pass again.
 	holdTags := e.handsBusy()
 	if holdTags {
@@ -562,20 +635,17 @@ func (e *Editor) placeImages() {
 	}
 
 	changed := false
-	for _, it := range s.items {
-		if holdTags || it.box == nil {
+	for _, b := range blocks {
+		if holdTags || b.widget() == nil {
 			continue
 		}
-		line := e.itemLine(it)
+		o := b.over()
+		line := e.markLine(o.mark)
 		if line < 0 {
 			continue
 		}
-		want := ""
-		if _, h := it.fit(avail); h > 0 {
-			want, _ = imagePad(h)
-		}
-		if want != it.pad {
-			e.applyPad(it, line, want)
+		if want := b.wantPad(e, line, avail); want != o.pad {
+			e.applyPad(o, line, want)
 			changed = true
 		}
 	}
@@ -586,19 +656,20 @@ func (e *Editor) placeImages() {
 	}
 
 	unsettled := false
-	for _, it := range s.items {
-		if it.box == nil {
+	for _, b := range blocks {
+		w := b.widget()
+		if w == nil {
 			continue
 		}
-		line := e.itemLine(it)
+		o := b.over()
+		line := e.markLine(o.mark)
 		if line < 0 {
 			continue
 		}
-		w, h := it.fit(avail)
-		if w == 0 {
+		if !b.ready(avail) {
 			// The view has no width yet. Its size arrives with a notification, and
 			// the retry below covers a notification that came too early to count.
-			it.box.box.SetVisible(false)
+			gtk.BaseWidget(w).SetVisible(false)
 			unsettled = true
 			continue
 		}
@@ -607,9 +678,9 @@ func (e *Editor) placeImages() {
 			continue
 		}
 		top, lineH := e.view.LineYrange(iter)
-		// What is on the line now, which is not what fit() would ask for while the
+		// What is on the line now, which is not what wantPad would ask for while the
 		// spacing changes are held back.
-		pad := padPixels(it.pad)
+		pad := padPixels(o.pad)
 		// The line's height includes the space added under it, so what is left is
 		// the text. A height that does not even cover the space means the layout
 		// has not reached this line yet.
@@ -618,22 +689,19 @@ func (e *Editor) placeImages() {
 			unsettled = true
 			continue
 		}
-		if !it.failed {
-			it.box.pic.SetSizeRequest(w, h)
-			it.box.box.SetSizeRequest(w, h)
-		}
-		it.box.box.SetVisible(true)
+		b.resize(e, avail)
+		gtk.BaseWidget(w).SetVisible(true)
 		// Left edge: where the line's first character sits. That is the text's own
 		// left edge whether the view counts its left margin as padding around the
-		// text or as part of the layout, so the picture lines up with the words.
+		// text or as part of the layout, so the block lines up with the words.
 		x, y := e.view.IterLocation(iter).X(), top+textH
 		switch {
-		case !it.shown:
-			e.view.AddOverlay(it.box.box, x, y)
-			it.shown, it.x, it.y = true, x, y
-		case x != it.x || y != it.y:
-			e.view.MoveOverlay(it.box.box, x, y)
-			it.x, it.y = x, y
+		case !o.shown:
+			e.view.AddOverlay(w, x, y)
+			o.shown, o.x, o.y = true, x, y
+		case x != o.x || y != o.y:
+			e.view.MoveOverlay(w, x, y)
+			o.x, o.y = x, y
 		}
 	}
 
@@ -650,9 +718,9 @@ func (e *Editor) placeImages() {
 	}
 }
 
-// applyPad puts the spacing tag called name on a picture's line, in place of the
-// one it had. An empty name only removes.
-func (e *Editor) applyPad(it *imageItem, line int, name string) {
+// applyPad puts the spacing tag called name on the line of a picture or a table,
+// in place of the one it had. An empty name only removes.
+func (e *Editor) applyPad(o *overlay, line int, name string) {
 	n, ok := e.lineCharLen(line)
 	if !ok {
 		return
@@ -663,10 +731,10 @@ func (e *Editor) applyPad(it *imageItem, line int, name string) {
 		return
 	}
 	e.markLayoutStale()
-	if old := e.tags[it.pad]; old != nil && it.pad != name {
+	if old := e.tags[o.pad]; old != nil && o.pad != name {
 		e.buffer.RemoveTag(old, start, end)
 	}
-	it.pad = name
+	o.pad = name
 	if name == "" || n == 0 {
 		return
 	}

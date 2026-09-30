@@ -299,6 +299,10 @@ func (e *Editor) linkUnder(x, y float64) (sp markup.Span, line int, ok bool) {
 	if _, picture := imageLineSpan(text); picture {
 		return markup.Span{}, 0, false
 	}
+	// Nor is a line of a table drawn as a table: what is there is the grid.
+	if e.inTable(line) {
+		return markup.Span{}, 0, false
+	}
 	it, found := e.view.IterAtLocation(bx, by)
 	if !found || it == nil || it.Line() != line {
 		return markup.Span{}, 0, false
@@ -320,7 +324,7 @@ const layoutSettleMs = 100
 // The text is caught by the buffer's changed signal. Tags are not: the buffer
 // signals every tag applied or removed, a render pass does thousands of those,
 // and a Go callback across cgo for each was a real cost. So whatever changes
-// tags calls this itself (tagRange, applyPad, placeImages, renderChecklists and
+// tags calls this itself (tagRange, applyPad, placeBlocks, renderChecklists and
 // the find highlights), and a new place that does must too.
 func (e *Editor) markLayoutStale() {
 	e.layoutStale = true
