@@ -81,6 +81,12 @@ type diagramEditor struct {
 	hiBtn       *gtk.ToggleButton
 	quiet       bool
 	pop         *gtk.Popover
+	popApply    func()
+	popGone     bool
+	buf         *gtk.TextBuffer
+	closed      bool
+	layoutDue   bool
+	lastSel     string // the box selected last, the target of a keyboard connect
 }
 
 func (d *diagramEditor) measure(text string, size float64, bold bool) (float64, float64) {
@@ -99,12 +105,35 @@ func (d *diagramEditor) measure(text string, size float64, bold bool) (float64, 
 // layout lays the graph out again and grows the canvas to hold it.
 func (d *diagramEditor) layout() {
 	d.scene = d.g.Scene(d.measure, 0)
-	d.cw = math.Max(d.cw, math.Max(d.g.CanvasW, math.Max(d.scene.W+deGrow, deMinW)))
-	d.ch = math.Max(d.ch, math.Max(d.g.CanvasH, math.Max(d.scene.H+deGrow/2, deMinH)))
+	// A stored page size is kept, but not far past the content.
+	d.cw = math.Max(d.cw, math.Max(math.Min(d.g.CanvasW, d.scene.W+3*deGrow), math.Max(d.scene.W+deGrow, deMinW)))
+	d.ch = math.Max(d.ch, math.Max(math.Min(d.g.CanvasH, d.scene.H+3*deGrow), math.Max(d.scene.H+deGrow/2, deMinH)))
 	d.cw, d.ch = math.Min(d.cw, diagram.MaxSize), math.Min(d.ch, diagram.MaxSize)
 	d.area.SetContentWidth(int(d.cw*d.zoom + 2*dePad))
 	d.area.SetContentHeight(int(d.ch*d.zoom + 2*dePad))
 	d.area.QueueDraw()
+}
+
+// queueLayout lays out once before the next frame however many times it is asked.
+func (d *diagramEditor) queueLayout() {
+	if d.layoutDue {
+		return
+	}
+	d.layoutDue = true
+	glib.IdleAdd(func() {
+		d.layoutDue = false
+		if !d.closed {
+			d.layout()
+		}
+	})
+}
+
+// flushLayout does a queued layout now.
+func (d *diagramEditor) flushLayout() {
+	if d.layoutDue {
+		d.layoutDue = false
+		d.layout()
+	}
 }
 
 // ---- Opening ---------------------------------------------------------------
@@ -152,6 +181,13 @@ func (e *Editor) EditDiagramAtCaret() bool { return e.EditDiagramAt(e.caretLine(
 
 // EditDiagramAt opens the flowchart editor on the mermaid block at a line.
 func (e *Editor) EditDiagramAt(line int) bool {
+	if !e.view.Editable() {
+		return false // a locked note is not changed
+	}
+	if e.dia.editing != nil {
+		e.dia.editing.dialog.Present(e.view)
+		return true
+	}
 	first, last, ok := e.mermaidBlock(line)
 	if !ok || last < first+2 {
 		return false
@@ -180,7 +216,8 @@ func (e *Editor) EditFirstDiagram() bool {
 
 func (e *Editor) openDiagramEditor(first, last int, src string, g *diagram.Graph) {
 	d := &diagramEditor{e: e, first: first, last: last, orig: src, g: g, zoom: 1, sel: map[string]bool{}, hoverSide: -1,
-		memo: map[measureKey][2]float64{}}
+		memo: map[measureKey][2]float64{}, buf: e.buffer}
+	e.dia.editing = d
 	d.area = gtk.NewDrawingArea()
 	d.area.SetFocusable(true)
 	d.area.AddCSSClass("atlas-diagram-editor")
@@ -222,6 +259,13 @@ func (e *Editor) openDiagramEditor(first, last int, src string, g *diagram.Graph
 	d.dialog.SetChild(tv)
 	d.dialog.SetCanClose(false)
 	d.dialog.ConnectCloseAttempt(func() { d.close() })
+	d.dialog.ConnectClosed(func() {
+		d.closed = true
+		d.dropPopover()
+		if e.dia.editing == d {
+			e.dia.editing = nil
+		}
+	})
 	d.dialog.Present(e.view)
 	d.area.GrabFocus()
 	d.fit()
@@ -270,11 +314,12 @@ func (d *diagramEditor) toolbar() gtk.Widgetter {
 		on := d.hiBtn.Active()
 		d.mutate(false, func() {
 			for _, it := range d.boxes() {
-				it.Accent = on
+				d.g.SetAccent(it, on)
 			}
 		})
 	})
 	box.Append(d.hiBtn)
+	box.Append(d.button("Connect", "Connect the two selected boxes with an arrow, from the first selected to the last (Ctrl+L)", d.connectSelected))
 	sep()
 	box.Append(d.button("Group", "Put the selected boxes in a titled group", d.group))
 	box.Append(d.button("Ungroup", "Remove the selected group and keep its boxes", d.ungroup))
@@ -345,6 +390,9 @@ func (d *diagramEditor) pinAll() {
 }
 
 func (d *diagramEditor) doUndo() {
+	if d.mode != deIdle || d.closed {
+		return
+	}
 	if n := len(d.undo); n > 0 {
 		d.redo = append(d.redo, d.g)
 		d.g, d.undo = d.undo[n-1], d.undo[:n-1]
@@ -353,6 +401,9 @@ func (d *diagramEditor) doUndo() {
 }
 
 func (d *diagramEditor) doRedo() {
+	if d.mode != deIdle || d.closed {
+		return
+	}
 	if n := len(d.redo); n > 0 {
 		d.undo = append(d.undo, d.g)
 		d.g, d.redo = d.redo[n-1], d.redo[:n-1]
@@ -495,6 +546,9 @@ func (d *diagramEditor) ungroup() {
 }
 
 func (d *diagramEditor) remove() {
+	if d.mode != deIdle || d.closed {
+		return
+	}
 	if d.selEdge == nil && len(d.sel) == 0 {
 		return
 	}
@@ -515,6 +569,55 @@ func (d *diagramEditor) remove() {
 	})
 	d.sel, d.selEdge = map[string]bool{}, nil
 	d.area.QueueDraw()
+}
+
+// cycle moves the selection to the next (or previous) box, for the keyboard.
+func (d *diagramEditor) cycle(back bool) {
+	var boxes []*diagram.Item
+	for _, it := range d.g.Order {
+		boxes = append(boxes, it)
+	}
+	if len(boxes) == 0 {
+		return
+	}
+	at := -1
+	for i, it := range boxes {
+		if it.ID == d.lastSel {
+			at = i
+		}
+	}
+	if back {
+		at = (at - 1 + len(boxes)) % len(boxes)
+	} else {
+		at = (at + 1) % len(boxes)
+	}
+	d.sel, d.selEdge, d.lastSel = map[string]bool{boxes[at].ID: true}, nil, boxes[at].ID
+	d.syncTools()
+	d.area.QueueDraw()
+}
+
+// connectSelected joins two selected boxes: from the one selected first to the
+// one selected last.
+func (d *diagramEditor) connectSelected() {
+	bs := d.boxes()
+	if len(bs) != 2 || d.lastSel == "" {
+		return
+	}
+	from, to := bs[0], bs[1]
+	if from.ID == d.lastSel {
+		from, to = to, from
+	}
+	for _, e := range d.g.Edges {
+		if e.From == from.ID && e.To == to.ID {
+			return
+		}
+	}
+	var ne *diagram.Edge
+	d.mutate(true, func() { ne = d.g.AddEdge(from.ID, to.ID) })
+	if ne != nil {
+		d.sel, d.selEdge = map[string]bool{}, ne
+		d.syncTools()
+	}
 }
 
 func (d *diagramEditor) snapTo(v float64) float64 { return math.Round(v/deGrid) * deGrid }
@@ -685,11 +788,22 @@ func (d *diagramEditor) wire() {
 
 func (d *diagramEditor) key(val uint, st gdk.ModifierType) bool {
 	ctrl, shift, alt := st&gdk.ControlMask != 0, st&gdk.ShiftMask != 0, st&gdk.AltMask != 0
+	if d.mode != deIdle && val != gdk.KEY_Escape {
+		return true // nothing changes under a drag
+	}
 	switch {
 	case ctrl && (val == gdk.KEY_z || val == gdk.KEY_Z) && !shift:
 		d.doUndo()
 	case ctrl && (val == gdk.KEY_Z || val == gdk.KEY_z && shift || val == gdk.KEY_y):
 		d.doRedo()
+	case ctrl && (val == gdk.KEY_l || val == gdk.KEY_L):
+		d.connectSelected()
+	case val == gdk.KEY_Tab || val == gdk.KEY_ISO_Left_Tab:
+		d.cycle(shift || val == gdk.KEY_ISO_Left_Tab)
+	case val == gdk.KEY_Return || val == gdk.KEY_F2:
+		if it := d.g.Items[d.lastSel]; it != nil && d.sel[it.ID] {
+			d.editItem(it)
+		}
 	case val == gdk.KEY_Delete || val == gdk.KEY_BackSpace:
 		d.remove()
 	case val == gdk.KEY_Left || val == gdk.KEY_Right || val == gdk.KEY_Up || val == gdk.KEY_Down:
@@ -742,6 +856,9 @@ func (d *diagramEditor) press(p diagram.Pt, st gdk.ModifierType) {
 			}
 		} else if !d.sel[it.ID] {
 			d.sel = map[string]bool{it.ID: true}
+		}
+		if d.sel[it.ID] {
+			d.lastSel = it.ID
 		}
 		d.beginMove()
 		d.syncTools()
@@ -833,13 +950,14 @@ func (d *diagramEditor) dragTo(p diagram.Pt, st gdk.ModifierType) {
 			}
 			d.g.Reparent(it, target)
 		}
-		d.layout()
+		d.queueLayout()
 	case deConnect, deBand:
 		d.area.QueueDraw()
 	}
 }
 
 func (d *diagramEditor) release(st gdk.ModifierType) {
+	d.flushLayout()
 	mode := d.mode
 	d.mode = deIdle
 	switch mode {
@@ -891,26 +1009,58 @@ func (d *diagramEditor) doubleClick(p diagram.Pt) {
 
 // ---- Editing text in place -------------------------------------------------
 
-// popoverAt opens a small popover over a rectangle of the canvas.
-func (d *diagramEditor) popoverAt(x, y, w, h float64, content gtk.Widgetter) *gtk.Popover {
-	if d.pop != nil {
-		d.pop.Popdown()
-	}
+// popoverAt opens a small popover over a rectangle of the canvas. apply runs
+// once when it closes, or when the editor needs the text before that.
+func (d *diagramEditor) popoverAt(x, y, w, h float64, content gtk.Widgetter, apply func()) *gtk.Popover {
+	d.dropPopover()
 	pop := gtk.NewPopover()
 	pop.SetChild(content)
 	pop.SetParent(d.area)
 	pop.SetAutohide(true)
 	r := gdk.NewRectangle(int(dePad+x*d.zoom), int(dePad+y*d.zoom), int(math.Max(w*d.zoom, 1)), int(math.Max(h*d.zoom, 1)))
 	pop.SetPointingTo(&r)
+	done := false
+	d.popGone = false
+	d.popApply = func() {
+		if !done {
+			done = true
+			apply()
+		}
+	}
 	pop.ConnectClosed(func() {
+		d.popApply()
 		if d.pop == pop {
 			d.pop = nil
+			if !d.popGone {
+				d.popGone = true
+				pop.Unparent()
+			}
 		}
-		glib.IdleAdd(func() { pop.Unparent(); d.area.GrabFocus() })
+		if !d.closed {
+			d.area.GrabFocus()
+		}
 	})
 	d.pop = pop
 	pop.Popup()
 	return pop
+}
+
+// dropPopover applies and removes the text popover now, before anything it
+// belongs to goes away.
+func (d *diagramEditor) dropPopover() {
+	pop := d.pop
+	if pop == nil {
+		return
+	}
+	d.pop = nil
+	if d.popApply != nil {
+		d.popApply()
+	}
+	if !d.popGone {
+		d.popGone = true
+		pop.Popdown()
+		pop.Unparent()
+	}
 }
 
 func (d *diagramEditor) editItem(it *diagram.Item) {
@@ -932,7 +1082,7 @@ func (d *diagramEditor) editItem(it *diagram.Item) {
 		se.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyLabel}, []coreglib.Value{*coreglib.NewValue("Box subtitle")})
 		box.Append(se)
 	}
-	pop := d.popoverAt(it.X, it.Y, it.W, it.H, box)
+	var pop *gtk.Popover
 	apply := func() {
 		nt, ns := te.Text(), ""
 		if se != nil {
@@ -943,6 +1093,7 @@ func (d *diagramEditor) editItem(it *diagram.Item) {
 		}
 		d.mutate(false, func() { d.g.SetText(it, nt, ns) })
 	}
+	pop = d.popoverAt(it.X, it.Y, it.W, it.H, box, apply)
 	te.ConnectActivate(func() {
 		if se != nil {
 			se.GrabFocus()
@@ -953,7 +1104,6 @@ func (d *diagramEditor) editItem(it *diagram.Item) {
 	if se != nil {
 		se.ConnectActivate(func() { pop.Popdown() })
 	}
-	pop.ConnectClosed(apply)
 	te.GrabFocus()
 	te.SelectRegion(0, -1)
 }
@@ -975,14 +1125,13 @@ func (d *diagramEditor) editEdge(e *diagram.Edge) {
 	en.SetWidthChars(24)
 	en.SetPlaceholderText("Label")
 	en.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyLabel}, []coreglib.Value{*coreglib.NewValue("Arrow label")})
-	pop := d.popoverAt(at.X-4, at.Y-4, 8, 8, en)
 	old := e.Label
-	en.ConnectActivate(func() { pop.Popdown() })
-	pop.ConnectClosed(func() {
+	pop := d.popoverAt(at.X-4, at.Y-4, 8, 8, en, func() {
 		if nl := diagram.Clean(en.Text()); nl != old {
 			d.mutate(false, func() { e.Label = nl })
 		}
 	})
+	en.ConnectActivate(func() { pop.Popdown() })
 	en.GrabFocus()
 }
 
@@ -1004,8 +1153,9 @@ func (d *diagramEditor) draw(cr *cairo.Context) {
 	if d.zoom < 0.5 {
 		step = deGrid * 2
 	}
-	for y := step; y < d.ch; y += step {
-		for x := step; x < d.cw; x += step {
+	x1, y1, x2, y2 := cr.ClipExtents() // only what is on screen
+	for y := math.Max(step, math.Ceil(y1/step)*step); y < math.Min(d.ch, y2); y += step {
+		for x := math.Max(step, math.Ceil(x1/step)*step); x < math.Min(d.cw, x2); x += step {
 			cr.Rectangle(x-0.75, y-0.75, 1.5, 1.5)
 		}
 	}
@@ -1099,10 +1249,12 @@ func (d *diagramEditor) draw(cr *cairo.Context) {
 // ---- Done and Cancel -------------------------------------------------------
 
 func (d *diagramEditor) close() {
-	if d.pop != nil {
-		d.pop.Popdown()
+	if d.closed {
+		return
 	}
+	d.dropPopover()
 	if !d.changed {
+		d.closed = true
 		d.dialog.ForceClose()
 		return
 	}
@@ -1113,18 +1265,28 @@ func (d *diagramEditor) close() {
 	a.SetDefaultResponse("keep")
 	a.SetCloseResponse("keep")
 	a.ConnectResponse(func(r string) {
-		if r == "discard" {
+		if r == "discard" && !d.closed {
+			d.closed = true
 			d.dialog.ForceClose()
 		}
 	})
 	a.Present(d.dialog)
 }
 
+func (d *diagramEditor) refuse(heading, body string) {
+	a := adw.NewAlertDialog(heading, body)
+	a.AddResponse("ok", "OK")
+	a.Present(d.dialog)
+}
+
 func (d *diagramEditor) done() {
-	if d.pop != nil {
-		d.pop.Popdown()
+	if d.closed {
+		return
 	}
+	d.dropPopover()
+	d.flushLayout()
 	if !d.changed {
+		d.closed = true
 		d.dialog.ForceClose()
 		return
 	}
@@ -1133,44 +1295,69 @@ func (d *diagramEditor) done() {
 	}
 	text := d.g.Mermaid()
 	if !d.g.Reads(text) {
-		a := adw.NewAlertDialog("This diagram cannot be saved", "Something in it, such as a box named like a Mermaid keyword, would be written back as a different diagram. The note is unchanged.")
-		a.AddResponse("ok", "OK")
-		a.Present(d.dialog)
+		d.refuse("This diagram cannot be saved", "Something in it, such as a box named like a Mermaid keyword, would be written back as a different diagram. The note is unchanged.")
 		return
 	}
-	d.e.replaceDiagramBlock(d.first, d.last, text)
+	if err := d.e.replaceDiagramBlock(d, text); err != "" {
+		d.refuse("The note has changed", err)
+		return
+	}
+	d.closed = true
 	d.dialog.ForceClose()
 }
 
+// blockIs says whether the lines first to last are the mermaid block whose text
+// is src.
+func (e *Editor) blockIs(first, last int, src string) bool {
+	if first < 0 || last >= e.buffer.LineCount() || last < first+2 {
+		return false
+	}
+	f, l, ok := e.mermaidBlock(first)
+	return ok && f == first && l == last && e.diagramSource(&richBlock{first: first, last: last}) == src
+}
+
 // replaceDiagramBlock swaps the text between a block's fences for text, as one
-// undo step, and moves the caret out of the block so the picture is drawn.
-func (e *Editor) replaceDiagramBlock(first, last int, text string) {
+// undo step, and puts the caret just after the block so the picture is drawn.
+// The block is looked for again first, as the note may have been edited since
+// the editor opened; it returns what is wrong when the block cannot be found.
+func (e *Editor) replaceDiagramBlock(d *diagramEditor, text string) string {
+	if !e.view.Editable() {
+		return "The note is locked, so the diagram was not changed."
+	}
+	if d.buf != e.buffer {
+		return "The note was closed, so the diagram was not changed."
+	}
+	first, last := d.first, d.last
+	if !e.blockIs(first, last, d.orig) {
+		found := false
+		for l := 0; l < e.buffer.LineCount() && !found; l++ {
+			if t, _ := e.lineText(l); strings.HasPrefix(strings.TrimSpace(t), "```mermaid") {
+				if f, la, ok := e.mermaidBlock(l); ok && e.blockIs(f, la, d.orig) {
+					first, last, found = f, la, true
+				}
+			}
+		}
+		if !found {
+			return "The diagram was edited in the note while you worked on it, so your changes were not applied. Cancel and start again."
+		}
+	}
 	start, ok1 := e.buffer.IterAtLine(first + 1)
 	end, ok2 := e.buffer.IterAtLine(last)
 	if !ok1 || !ok2 {
-		return
+		return "The diagram could not be found in the note."
 	}
-	caret := e.buffer.IterAtMark(e.buffer.GetInsert()).Offset()
-	startOff, endOff := start.Offset(), end.Offset()
+	startOff := start.Offset()
 	e.buffer.BeginUserAction()
 	e.buffer.Delete(start, end)
 	ins := e.buffer.IterAtOffset(startOff)
 	e.buffer.Insert(ins, text)
 	e.buffer.EndUserAction()
-	newEnd := startOff + len([]rune(text))
-	switch {
-	case caret < startOff:
-	case caret >= endOff:
-		caret += (newEnd - startOff) - (endOff - startOff)
-	default:
-		caret = -1
-	}
-	if caret >= 0 {
-		e.buffer.PlaceCursor(e.buffer.IterAtOffset(caret))
-	} else if it, ok := e.buffer.IterAtLine(first + 1 + strings.Count(text, "\n") + 1); ok && first+2+strings.Count(text, "\n") < e.buffer.LineCount() {
+	after := first + 2 + strings.Count(text, "\n")
+	if it, ok := e.buffer.IterAtLine(after); ok && after < e.buffer.LineCount() {
 		e.buffer.PlaceCursor(it)
 	} else if it, ok := e.buffer.IterAtLine(max(first-1, 0)); ok {
 		e.buffer.PlaceCursor(it)
 	}
 	e.Reparse()
+	return ""
 }

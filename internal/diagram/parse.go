@@ -39,7 +39,7 @@ type Item struct {
 	Shape    Shape
 	Accent   bool
 	Classes  []string // class names given with ":::" or a class line
-	Bare     bool // named in an edge and never given a shape or text
+	Bare     bool     // named in an edge and never given a shape or text
 	Dir      string
 	Parent   *Item
 	Children []*Item
@@ -89,7 +89,7 @@ type Graph struct {
 	CanvasW, CanvasH float64
 
 	classAccent map[string]bool // classDef names that ask for a highlight
-	src         string // what this was parsed from, for Mermaid to carry through
+	src         string          // what this was parsed from, for Mermaid to carry through
 }
 
 // UnsupportedError says what kind of diagram was not drawn, or what in it.

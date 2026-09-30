@@ -97,7 +97,7 @@ func TestMermaidAccentAndStyles(t *testing.T) {
 }
 
 func TestMermaidQuoting(t *testing.T) {
-	for _, title := range []string{`say "hi"`, "a [b] c", "x | y", "p(q)", "end", "a <b> c", "#quot; literal", "semi; colon: {x}", "`code`", "`",  "émoji ü", "a --> b", "100%"} {
+	for _, title := range []string{`say "hi"`, "a [b] c", "x | y", "p(q)", "end", "a <b> c", "#quot; literal", "semi; colon: {x}", "`code`", "`", "émoji ü", "a --> b", "100%"} {
 		g := mustParse(t, "flowchart TD\n a --> b\n")
 		g.SetText(g.Items["a"], title, "sub "+title)
 		e := g.Edges[0]

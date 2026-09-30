@@ -66,14 +66,15 @@ type diagramParse struct {
 }
 
 type diagramState struct {
-	items  []*diagramItem
-	hits   []diagramHit
-	byLine map[int]*diagramItem
-	pool   []*diagramBox
-	serial int
-	memo   map[int]bool // per block start: the pass decided it is drawn
-	parsed map[string]diagramParse
-	notes  map[[2]int]string // what the label of a mermaid block says, by its first and last line
+	items   []*diagramItem
+	hits    []diagramHit
+	byLine  map[int]*diagramItem
+	pool    []*diagramBox
+	serial  int
+	editing *diagramEditor // the editor open on a diagram, one at a time
+	memo    map[int]bool   // per block start: the pass decided it is drawn
+	parsed  map[string]diagramParse
+	notes   map[[2]int]string // what the label of a mermaid block says, by its first and last line
 }
 
 // diagramSource is the text between the fences of a mermaid block.
