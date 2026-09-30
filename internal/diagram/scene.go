@@ -89,6 +89,15 @@ type Scene struct {
 	Label string // what kind of picture it is, for a screen reader: "Flowchart", "Gantt chart"
 	Desc  string // the box titles, for a screen reader
 	Prims []Prim
+	// Routes is where each drawn arrow runs, for the editor to hit-test.
+	Routes []Route
+}
+
+// Route is the path one arrow was drawn along, and where its label sits.
+type Route struct {
+	Edge  *Edge
+	Pts   []Pt
+	Label Pt
 }
 
 func shapeRadius(it *Item) float64 {
@@ -190,6 +199,11 @@ func sides(e *Edge) (int, int, bool) {
 	right := b.X >= a.X+a.W-eps
 	left := b.X+b.W <= a.X+eps
 	vert := vertical(e.lca.Dir)
+	if e.free {
+		dx := (b.X + b.W/2) - (a.X + a.W/2)
+		dy := (b.Y + b.H/2) - (a.Y + a.H/2)
+		vert = math.Abs(dy) >= math.Abs(dx)
+	}
 	tryV := func() (int, int, bool) {
 		if below {
 			return 2, 0, true
@@ -338,6 +352,7 @@ func (sc *Scene) routeEdges(g *Graph, m Measure) {
 		if e.Thick {
 			w = 3
 		}
+		sc.Routes = append(sc.Routes, Route{Edge: e, Pts: pts, Label: lab})
 		sc.Prims = append(sc.Prims, Prim{Kind: PrimPath, Pts: pts, Stroke: RoleLine, StrokeW: w, Dash: e.Dotted, Corner: 8})
 		if e.Head {
 			sc.Prims = append(sc.Prims, arrowhead(pts[len(pts)-2], b))

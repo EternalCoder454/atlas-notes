@@ -67,6 +67,7 @@ type Edge struct {
 	lca      *Item
 	lf, lt   *Item
 	skip     bool
+	free     bool // an end was placed by hand: the sides are chosen by where the ends are
 	gap      float64
 	span     int // ranks between the two ends, negative when it runs back
 }
@@ -78,6 +79,15 @@ type Graph struct {
 	Items map[string]*Item
 	Order []*Item
 	Edges []*Edge
+
+	// Pos is where the editor put boxes: the top left of a box on the page,
+	// read from "%% atlas:pos" comments. A box with no entry is placed by the
+	// layout. CanvasW and CanvasH are the editor's page size ("%% atlas:size"),
+	// 0 when none was stored.
+	Pos              map[string]Pt
+	CanvasW, CanvasH float64
+
+	src string // what this was parsed from, for Mermaid to carry through
 }
 
 // UnsupportedError says what kind of diagram was not drawn, or what in it.
@@ -138,7 +148,11 @@ func Parse(src string) (g *Graph, err error) {
 	for i, raw := range strings.Split(strings.ReplaceAll(src, "\r", ""), "\n") {
 		p.lineNo = i + 1
 		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "%%") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "%%") {
+			p.comment(line)
 			continue
 		}
 		for _, st := range splitStatements(line) {
@@ -165,6 +179,7 @@ func Parse(src string) (g *Graph, err error) {
 		return nil, &UnsupportedError{Msg: "a subgraph is never closed with end"}
 	}
 	p.finish()
+	p.g.src = src
 	if len(p.g.Order) == 0 {
 		return nil, &UnsupportedError{Msg: "the diagram has no boxes"}
 	}
@@ -541,7 +556,7 @@ func plain(s string) string {
 	s = reBreak.ReplaceAllString(s, " ")
 	s = reHTMLTag.ReplaceAllString(s, "")
 	s = strings.ReplaceAll(s, "**", "")
-	return strings.Join(strings.Fields(s), " ")
+	return unescape(strings.Join(strings.Fields(s), " "))
 }
 
 func isIDRune(r rune) bool {
@@ -553,7 +568,7 @@ func (sc *scanner) id() string {
 	for sc.pos < len(sc.s) {
 		r, n := utf8.DecodeRuneInString(sc.s[sc.pos:])
 		if !isIDRune(r) {
-			if r != '-' || sc.pos == start {
+			if r != '-' || sc.pos == start || sc.pos+1 >= len(sc.s) {
 				break
 			}
 			next, _ := utf8.DecodeRuneInString(sc.s[sc.pos+1:])
@@ -673,7 +688,10 @@ func makeLines(text string) []Line {
 			bold = true
 			part = reBold.ReplaceAllString(part, "$1")
 		}
-		part = strings.Join(strings.Fields(strings.ReplaceAll(part, "**", "")), " ")
+		part = unescape(strings.Join(strings.Fields(strings.ReplaceAll(part, "**", "")), " "))
+		if part == "" {
+			continue
+		}
 		out = append(out, Line{Text: part, Bold: bold})
 	}
 	return out
