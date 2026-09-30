@@ -26,7 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   critical tasks, milestones, `after` dependencies, weekends excluded, a line
   for today) and **sequence diagrams** (participants and actors, every arrow
   kind, activation bars, notes, and loop, alt, opt, par, critical, break and
-  rect frames) are drawn too, each with its own `/` menu entry. Exports carry it: SVG in HTML, a picture in
+  rect frames) are drawn too, each with its own `/` menu entry.
+- **Draw flowcharts by hand.** The edit button on a flowchart (or Edit diagram
+  in the command box, or Diagram in the `/` menu) opens it on a canvas: drag
+  boxes, drag from a box's edge to another box to connect them, double-click
+  to rename a box or label an arrow, change shapes, highlight, group, undo,
+  zoom, and connect or move boxes from the keyboard. Done writes the Mermaid
+  back as one undo step, keeping the lines it did not change; where you put
+  boxes is saved as `%% atlas:pos` comments, which Obsidian and GitHub ignore.
+  Done checks the block is still where it was, so an edit to the note while
+  the editor is open is never overwritten, and a protected note is refused. Exports carry it: SVG in HTML, a picture in
   Word and OpenDocument. Anything else it cannot draw stays text, labelled
   with the reason; oversized or malformed diagrams from a synced note are
   refused rather than slowing the editor.
