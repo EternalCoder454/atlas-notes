@@ -77,7 +77,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in Task Manager's rows with an accent pill on the current one; the vault's
   notes take the same shape. Titles are set in a light weight, and every card
   and dialog list shares one 7px radius.
-- **Window transparency** (Settings, General): off, subtle, medium or strong.
+- **Ten colour themes**, Atlas Monitor's: Light and Dark, and Nord, Ember,
+  Sage, Dracula, Rose, Solarized, Ink and Contrast, each held to WCAG's
+  contrast minimums by a test. The default still follows the desktop. Links,
+  tags and web addresses in a note take the theme's accent.
+- **Icons are one Material Symbols set** (Outlined, weight 400, as Atlas
+  Monitor's), none borrowed from the desktop's theme any more: the find bar's
+  four were. Each is sized for where it sits, and dimmed at one of two levels,
+  quiet for secondary icons and full for the title bar and navigation. The
+  home screen's Today card has a calendar rather than a history clock. The
+  title bar keeps the app's name alone at its start; the panel toggles, New
+  note and the menu are grouped at the end.
+- **Window transparency** (Settings, Appearance): off, subtle, medium or strong.
   True translucency rather than a blur: the frame and the page let the desktop
   through, text stays solid, and dialogs follow. Only where the desktop
   composites, and not on Windows; elsewhere the setting says why.
