@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -95,6 +96,11 @@ fun NoteEditor(model: VaultModel) {
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
+        },
+        // The keyboard has the bottom of the screen while a note is being typed
+        // into, and the bar would sit on top of it.
+        bottomBar = {
+            if (WindowInsets.ime.getBottom(LocalDensity.current) == 0) BottomBar(model)
         },
     ) { padding ->
         Column(

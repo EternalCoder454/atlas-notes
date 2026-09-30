@@ -135,9 +135,9 @@ class MainActivity : ComponentActivity() {
 private fun Root(model: VaultModel) {
     val snackbar = remember { SnackbarHostState() }
 
-    // The back gesture closes an open note rather than the app, which is what
-    // back means on a screen that shows one thing at a time.
-    BackHandler(enabled = model.openPath != null) { model.close() }
+    // The back gesture is the bar's Back: from a note it goes to the one opened
+    // before it, or to the list from the first, and never straight out of the app.
+    BackHandler(enabled = model.openPath != null) { model.goBack() }
 
     if (model.openPath == null) NoteList(model) else NoteEditor(model)
 
