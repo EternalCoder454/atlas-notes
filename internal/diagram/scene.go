@@ -24,6 +24,9 @@ const (
 	RoleGroup
 	RoleGroupStroke
 	RoleLine
+	RoleAccentStrong
+	RoleError
+	RoleErrorTint
 	RoleCount
 )
 
@@ -39,6 +42,7 @@ var LightPalette = Palette{
 	RoleAccent: {0.21, 0.52, 0.89, 1}, RoleAccentTint: {0.21, 0.52, 0.89, 0.12},
 	RoleBox: {0.97, 0.97, 0.98, 1}, RoleBoxStroke: {0.74, 0.74, 0.78, 1},
 	RoleGroup: {0.95, 0.95, 0.96, 1}, RoleGroupStroke: {0.80, 0.80, 0.83, 1}, RoleLine: {0.40, 0.40, 0.44, 1},
+	RoleAccentStrong: {0.21, 0.52, 0.89, 0.40}, RoleError: {0.75, 0.11, 0.16, 1}, RoleErrorTint: {0.75, 0.11, 0.16, 0.14},
 }
 
 var DarkPalette = Palette{
@@ -46,6 +50,7 @@ var DarkPalette = Palette{
 	RoleAccent: {0.47, 0.68, 0.96, 1}, RoleAccentTint: {0.47, 0.68, 0.96, 0.16},
 	RoleBox: {0.19, 0.19, 0.22, 1}, RoleBoxStroke: {0.36, 0.36, 0.40, 1},
 	RoleGroup: {0.17, 0.17, 0.19, 1}, RoleGroupStroke: {0.30, 0.30, 0.34, 1}, RoleLine: {0.66, 0.66, 0.70, 1},
+	RoleAccentStrong: {0.47, 0.68, 0.96, 0.45}, RoleError: {1, 0.42, 0.40, 1}, RoleErrorTint: {1, 0.42, 0.40, 0.18},
 }
 
 // PrimKind is what a Prim is.
@@ -81,6 +86,7 @@ type Prim struct {
 // Scene is a laid-out diagram: W by H, and the shapes back to front.
 type Scene struct {
 	W, H  float64
+	Label string // what kind of picture it is, for a screen reader: "Flowchart", "Gantt chart"
 	Desc  string // the box titles, for a screen reader
 	Prims []Prim
 }
@@ -96,7 +102,7 @@ func shapeRadius(it *Item) float64 {
 }
 
 func buildScene(g *Graph, m Measure) *Scene {
-	sc := &Scene{W: g.Root.W, H: g.Root.H}
+	sc := &Scene{W: g.Root.W, H: g.Root.H, Label: "Flowchart"}
 	var titles []string
 	for _, it := range g.Order {
 		if !it.Group && len(it.Lines) > 0 {
@@ -400,7 +406,7 @@ func PathSegs(pts []Pt, r float64) []Seg {
 func (sc *Scene) SVG(pal Palette) string {
 	var b strings.Builder
 	w, h := math.Ceil(sc.W), math.Ceil(sc.H)
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" font-family="sans-serif" role="img" aria-label="Flowchart" style="max-width:100%%;height:auto"><title>Flowchart: %s</title>`, w, h, w, h, xmlEscape(sc.Desc))
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" font-family="sans-serif" role="img" aria-label="%s" style="max-width:100%%;height:auto"><title>%s: %s</title>`, w, h, w, h, xmlEscape(sc.Label), xmlEscape(sc.Label), xmlEscape(sc.Desc))
 	col := func(r Role) string {
 		if r == RoleNone {
 			return "none"

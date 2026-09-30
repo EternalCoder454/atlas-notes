@@ -111,7 +111,7 @@ func errf(line int, format string, a ...any) error {
 }
 
 var diagramKinds = map[string]string{
-	"sequencediagram": "sequence diagrams", "gantt": "Gantt charts", "classdiagram": "class diagrams",
+	"classdiagram": "class diagrams",
 	"statediagram": "state diagrams", "statediagram-v2": "state diagrams", "erdiagram": "entity diagrams",
 	"pie": "pie charts", "journey": "journeys", "gitgraph": "git graphs", "mindmap": "mind maps",
 	"timeline": "timelines", "quadrantchart": "quadrant charts", "requirementdiagram": "requirement diagrams",
@@ -211,9 +211,9 @@ func (p *parser) header(s string) error {
 	word := strings.ToLower(f[0])
 	if word != "flowchart" && word != "graph" {
 		if k, ok := diagramKinds[word]; ok {
-			return &UnsupportedError{Msg: "only flowcharts are drawn, not " + k}
+			return &UnsupportedError{Msg: "only flowcharts, Gantt charts and sequence diagrams are drawn, not " + k}
 		}
-		return &UnsupportedError{Msg: "only flowcharts are drawn"}
+		return &UnsupportedError{Msg: "only flowcharts, Gantt charts and sequence diagrams are drawn"}
 	}
 	dir := "TD"
 	if len(f) > 1 {

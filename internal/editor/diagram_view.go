@@ -13,7 +13,7 @@ import (
 	"atlas-notes/internal/diagram"
 )
 
-// This file draws Mermaid flowcharts in place of their code blocks, the way
+// This file draws Mermaid flowcharts, Gantt charts and sequence diagrams in place of their code blocks, the way
 // tables.go draws tables: the lines stay in the buffer as written (autosave,
 // undo and the index never learn about the picture), they are hidden while the
 // caret is away, and a widget is laid over the text where they were with blank
@@ -94,7 +94,7 @@ func (e *Editor) diagramCheck(src string) diagramParse {
 		s.parsed = map[string]diagramParse{}
 	}
 	var r diagramParse
-	if _, err := diagram.ParseDrawable(src); err != nil {
+	if _, err := diagram.ParseDocDrawable(src); err != nil {
 		r.msg = err.Error()
 	} else {
 		r.ok = true
@@ -104,7 +104,7 @@ func (e *Editor) diagramCheck(src string) diagramParse {
 }
 
 // drawsDiagram reports whether the block is drawn as a diagram: a closed
-// mermaid block the caret is not in, whose text is a flowchart that can be drawn.
+// mermaid block the caret is not in, whose text is a diagram that can be drawn.
 func (e *Editor) drawsDiagram(b *richBlock, cursorLine int) bool {
 	if b.kind != kindCode || !b.closed || b.last < b.first+2 || !strings.EqualFold(b.lang, "mermaid") || revealed(b, cursorLine) {
 		return false
@@ -285,6 +285,16 @@ func diagramPalette(w gtk.Widgetter) diagram.Palette {
 	p[diagram.RoleGroup] = mix(0.035)
 	p[diagram.RoleGroupStroke] = mix(0.18)
 	p[diagram.RoleLine] = mix(0.60)
+	p[diagram.RoleAccentStrong] = diagram.RGBA{R: acc.R, G: acc.G, B: acc.B, A: 0.42}
+	errc, ok := look("error_color", "destructive_color", "error_bg_color")
+	if !ok {
+		errc = diagram.RGBA{R: 0.75, G: 0.11, B: 0.16, A: 1}
+		if fg.R > 0.5 {
+			errc = diagram.RGBA{R: 1, G: 0.42, B: 0.40, A: 1}
+		}
+	}
+	p[diagram.RoleError] = errc
+	p[diagram.RoleErrorTint] = diagram.RGBA{R: errc.R, G: errc.G, B: errc.B, A: 0.18}
 	return p
 }
 
@@ -377,7 +387,7 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 		it.shown, it.x, it.y = true, 0, tableParkY
 	}
 	if b.scene == nil || b.src != it.src || b.avail != avail {
-		g, err := diagram.Parse(it.src)
+		doc, err := diagram.ParseDoc(it.src)
 		if err != nil {
 			return 0, 0
 		}
@@ -385,10 +395,10 @@ func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 			pc := b.area.CreatePangoContext()
 			b.font = newDiagramFont(pango.NewLayout(pc), pc.FontDescription().Family())
 		}
-		b.scene, b.src, b.avail = diagram.LayoutFit(g, b.font.measure, float64(avail)), it.src, avail
+		b.scene, b.src, b.avail = doc.Scene(b.font.measure, float64(avail)), it.src, avail
 		b.area.QueueDraw()
-		b.area.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyDescription},
-			[]coreglib.Value{*coreglib.NewValue(b.scene.Desc)})
+		b.area.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyLabel, gtk.AccessiblePropertyDescription},
+			[]coreglib.Value{*coreglib.NewValue(b.scene.Label), *coreglib.NewValue(b.scene.Desc)})
 	}
 	sw, sh := b.scene.W, b.scene.H
 	b.scale = 1

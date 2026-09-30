@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const flow = "# T\n\n```mermaid\nflowchart TD\n  a[One<br>First] --> b[Two]\n```\n\n```mermaid\nsequenceDiagram\n  A->>B: hi\n```\n"
+const flow = "# T\n\n```mermaid\nflowchart TD\n  a[One<br>First] --> b[Two]\n```\n\n```mermaid\npie\n  \"a\": 1\n```\n"
 
 func tinyPNG() []byte {
 	var b bytes.Buffer
@@ -27,7 +27,7 @@ func TestHTMLDiagramIsSVG(t *testing.T) {
 	if !strings.Contains(page, `<figure class="diagram"><svg`) || !strings.Contains(page, "First") {
 		t.Error("the flowchart is not an SVG")
 	}
-	if !strings.Contains(page, "language-mermaid") || !strings.Contains(page, "sequenceDiagram") {
+	if !strings.Contains(page, "language-mermaid") || !strings.Contains(page, "pie") {
 		t.Error("an undrawable diagram should stay a code block")
 	}
 }
@@ -83,4 +83,37 @@ func TestDiagramPictureUsesGivenSize(t *testing.T) {
 		}
 	}
 	t.Error("no document.xml")
+}
+
+func TestHTMLGanttAndSequenceAreSVG(t *testing.T) {
+	src := "```mermaid\ngantt\n  title Plan\n  section S\n  Build :b, 2026-01-05, 5d\n```\n\n```mermaid\nsequenceDiagram\n  A->>B: hi <there>\n```\n"
+	out, err := RenderWith("html", "t", src, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(out)
+	if strings.Count(page, `<figure class="diagram"><svg`) != 2 || !strings.Contains(page, "Gantt chart") || !strings.Contains(page, "Sequence diagram") {
+		t.Error("the Gantt chart and the sequence diagram are not both SVGs")
+	}
+	if strings.Contains(page, "hi <there>") {
+		t.Error("diagram text is not escaped")
+	}
+	if strings.Contains(page, "language-mermaid") {
+		t.Error("a drawn diagram is also a code block")
+	}
+}
+
+func TestDocumentsHoldGanttPicture(t *testing.T) {
+	var got []string
+	opt := Options{Diagram: func(src string) ([]byte, int, int, error) {
+		got = append(got, strings.Fields(src)[0])
+		return tinyPNG(), 40, 20, nil
+	}}
+	src := "```mermaid\ngantt\nA :2026-01-01, 1d\n```\n\n```mermaid\nsequenceDiagram\nA->>B: x\n```\n"
+	if _, err := RenderWith("docx", "t", src, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "gantt" || got[1] != "sequenceDiagram" {
+		t.Errorf("the hook was asked for %v", got)
+	}
 }

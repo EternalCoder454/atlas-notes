@@ -51,8 +51,23 @@ func TestRenderDiagramPNG(t *testing.T) {
 	if !bytes.HasPrefix(png, []byte("\x89PNG")) || w <= 0 || h <= 0 {
 		t.Errorf("not a picture: %d bytes, %dx%d", len(png), w, h)
 	}
-	if _, _, _, err := RenderDiagramPNG("sequenceDiagram\nA->>B: x"); err == nil {
-		t.Error("a sequence diagram was drawn")
+	if _, _, _, err := RenderDiagramPNG("pie\n\"a\": 1"); err == nil {
+		t.Error("a pie chart was drawn")
+	}
+}
+
+func TestRenderGanttAndSequencePNG(t *testing.T) {
+	for _, src := range []string{
+		"gantt\ntitle Plan\nsection S\nBuild :active, b, 2026-01-05, 5d\nShip :milestone, after b, 0d",
+		"sequenceDiagram\nparticipant A as Alice\nactor B\nA->>+B: hi\nalt x\nB-->>-A: yes\nelse y\nNote over A,B: n\nend",
+	} {
+		png, w, h, err := RenderDiagramPNG(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.HasPrefix(png, []byte("\x89PNG")) || w <= 0 || h <= 0 {
+			t.Errorf("not a picture: %d bytes, %dx%d", len(png), w, h)
+		}
 	}
 }
 
