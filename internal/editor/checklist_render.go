@@ -3,6 +3,7 @@ package editor
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
@@ -51,6 +52,11 @@ type itemRow struct {
 	bar  *gtk.Box
 	cb   *gtk.CheckButton
 	chip *gtk.Label
+	// due is the task's date, "" for none. The chip is not in the row: it is laid
+	// over the view after the end of the task's text (see placeChips), and cp is
+	// where it stands there.
+	due string
+	cp  part
 }
 
 // renderChecklists replaces the "- [x] " prefix of each raw task line in
@@ -107,6 +113,9 @@ func (e *Editor) renderChecklists(from, to, excludeLine int) {
 		e.markLayoutStale()
 		e.items = append(e.items, anchoredItem{anchor: anchor, row: row})
 		e.hasAnchors = true
+		if row.due != "" {
+			e.queuePlace()
+		}
 	}
 }
 
@@ -170,6 +179,10 @@ func (e *Editor) releaseRow(row *itemRow) {
 	if row.box.Parent() != nil {
 		e.view.Remove(row.box)
 	}
+	if row.cp.shown {
+		e.view.Remove(row.chip)
+		row.cp = part{w: row.chip}
+	}
 	if len(e.rowPool) < maxPooledRows {
 		e.rowPool = append(e.rowPool, row)
 	}
@@ -180,6 +193,7 @@ func (e *Editor) dressRow(row *itemRow, it checklist.Item) {
 	applyPriorityClass(row.bar, it.Priority)
 	// Setting the state must not look like the user clicking the box.
 	e.withLoading(func() { row.cb.SetActive(it.Checked) })
+	row.due = it.DueDate
 	dressDueChip(row.chip, it.DueDate)
 }
 
@@ -200,8 +214,8 @@ func (e *Editor) lineText(ln int) (string, bool) {
 	return e.buffer.Slice(start, end, true), true
 }
 
-// newRow builds a checklist row: the priority bar, the checkbox, and a due-date
-// badge (blank until the task has a date, but always taking its room).
+// newRow builds a checklist row: the priority bar, the checkbox, and the checkbox
+// (the due-date chip is laid over the view, see placeChips).
 //
 // Its only signal handler captures the editor, never the widgets — a handler
 // that captures its own widget keeps a Go reference to it alive, which keeps
@@ -245,17 +259,95 @@ func (e *Editor) newRow() *itemRow {
 
 	chip := gtk.NewLabel("")
 	chip.AddCSSClass("due-chip")
-	chip.SetVAlign(gtk.AlignEnd) // bottom-aligned, like the box, on the baseline
-	// Every row keeps the chip's room, dated or not, so the text of a task
-	// starts in the same place on every line. An undated row's chip is blank
-	// and see-through rather than absent.
-	chip.SetWidthChars(6)
-	chip.SetOpacity(0)
 
 	box.Append(bar)
 	box.Append(cb)
-	box.Append(chip)
-	return &itemRow{box: box, bar: bar, cb: cb, chip: chip}
+	return &itemRow{box: box, bar: bar, cb: cb, chip: chip, cp: part{w: chip}}
+}
+
+// chipGap is the space between the end of a task's text and its due chip.
+const chipGap = 8
+
+// visibleEnd is the offset, in characters, of the last character of a rendered
+// task line that is not hidden metadata or trailing space, or 0 (the checkbox)
+// when there is none.
+func visibleEnd(line string) int {
+	text := strings.TrimPrefix(line, anchorChar)
+	ranges := checklist.MetaRanges(text)
+	if b := strings.Index(text, "<!--"); b >= 0 {
+		if rel := strings.Index(text[b:], "-->"); rel >= 0 {
+			ranges = append(ranges, [2]int{b, b + rel + len("-->")})
+		}
+	}
+	cut := len(strings.TrimRight(text, " \t"))
+	for again := true; again; {
+		again = false
+		for _, r := range ranges {
+			if r[0] < cut && r[1] >= cut {
+				cut = len(strings.TrimRight(text[:r[0]], " \t"))
+				again = true
+			}
+		}
+	}
+	return utf8.RuneCountInString(text[:cut])
+}
+
+// placeChips puts the due chip of each task line near the viewport after the end
+// of the line's text, where Obsidian Tasks has it. The chip is laid over the
+// view, so no characters are added to the buffer. On a line that wraps, the end
+// of the text is on the last wrapped segment, and that is where the chip goes.
+func (e *Editor) placeChips() (unsettled bool) {
+	if len(e.items) == 0 {
+		return false
+	}
+	width := e.view.Width()
+	if width <= 0 {
+		return true
+	}
+	l0, l1 := e.nearLines()
+	for _, it := range e.items {
+		row := it.row
+		if row == nil {
+			continue
+		}
+		if row.due == "" || it.anchor.Deleted() {
+			row.cp.setVisible(false)
+			continue
+		}
+		at := e.buffer.IterAtChildAnchor(it.anchor)
+		if at == nil {
+			continue
+		}
+		ln := at.Line()
+		if ln < l0 || ln > l1 {
+			continue
+		}
+		if e.rich.foldedAt(ln) {
+			row.cp.setVisible(false)
+			continue
+		}
+		text, ok := e.lineText(ln)
+		if !ok {
+			continue
+		}
+		// The last visible character: the line's metadata (a comment, emoji) is
+		// hidden, and the caret's own rectangle there is as tiny as it is.
+		last, ok := e.buffer.IterAtLineOffset(ln, visibleEnd(text))
+		if !ok {
+			continue
+		}
+		rect := e.view.IterLocation(last)
+		if rect.Height() <= 0 {
+			unsettled = true
+			continue
+		}
+		_, w, _, _ := row.chip.Measure(gtk.OrientationHorizontal, -1)
+		_, h, _, _ := row.chip.Measure(gtk.OrientationVertical, -1)
+		x := min(rect.X()+rect.Width()+chipGap, width-e.view.RightMargin()-w)
+		y := rect.Y() + max(rect.Height()-h, 0)/2
+		e.putPart(&row.cp, x, y, 0, 0)
+	}
+	return unsettled
 }
 
 // anchorChecked reports whether the checkbox embedded on a line is ticked.
@@ -328,13 +420,11 @@ func dressDueChip(chip *gtk.Label, due string) {
 	}
 	t, err := time.Parse("2006-01-02", due)
 	if due == "" || err != nil {
-		chip.SetOpacity(0)
 		chip.SetText("")
 		chip.SetTooltipText("")
 		return
 	}
 	chip.SetText(t.Format("Jan 2"))
-	chip.SetOpacity(1)
 	today := time.Now().Truncate(24 * time.Hour)
 	switch day := t.Truncate(24 * time.Hour); {
 	case day.Before(today):
