@@ -36,6 +36,9 @@ const (
 	// Standalone is a copy nothing owns and nothing recorded a source for: a
 	// binary copied into place by hand. There is nothing to rebuild from.
 	Standalone
+
+	// Flatpak is a copy running inside a Flatpak sandbox. See install_flatpak.go.
+	Flatpak
 )
 
 // Install describes this copy of Atlas Notes.
@@ -64,6 +67,8 @@ func (in Install) Managed() bool { return in.Kind == FromPackage }
 // there and pacman will replace it.
 func (in Install) Where() string {
 	switch in.Kind {
+	case Flatpak:
+		return "Flatpak (" + flatpakAppID + ")"
 	case FromSource:
 		return "built from " + in.Source
 	case FromPackage:
@@ -135,6 +140,8 @@ func (in Install) UpdateCommand() string {
 // which carries on and updates itself.
 func updateAdvice(in Install, aurHelper string) (text string, ok bool) {
 	switch in.Kind {
+	case Flatpak:
+		return flatpakAdvice(), true
 	case FromPackage:
 		return "Atlas Notes was installed by " + in.Manager + ", so " + in.Manager +
 			" updates it, not the app. Run this in a terminal:\n" +
@@ -194,6 +201,13 @@ func detectInstallReal() Install {
 	// The binary is found first and kept whatever the answer is.
 	if exe, err := installedBinary(); err == nil {
 		in.Binary = exe
+	}
+
+	// Checked first: the sandbox has no package database to ask, and a binary
+	// under /app is not something to rebuild.
+	if inFlatpak() {
+		in.Kind = Flatpak
+		return in
 	}
 
 	// A package that owns the binary comes first. A packaged build can still
