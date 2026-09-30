@@ -133,3 +133,74 @@ func TestTaskLine(t *testing.T) {
 		}
 	}
 }
+
+func TestEmojiForm(t *testing.T) {
+	cases := []struct {
+		line string
+		want Item
+	}{
+		{"- [ ] Buy milk ⏫ 📅 2026-07-01", Item{Text: "Buy milk", Priority: PriorityHigh, DueDate: "2026-07-01"}},
+		{"- [x] Buy milk 📅 2026-07-01 🔼", Item{Text: "Buy milk", Checked: true, Priority: PriorityMedium, DueDate: "2026-07-01"}},
+		{"- [ ] Call 🔽 mum", Item{Text: "Call mum", Priority: PriorityLow}},
+		{"- [ ] a 📅2026-07-01", Item{Text: "a", DueDate: "2026-07-01"}},
+		{"- [ ] a ⏫️", Item{Text: "a", Priority: PriorityHigh}},
+		// Emoji inside a code span is text about the emoji.
+		{"- [ ] use `⏫` for high", Item{Text: "use `⏫` for high"}},
+		{"- [ ] `` ` 📅 2026-07-01 `` x", Item{Text: "`` ` 📅 2026-07-01 `` x"}},
+		// An unclosed tick is literal, so the marker after it counts.
+		{"- [ ] it`s ⏫", Item{Text: "it`s", Priority: PriorityHigh}},
+		// Not a date, or no date: stays as text.
+		{"- [ ] a 📅 2026-13-45", Item{Text: "a 📅 2026-13-45"}},
+		{"- [ ] a 📅 2026-02-30", Item{Text: "a 📅 2026-02-30"}},
+		{"- [ ] a 📅", Item{Text: "a 📅"}},
+		{"- [ ] a 📅 soon", Item{Text: "a 📅 soon"}},
+		{"- [ ] a 📅 2026-07-011", Item{Text: "a 📅 2026-07-011"}},
+		// Both forms: the emoji win, the comment still supplies the rest.
+		{"- [ ] a ⏫ <!-- priority:low due:2026-01-01 order:3 -->", Item{Text: "a", Priority: PriorityHigh, DueDate: "2026-01-01", Order: 3}},
+		{"- [ ] a 📅 2026-05-05 <!-- due:2026-01-01 -->", Item{Text: "a", DueDate: "2026-05-05"}},
+		// Emoji inside the comment are not read as markers.
+		{"- [ ] a <!-- 🔼 -->", Item{Text: "a"}},
+	}
+	for _, c := range cases {
+		got, ok := ParseLine(c.line)
+		if !ok || got != c.want {
+			t.Errorf("ParseLine(%q) = %+v, %v; want %+v", c.line, got, ok, c.want)
+		}
+	}
+}
+
+func TestMarshalWritesEmoji(t *testing.T) {
+	cases := []struct {
+		it   Item
+		want string
+	}{
+		{Item{Text: "a"}, "- [ ] a"},
+		{Item{Text: "a", Checked: true, Priority: PriorityHigh, DueDate: "2026-07-01"}, "- [x] a ⏫ 📅 2026-07-01"},
+		{Item{Text: "a", Priority: PriorityLow}, "- [ ] a 🔽"},
+		{Item{Text: "a", Priority: PriorityMedium, Order: 2}, "- [ ] a 🔼 <!-- order:2 -->"},
+		// What the emoji cannot say stays in the comment instead of vanishing.
+		{Item{Text: "a", Priority: "urgent", DueDate: "soon"}, "- [ ] a <!-- priority:urgent due:soon -->"},
+	}
+	for _, c := range cases {
+		if got := c.it.Marshal(); got != c.want {
+			t.Errorf("Marshal(%+v) = %q, want %q", c.it, got, c.want)
+		}
+		if back, ok := ParseLine(c.it.Marshal()); !ok || back != c.it {
+			t.Errorf("round trip of %+v gave %+v", c.it, back)
+		}
+	}
+}
+
+func TestMetaRanges(t *testing.T) {
+	text := "Buy milk ⏫ and `⏫` 📅 2026-07-01"
+	var hidden []string
+	for _, r := range MetaRanges(text) {
+		hidden = append(hidden, text[r[0]:r[1]])
+	}
+	if len(hidden) != 2 || hidden[0] != " ⏫" || hidden[1] != " 📅 2026-07-01" {
+		t.Fatalf("MetaRanges = %q", hidden)
+	}
+	if MetaRanges("plain text") != nil {
+		t.Fatal("plain text has no ranges")
+	}
+}

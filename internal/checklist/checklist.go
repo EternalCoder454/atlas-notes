@@ -5,9 +5,9 @@
 package checklist
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -32,7 +32,17 @@ func (p Priority) Valid() bool {
 
 // Item is a single checklist entry parsed from a markdown line such as:
 //
+//   - [ ] Buy groceries ⏫ 📅 2026-07-01
+//
+// That is the Obsidian Tasks plugin's form, which is what Marshal writes: ⏫ high,
+// 🔼 medium, 🔽 low, and 📅 for the due date. The older form keeps the same
+// facts in an HTML comment, and is still read everywhere:
+//
 //   - [ ] Buy groceries <!-- priority:high due:2026-07-01 order:1 -->
+//
+// When a line carries both, the emoji win: they are what Obsidian shows and
+// what someone editing the line by hand sees, so they are the newer word. The
+// comment is the only place "order" can live, since Obsidian has no such thing.
 type Item struct {
 	Text     string
 	Checked  bool
@@ -57,6 +67,16 @@ func ParseLine(line string) (it Item, ok bool) {
 	if start, end, has := findMeta(rest); has {
 		parseMeta(strings.TrimSpace(rest[start+len(metaOpen):end]), &it)
 		rest = rest[:start] + rest[end+len(metaClose):]
+	}
+	// Cutting a marker can join the bytes either side of it into a new one (a
+	// broken emoji with a real one inside it), so cut until nothing is left to
+	// cut. Only a line that had a marker pays for the second look.
+	for {
+		cut := cutEmoji(rest, &it)
+		if len(cut) == len(rest) {
+			break
+		}
+		rest = cut
 	}
 	it.Text = strings.TrimSpace(rest)
 	return it, true
@@ -148,25 +168,42 @@ func parseMeta(meta string, it *Item) {
 }
 
 // Marshal renders the item back to a markdown line (without leading
-// indentation), appending a metadata comment only when there is metadata.
+// indentation). Priority and due date are written as Obsidian Tasks emoji; a
+// comment is added only for what has no emoji form: the order, and any priority
+// or date the emoji cannot say (a value nobody recognises is kept, not lost).
 func (it Item) Marshal() string {
 	box := " "
 	if it.Checked {
 		box = "x"
 	}
-	line := fmt.Sprintf("- [%s] %s", box, it.Text)
-	if meta := it.metaComment(); meta != "" {
-		line += " " + meta
+	var b strings.Builder
+	b.WriteString("- [")
+	b.WriteString(box)
+	b.WriteString("] ")
+	b.WriteString(it.Text)
+	emojiPri := priorityEmoji(it.Priority)
+	if emojiPri != "" {
+		b.WriteByte(' ')
+		b.WriteString(emojiPri)
 	}
-	return line
+	emojiDue := validDate(it.DueDate)
+	if emojiDue {
+		b.WriteString(" " + dueEmoji + " " + it.DueDate)
+	}
+	if meta := it.metaComment(emojiPri != "", emojiDue); meta != "" {
+		b.WriteByte(' ')
+		b.WriteString(meta)
+	}
+	return b.String()
 }
 
-func (it Item) metaComment() string {
+// metaComment renders what the emoji could not carry.
+func (it Item) metaComment(priDone, dueDone bool) string {
 	var parts []string
-	if it.Priority != PriorityNone {
+	if it.Priority != PriorityNone && !priDone {
 		parts = append(parts, "priority:"+string(it.Priority))
 	}
-	if it.DueDate != "" {
+	if it.DueDate != "" && !dueDone {
 		parts = append(parts, "due:"+it.DueDate)
 	}
 	if it.Order > 0 {
@@ -176,6 +213,162 @@ func (it Item) metaComment() string {
 		return ""
 	}
 	return "<!-- " + strings.Join(parts, " ") + " -->"
+}
+
+const (
+	dueEmoji  = "📅"
+	highEmoji = "⏫"
+	medEmoji  = "🔼"
+	lowEmoji  = "🔽"
+	varSel    = "\uFE0F" // emoji presentation selector some keyboards add
+)
+
+func priorityEmoji(p Priority) string {
+	switch p {
+	case PriorityHigh:
+		return highEmoji
+	case PriorityMedium:
+		return medEmoji
+	case PriorityLow:
+		return lowEmoji
+	}
+	return ""
+}
+
+// validDate reports whether s is a real yyyy-mm-dd date ("2026-02-30" is not).
+func validDate(s string) bool {
+	if len(s) != 10 {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", s)
+	return err == nil
+}
+
+// emojiToken is one Obsidian-style marker found in a line: the byte range it
+// covers, widened to take the spaces before it, and what it says.
+type emojiToken struct {
+	start, end int
+	pri        Priority
+	due        string
+}
+
+// scanEmoji calls fn for each priority or due-date marker in s, in order.
+// Markers inside a code span or inside a "<!-- … -->" comment are not markers:
+// `⏫` is someone writing about the emoji, and the comment is read by parseMeta.
+// A 📅 with no real date after it is left alone as ordinary text.
+//
+// It touches only three lead bytes, so a line with none of them costs one pass
+// and no allocation.
+func scanEmoji(s string, fn func(emojiToken)) {
+	prevEnd := 0
+	for i := 0; i < len(s); {
+		switch c := s[i]; {
+		case c == '`':
+			n := 1
+			for i+n < len(s) && s[i+n] == '`' {
+				n++
+			}
+			if j := closingTicks(s, i+n, n); j >= 0 {
+				i = j + n
+			} else {
+				i += n // no closing run: the ticks are literal
+			}
+		case c == '<' && strings.HasPrefix(s[i:], metaOpen):
+			if rel := strings.Index(s[i+len(metaOpen):], metaClose); rel >= 0 {
+				i += len(metaOpen) + rel + len(metaClose)
+			} else {
+				i++
+			}
+		case c == 0xE2 || c == 0xF0:
+			var tok emojiToken
+			end := -1
+			switch {
+			case strings.HasPrefix(s[i:], highEmoji):
+				end, tok.pri = i+len(highEmoji), PriorityHigh
+			case strings.HasPrefix(s[i:], medEmoji):
+				end, tok.pri = i+len(medEmoji), PriorityMedium
+			case strings.HasPrefix(s[i:], lowEmoji):
+				end, tok.pri = i+len(lowEmoji), PriorityLow
+			case strings.HasPrefix(s[i:], dueEmoji):
+				e := i + len(dueEmoji)
+				if strings.HasPrefix(s[e:], varSel) {
+					e += len(varSel)
+				}
+				for e < len(s) && (s[e] == ' ' || s[e] == '\t') {
+					e++
+				}
+				if e+10 <= len(s) && validDate(s[e:e+10]) &&
+					(e+10 == len(s) || s[e+10] < '0' || s[e+10] > '9') {
+					end, tok.due = e+10, s[e:e+10]
+				}
+			}
+			if end < 0 {
+				i++
+				continue
+			}
+			if strings.HasPrefix(s[end:], varSel) {
+				end += len(varSel)
+			}
+			start := i
+			for start > prevEnd && (s[start-1] == ' ' || s[start-1] == '\t') {
+				start--
+			}
+			tok.start, tok.end = start, end
+			fn(tok)
+			prevEnd, i = end, end
+		default:
+			i++
+		}
+	}
+}
+
+// closingTicks finds a run of exactly n backticks at or after from, or -1.
+func closingTicks(s string, from, n int) int {
+	for i := from; i < len(s); i++ {
+		if s[i] != '`' {
+			continue
+		}
+		j := i
+		for j < len(s) && s[j] == '`' {
+			j++
+		}
+		if j-i == n {
+			return i
+		}
+		i = j - 1
+	}
+	return -1
+}
+
+// cutEmoji reads the markers in s into it and returns s without them. When
+// there are none it returns s itself, so a plain task allocates nothing here.
+func cutEmoji(s string, it *Item) string {
+	var b strings.Builder
+	last := 0
+	scanEmoji(s, func(t emojiToken) {
+		if t.pri != PriorityNone {
+			it.Priority = t.pri
+		}
+		if t.due != "" {
+			it.DueDate = t.due
+		}
+		b.WriteString(s[last:t.start])
+		last = t.end
+	})
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+// MetaRanges returns the byte ranges of a task line's emoji markers (with the
+// spaces before each), so the editor can hide them beside its own priority bar
+// and date chip. text is the task's text, not the "- [ ]" prefix.
+func MetaRanges(text string) [][2]int {
+	var out [][2]int
+	scanEmoji(text, func(t emojiToken) { out = append(out, [2]int{t.start, t.end}) })
+	return out
 }
 
 // Parse extracts every checklist item from note content, in document order.
