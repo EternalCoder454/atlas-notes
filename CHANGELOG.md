@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   will print, so text no longer jumps as the caret moves between lines. List
   markers are drawn as bullets (the file keeps `-`, `*` or `+`), numbered
   lists indent, a quote keeps a dimmed bar, and fenced code blocks are set in
-  monospace on a grey ground, where `- [ ]` stays code. Enter continues a
+  monospace on a grey ground, where `- [ ]` stays code. Tables draw as
+  tables, with a bold header, hairlines and each column's alignment, and turn
+  back into their Markdown when the caret is in them. Enter continues a
   list, a numbered list with the next number, a checklist with a new box and
   a quote with `> `; Enter on an empty item ends it. Undo and redo step over
   the drawing of bullets, and the caret stays out of a task's hidden
