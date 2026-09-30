@@ -163,7 +163,7 @@ install_deps() {
 		dnf)    $sudo_cmd dnf install -y $PKGS ;;
 		apt)    $sudo_cmd apt-get update
 		        $sudo_cmd env DEBIAN_FRONTEND=noninteractive apt-get install -y $PKGS ;;
-		pacman) $sudo_cmd pacman -S --needed --noconfirm $PKGS ;;
+		pacman) $sudo_cmd pacman -Syu --needed --noconfirm $PKGS ;;
 		zypper) $sudo_cmd zypper --non-interactive install $PKGS ;;
 	esac </dev/null
 }
