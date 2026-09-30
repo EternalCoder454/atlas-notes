@@ -326,3 +326,58 @@ func BenchmarkParse(b *testing.B) {
 		Parse(text)
 	}
 }
+
+func TestCRLF(t *testing.T) {
+	text := "---\r\ntags:\r\n  - a\r\n  - b\r\nempty:\r\ntitle: T\r\nnested:\r\n  x: 1\r\n---\r\nbody"
+	d := mustParse(t, text)
+	if d.EOL != "\r\n" || len(d.Props) != 4 {
+		t.Fatalf("doc = %+v", d)
+	}
+	if d.Props[0].Kind != Tags || !reflect.DeepEqual(d.Props[0].Items, []string{"a", "b"}) {
+		t.Errorf("tags = %+v", d.Props[0])
+	}
+	if d.Props[1].Kind != Text || d.Props[1].Value != "" || d.Props[2].Value != "T" || d.Props[3].Kind != ReadOnly {
+		t.Errorf("props = %+v", d.Props)
+	}
+	for _, p := range d.Props {
+		for _, l := range p.Lines {
+			if strings.Contains(l, "\r") {
+				t.Errorf("line %q keeps its carriage return", l)
+			}
+		}
+	}
+	if !reflect.DeepEqual(d.Props[0].Render(), d.Props[0].Lines) {
+		t.Errorf("render = %q", d.Props[0].Render())
+	}
+	if d := mustParse(t, "---\na: b\n---"); d.EOL != "\n" {
+		t.Errorf("EOL = %q", d.EOL)
+	}
+}
+
+func TestListItemsKeepTheirText(t *testing.T) {
+	d := mustParse(t, "---\nl: [\"123\", \"yes\", x]\nb:\n  - \"true\"\n---")
+	l := d.Props[0]
+	l.Items = append(l.Items, "y")
+	if got := l.Render()[0]; got != `l: ["123", "yes", x, y]` {
+		t.Errorf("flow = %q", got)
+	}
+	b := d.Props[1]
+	b.Items = append(b.Items, "z")
+	if got := b.Render(); !reflect.DeepEqual(got, []string{"b:", `  - "true"`, "  - z"}) {
+		t.Errorf("block = %q", got)
+	}
+}
+
+func TestEscapes(t *testing.T) {
+	d := mustParse(t, `---
+a: "x\N\_\L\P\e\a\b\v\f\ y\/"
+b: "bad \q escape"
+c: "bad \xZZ"
+---`)
+	if d.Props[0].Kind != Text || d.Props[0].Value != "x\u0085   \x1b\a\b\v\f y/" {
+		t.Errorf("a = %+v", d.Props[0])
+	}
+	if d.Props[1].Kind != ReadOnly || d.Props[2].Kind != ReadOnly {
+		t.Errorf("unknown escapes should be read-only: %+v %+v", d.Props[1], d.Props[2])
+	}
+}

@@ -855,3 +855,33 @@ func TestFrontMatterTagsAreIndexed(t *testing.T) {
 		t.Errorf("Tags() = %v, want %v", tags, want)
 	}
 }
+
+// An index made before front matter tags counted is read again once.
+func TestDerivedVersionQueuesOneReindex(t *testing.T) {
+	s := testStore(t)
+	saveNote(t, s, "FM", "---\ntags: [old]\n---")
+	if _, err := s.db.Exec(`UPDATE notes SET indexed = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.migrateDerived(); err != nil {
+		t.Fatal(err)
+	}
+	var n, v int
+	s.db.QueryRow(`SELECT count(*) FROM notes WHERE indexed = 0`).Scan(&n)
+	s.db.QueryRow(`PRAGMA user_version`).Scan(&v)
+	if n != 1 || v != derivedVersion {
+		t.Errorf("unindexed = %d, version = %d", n, v)
+	}
+	s.db.Exec(`UPDATE notes SET indexed = 1`)
+	s.db.Exec(`DELETE FROM undated_stale`) // the older-build marker is its own mechanism
+	if err := s.migrateDerived(); err != nil {
+		t.Fatal(err)
+	}
+	s.db.QueryRow(`SELECT count(*) FROM notes WHERE indexed = 0`).Scan(&n)
+	if n != 0 {
+		t.Errorf("a second start queued %d notes", n)
+	}
+}

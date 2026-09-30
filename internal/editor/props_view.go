@@ -547,18 +547,18 @@ func readOnlyText(p frontmatter.Prop) string {
 	if len(p.Lines) == 0 {
 		return ""
 	}
-	if len(p.Lines) == 1 {
-		_, v, _ := strings.Cut(p.Lines[0], ":")
-		return strings.TrimSpace(v)
+	// The value on the key's own line: what follows the colon after the key as
+	// written, which may itself hold colons.
+	first := p.Lines[0][min(len(p.KeyRaw), len(p.Lines[0])):]
+	_, first, _ = strings.Cut(first, ":")
+	parts := []string{}
+	if first = strings.TrimSpace(first); first != "" {
+		parts = append(parts, first)
 	}
-	var parts []string
 	for _, l := range p.Lines[1:] {
 		if l = strings.TrimSpace(l); l != "" {
 			parts = append(parts, l)
 		}
-	}
-	if v := strings.TrimSpace(p.Lines[0][min(len(p.KeyRaw)+1, len(p.Lines[0])):]); v != "" {
-		parts = append([]string{v}, parts...)
 	}
 	return strings.Join(parts, "  ")
 }

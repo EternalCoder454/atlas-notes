@@ -68,6 +68,9 @@ type Doc struct {
 	// End is the line of the closing "---". Lines holds lines 0 through End.
 	End   int
 	Lines []string
+	// EOL is the line ending the block is written with: "\r\n" when its first line
+	// ends that way, "\n" otherwise.
+	EOL string
 }
 
 var (
@@ -127,6 +130,15 @@ func ParseLines(lines []string) (*Doc, bool) {
 	if len(lines) < 2 || !fence(lines[0]) {
 		return nil, false
 	}
+	eol := "\n"
+	if strings.HasSuffix(lines[0], "\r") {
+		eol = "\r\n"
+	}
+	// A carriage return is part of the line ending, not of the line.
+	lines = append([]string(nil), lines...)
+	for i, l := range lines {
+		lines[i] = strings.TrimSuffix(l, "\r")
+	}
 	end := -1
 	for i := 1; i < len(lines); i++ {
 		if t := strings.TrimRight(lines[i], " \t\r"); t == "---" || t == "..." {
@@ -137,7 +149,7 @@ func ParseLines(lines []string) (*Doc, bool) {
 	if end < 0 {
 		return nil, false
 	}
-	d := &Doc{End: end, Lines: append([]string(nil), lines[:end+1]...)}
+	d := &Doc{End: end, EOL: eol, Lines: append([]string(nil), lines[:end+1]...)}
 	for i := 1; i < end; {
 		line := lines[i]
 		t := strings.TrimSpace(line)
@@ -231,39 +243,27 @@ func unquote(s string) (string, int, bool) {
 			return b.String(), i + 1, true
 		case q == '"' && c == '\\' && i+1 < len(s):
 			i++
-			switch s[i] {
-			case 'n':
-				b.WriteByte('\n')
-			case 't':
-				b.WriteByte('\t')
-			case 'r':
-				b.WriteByte('\r')
-			case '0':
-				b.WriteByte(0)
-			case 'x', 'u', 'U':
-				n := map[byte]int{'x': 2, 'u': 4, 'U': 8}[s[i]]
-				if i+n < len(s) {
-					var v rune
-					good := true
-					for _, h := range s[i+1 : i+1+n] {
-						d := strings.IndexRune("0123456789abcdef", h|0x20)
-						if h > 0x7f || d < 0 {
-							good = false
-							break
-						}
-						v = v*16 + rune(d)
-					}
-					if good {
-						b.WriteRune(v)
-						i += n
-						continue
-					}
-				}
-				b.WriteByte('\\')
-				b.WriteByte(s[i])
-			default: // \" \\ \/ and anything else: the character itself
-				b.WriteByte(s[i])
+			if r, ok := map[byte]rune{
+				'0': 0, 'a': 7, 'b': 8, 't': '\t', '\t': '\t', 'n': '\n', 'v': 11, 'f': 12, 'r': '\r',
+				'e': 27, ' ': ' ', '"': '"', '/': '/', '\\': '\\', 'N': 0x85, '_': 0xa0, 'L': 0x2028, 'P': 0x2029,
+			}[s[i]]; ok {
+				b.WriteRune(r)
+				continue
 			}
+			n := map[byte]int{'x': 2, 'u': 4, 'U': 8}[s[i]]
+			if n == 0 || i+n >= len(s) {
+				return "", len(s), false // an escape YAML does not have
+			}
+			var v rune
+			for _, h := range s[i+1 : i+1+n] {
+				d := strings.IndexRune("0123456789abcdef", h|0x20)
+				if h > 0x7f || d < 0 {
+					return "", len(s), false
+				}
+				v = v*16 + rune(d)
+			}
+			b.WriteRune(v)
+			i += n
 		default:
 			b.WriteByte(c)
 		}
@@ -486,7 +486,7 @@ func (p *Prop) Editable() bool { return p.Kind != ReadOnly }
 // quoted, so that it stays text.
 func looksTyped(s string) bool {
 	switch strings.ToLower(s) {
-	case "true", "false", "null", "~", "yes", "no", "on", "off", "y", "n":
+	case "true", "false", "null", "~", "yes", "no", "on", "off":
 		return true
 	}
 	return IsNumber(s) || IsDate(s)
@@ -598,13 +598,13 @@ func (p *Prop) Render() []string {
 		if p.Flow {
 			parts := make([]string, len(p.Items))
 			for i, it := range p.Items {
-				parts[i] = scalar(it, true, false)
+				parts[i] = scalar(it, true, true)
 			}
 			return []string{p.KeyRaw + ": [" + strings.Join(parts, ", ") + "]" + p.Comment}
 		}
 		out := []string{p.KeyRaw + ":" + p.Comment}
 		for _, it := range p.Items {
-			out = append(out, p.Indent+"- "+scalar(it, false, false))
+			out = append(out, p.Indent+"- "+scalar(it, false, true))
 		}
 		return out
 	}
