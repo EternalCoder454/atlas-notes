@@ -38,8 +38,10 @@ func TestDiagramBlockDrawnAndRevealed(t *testing.T) {
 		e.buffer.PlaceCursor(iter)
 	}
 	e.Reparse()
-	if n := len(e.dia.items); n != 0 {
-		t.Errorf("%d diagrams drawn with the caret in the block, want 0", n)
+	// Only the block the caret is in turns back into text; the sequence
+	// diagram below it stays drawn.
+	if n := len(e.dia.items); n != 1 {
+		t.Errorf("%d diagrams drawn with the caret in the flowchart, want 1", n)
 	}
 }
 
