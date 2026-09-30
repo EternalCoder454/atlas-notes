@@ -48,6 +48,12 @@ func TestPlainEditsMatchAFullScan(t *testing.T) {
 		{11, 3, 0, "q"}, {11, 0, 3, ""}, {11, 0, 0, "### "}, // the second heading
 		{0, 0, 0, "---"}, {0, 0, 3, ""}, // front matter's opening
 		{2, 0, 0, "a|b"}, {2, 0, 3, ""}, // a pipe
+		{2, 0, 0, "![[Ideas]]"}, {2, 0, 10, ""}, // an embed, typed whole and removed
+		{2, 0, 0, "![[Ide"}, {2, 6, 0, "as]]"}, {2, 0, 10, ""}, // and typed in two goes
+		{2, 0, 0, "![](pic.png)"}, {2, 0, 12, ""}, // a picture
+		{2, 0, 0, "$$x^2$$"}, {2, 0, 7, ""}, // display math
+		{2, 0, 0, "[^1]: a note"}, {2, 0, 12, ""}, // a footnote definition
+		{2, 0, 0, "- [ ] task 📅 2026-10-01"}, {2, 0, 23, ""}, // a dated task
 	}
 	e := New()
 	e.SetContent(doc)
