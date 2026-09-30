@@ -50,15 +50,9 @@ var slashPrompts = map[string]string{
 // slashAssistant runs an assistant entry of the slash menu: it opens the
 // assistant panel, if it was hidden, and asks.
 func (a *App) slashAssistant(action string) {
-	prompt := slashPrompts[action]
-	if prompt == "" || a.sidebar == nil {
-		a.toast("The assistant is not ready yet")
-		return
+	if prompt := slashPrompts[action]; prompt != "" {
+		a.askAssistant(prompt)
 	}
-	if a.rightToggle != nil && !a.rightToggle.Active() {
-		a.rightToggle.SetActive(true)
-	}
-	a.sidebar.Ask(prompt)
 }
 
 // bindImages points the editor's pictures at the note being opened: a

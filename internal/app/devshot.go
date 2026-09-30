@@ -57,6 +57,13 @@ func (a *App) runDevView() {
 			a.showShortcuts()
 		case "about":
 			a.showAbout()
+		case "palette":
+			// The argument is what is typed into the box: "palette=>new".
+			a.showPalette()
+			if v := openPalette[a]; v != nil {
+				v.entry.SetText(arg)
+				v.entry.SetPosition(-1)
+			}
 		case "icons":
 			a.showIconSheet()
 		case "home":
