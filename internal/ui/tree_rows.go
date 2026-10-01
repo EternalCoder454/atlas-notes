@@ -161,6 +161,16 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 	})
 	label.AddController(dbl)
 
+	// A long press marks the row, which is how a touchscreen starts selecting.
+	long := gtk.NewGestureLongPress()
+	long.SetTouchOnly(true)
+	long.ConnectPressed(func(_, _ float64) {
+		if n := nodeFromExpander(expander); n != nil {
+			t.Mark(n)
+		}
+	})
+	expander.AddController(long)
+
 	item.SetChild(expander)
 }
 
@@ -196,14 +206,7 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 	// offers them as separate ways to start — so the panel draws them
 	// differently. Which one a note is comes from the index, not from opening
 	// it here.
-	switch {
-	case n.isFolder:
-		icon.SetFromIconName("atlasnotes-folder-symbolic")
-	case n.tasks:
-		icon.SetFromIconName("atlasnotes-checklist-symbolic")
-	default:
-		icon.SetFromIconName("atlasnotes-note-symbolic")
-	}
+	icon.SetFromIconName(rowIcon(n))
 	if label, ok := icon.NextSibling().(*gtk.Label); ok {
 		label.SetText(n.name)
 		if caption, ok := label.NextSibling().(*gtk.Label); ok {
@@ -223,6 +226,7 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 			}
 		}
 	}
+	t.paintMark(expander, n, true)
 	expander.SetTooltipText(t.tooltipFor(n))
 	if !n.isFolder && t.summariesEnabled {
 		t.ensureSummary(n.rel)

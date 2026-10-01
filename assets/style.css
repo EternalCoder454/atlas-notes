@@ -267,6 +267,40 @@ list.atlas-nav-footer {
 	opacity: 0.7;
 }
 
+/* A row picked out to delete with others: the accent fill, and a check where
+   the icon was. Drawn over the selected row's pill so a marked open note still
+   reads as marked. */
+.navigation-sidebar > row.marked,
+.navigation-sidebar > row.marked:selected {
+	background-color: alpha(@accent_bg_color, 0.16);
+}
+
+.navigation-sidebar > row.marked:hover {
+	background-color: alpha(@accent_bg_color, 0.24);
+}
+
+.navigation-sidebar image.row-check {
+	color: @accent_color;
+	opacity: 1;
+}
+
+/* The bar under the list while rows are selected. */
+.mark-bar {
+	padding: 8px 10px;
+	border-top: 1px solid alpha(currentColor, 0.12);
+}
+
+.mark-count {
+	font-size: 0.86em;
+	font-weight: 600;
+}
+
+.mark-close {
+	min-width: 26px;
+	min-height: 26px;
+	padding: 0;
+}
+
 /* Folder shown beside a note's name in search results. */
 .row-caption {
 	font-size: 0.8em;

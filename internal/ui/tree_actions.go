@@ -105,6 +105,7 @@ func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
 			addIcon("atlasnotes-merge-note-symbolic", "Merge into…", func() { t.OnMerge(n.rel) })
 		}
 		box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+		add("Select", false, func() { t.Mark(n) })
 		add("Delete", true, func() { t.promptDelete(n) })
 	}
 
