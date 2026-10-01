@@ -274,7 +274,7 @@ func (a *App) saveCurrent() {
 				a.rememberSaved(rel, content)
 			}
 			a.refreshEmbeds() // a note that embeds the one just written
-			if a.dirty { // edits arrived while the write was in flight
+			if a.dirty {      // edits arrived while the write was in flight
 				a.scheduleAutosave()
 			}
 			return false

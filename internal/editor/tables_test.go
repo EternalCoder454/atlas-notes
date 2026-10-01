@@ -633,3 +633,27 @@ func TestIsTableRow(t *testing.T) {
 		}
 	}
 }
+
+// cellSpans finds each cell's text in its line the way splitRow reads the row,
+// so a press on a cell lands in that cell's source.
+func TestCellSpans(t *testing.T) {
+	for _, c := range []struct {
+		line string
+		want []string
+	}{
+		{"| Layer | What |", []string{"Layer", "What"}},
+		{"Observe | Live status", []string{"Observe", "Live status"}},
+		{"|  a  |b|  c|", []string{"a", "b", "c"}},
+		{`| a \| b | ` + "`x|y`" + ` |`, []string{`a \| b`, "`x|y`"}},
+		{"| é | 日本 |", []string{"é", "日本"}},
+		{"| | two |", []string{"", "two"}},
+	} {
+		var got []string
+		for _, sp := range cellSpans(c.line) {
+			got = append(got, c.line[sp[0]:sp[1]])
+		}
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("cellSpans(%q) = %q, want %q", c.line, got, c.want)
+		}
+	}
+}

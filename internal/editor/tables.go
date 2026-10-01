@@ -8,6 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/graphene"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 )
@@ -837,15 +839,21 @@ func (e *Editor) takeGrid() *tableGrid {
 	g.grid.SetColumnSpacing(0)
 
 	// A press on a table is claimed, so the text view underneath never sees it, and
-	// puts the caret on the table's first line, where the Markdown shows for editing.
-	// The handler is handed the gesture rather than closing over the grid, for the
-	// reason given at tableGrid.
+	// puts the caret in the Markdown at the cell that was pressed, where it was
+	// pressed, so the table opens for editing right there. It used to go to the
+	// table's first line, wherever the press was, and the cell wanted had to be
+	// found again in the source. The handler is handed the gesture rather than
+	// closing over the grid, for the reason given at tableGrid.
 	click := gtk.NewGestureClick()
 	click.SetButton(1)
 	serial := g.serial
-	click.Connect("pressed", func(c *gtk.GestureClick, nPress int) {
+	click.Connect("pressed", func(c *gtk.GestureClick, nPress int, x, y float64) {
 		c.SetState(gtk.EventSequenceClaimed)
-		e.editTable(serial)
+		row, col, at := -1, -1, 0
+		if grid, ok := c.Widget().(*gtk.Grid); ok {
+			row, col, at = pressedCell(grid, x, y)
+		}
+		e.editTable(serial, row, col, at)
 	})
 	g.grid.AddController(click)
 	return g
@@ -928,9 +936,99 @@ func dressCell(l *gtk.Label, cell string, a tableAlign, head bool) {
 	}
 }
 
-// editTable puts the caret on the first line of the table whose grid has this
-// number, so that its Markdown shows.
-func (e *Editor) editTable(serial int) {
+// pressedCell finds the cell of a table's grid under a press, and how many
+// characters into its text the press was. -1 for the row and column when it was
+// on no cell (a border).
+func pressedCell(grid *gtk.Grid, x, y float64) (row, col, at int) {
+	w := grid.Pick(x, y, gtk.PickDefault)
+	var l *gtk.Label
+	for w != nil {
+		b := gtk.BaseWidget(w)
+		if lbl, ok := w.(*gtk.Label); ok {
+			if p := b.Parent(); p != nil && coreglib.InternObject(p).Native() == coreglib.InternObject(grid).Native() {
+				l = lbl
+				break
+			}
+		}
+		if coreglib.InternObject(w).Native() == coreglib.InternObject(grid).Native() {
+			break
+		}
+		w = b.Parent()
+	}
+	if l == nil {
+		return -1, -1, 0
+	}
+	col, row, _, _ = grid.QueryChild(l)
+	// Where in the label's text: the point in the label's own coordinates, less
+	// where its layout is drawn, asked of the layout.
+	pt, ok := gtk.BaseWidget(grid).ComputePoint(l, graphene.NewPointAlloc().Init(float32(x), float32(y)))
+	if !ok {
+		return row, col, 0
+	}
+	ox, oy := l.LayoutOffsets()
+	layout := l.Layout()
+	idx, trailing, _ := layout.XYToIndex(int(pt.X()-float32(ox))*pango.SCALE, int(pt.Y()-float32(oy))*pango.SCALE)
+	text := layout.Text()
+	if idx > len(text) {
+		idx = len(text)
+	}
+	at = utf8.RuneCountInString(text[:idx]) + trailing
+	return row, col, at
+}
+
+// cellSpans finds where each cell's text starts and ends in a table row's line,
+// in bytes, with the whitespace around it left out. It reads the line as
+// splitRow does: an escaped pipe or one in a code span does not end a cell.
+func cellSpans(line string) [][2]int {
+	start := len(line) - len(strings.TrimLeft(line, " \t"))
+	i := start
+	if i < len(line) && line[i] == '|' {
+		i++
+	}
+	var spans [][2]int
+	cellStart := i
+	end := len(strings.TrimRight(line, " \t"))
+	closeCell := func(to int) {
+		a, b := cellStart, to
+		for a < b && (line[a] == ' ' || line[a] == '\t') {
+			a++
+		}
+		for b > a && (line[b-1] == ' ' || line[b-1] == '\t') {
+			b--
+		}
+		spans = append(spans, [2]int{a, b})
+	}
+	for i < end {
+		switch line[i] {
+		case '\\':
+			i += 2
+		case '`':
+			run := runLen(line, i, '`')
+			if j := closingRun(line, i+run, run); j >= 0 {
+				i = j + run
+			} else {
+				i += run
+			}
+		case '|':
+			closeCell(i)
+			i++
+			cellStart = i
+		default:
+			i++
+		}
+	}
+	if cellStart < end {
+		closeCell(end)
+	}
+	return spans
+}
+
+// editTable puts the caret in the Markdown of the table whose grid has this
+// number, so that it shows for editing: in the cell that was pressed (row and
+// col, the header being row 0), at characters into its text when the cell's
+// source reads the same as what was drawn, and at the cell's start when the
+// source has markup the drawing hid. With no cell, on the table's first line.
+func (e *Editor) editTable(serial, row, col, at int) {
 	for _, it := range e.tbl.items {
 		if it.grid == nil || it.grid.serial != serial {
 			continue
@@ -939,12 +1037,58 @@ func (e *Editor) editTable(serial int) {
 		if line < 0 {
 			return
 		}
-		if iter, ok := e.buffer.IterAtLine(line); ok {
+		iter, ok := e.buffer.IterAtLine(line)
+		if row >= 0 && col >= 0 {
+			if pos, found := e.cellPosition(line, row, col, at, it.t); found {
+				iter, ok = pos, true
+			}
+		}
+		if ok {
 			e.buffer.PlaceCursor(iter)
 			e.view.GrabFocus()
 		}
 		return
 	}
+}
+
+// cellPosition is where in the buffer a cell of the table starting on line
+// first begins, plus at characters when the cell's source is the text drawn.
+func (e *Editor) cellPosition(first, row, col, at int, t table) (*gtk.TextIter, bool) {
+	ln := first
+	if row > 0 {
+		ln = first + row + 1 // the delimiter row sits under the header
+	}
+	text, ok := e.lineText(ln)
+	if !ok {
+		return nil, false
+	}
+	spans := cellSpans(text)
+	if col >= len(spans) {
+		return nil, false
+	}
+	off := spans[col][0]
+	src := text[spans[col][0]:spans[col][1]]
+	if row < len(t.rows) && col < len(t.rows[row]) && t.rows[row][col] == src {
+		// Drawn as written: the press's place in the drawing is its place in the
+		// source too.
+		n := 0
+		for i := range src {
+			if n == at {
+				off = spans[col][0] + i
+				break
+			}
+			n++
+			off = spans[col][1]
+		}
+		if at == 0 {
+			off = spans[col][0]
+		}
+	}
+	iter, ok := e.buffer.IterAtLineIndex(ln, off)
+	if !ok {
+		return nil, false
+	}
+	return iter, true
 }
 
 // ---- Size and position -----------------------------------------------------
