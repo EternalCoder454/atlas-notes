@@ -251,6 +251,11 @@ func (a *App) openURL(raw string) {
 // unsaved text would otherwise be written back over the rewrite.
 func (a *App) onBeforeRename() { a.flushDirty() }
 
+// onBeforeDelete saves the open notes and waits for a save in flight before
+// something is deleted. A write that landed afterwards would make the note
+// again, from the editor's copy of it.
+func (a *App) onBeforeDelete() { a.flushDirty() }
+
 // onLinksChanged runs after a rename, when links in other notes may have been
 // rewritten on disk. If the open note was one of them, the editor is holding
 // the old text, so it is read again. Nothing is lost: it was saved first.

@@ -3,7 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
-	"path"
+	"sort"
 	"strings"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
@@ -154,7 +154,7 @@ func marksNames(marks []string, limit int) string {
 			break
 		}
 		rel, folder := markPath(m)
-		b.WriteString("• “" + path.Base(rel) + "”")
+		b.WriteString("• “" + rel + "”")
 		if folder {
 			b.WriteString(" (folder)")
 		}
@@ -167,45 +167,59 @@ func marksNames(marks []string, limit int) string {
 func rowNode(row *gtk.TreeListRow) *node { return gioutil.ObjectValue[*node](row.Item()) }
 
 // visibleMarks is the marks of the rows on screen, top to bottom, folders that
-// are open included along with what is in them.
+// are open included along with what is in them. It is aligned to the list's
+// positions: a row with no node leaves an empty string, so an index here is
+// the row's position.
 func (t *Tree) visibleMarks() []string {
 	n := t.selection.NItems()
 	out := make([]string, 0, n)
 	for i := uint(0); i < n; i++ {
+		mark := ""
 		if row := t.rowAt(i); row != nil {
 			if nd := rowNode(row); nd != nil {
-				out = append(out, markOf(nd))
+				mark = markOf(nd)
 			}
 		}
+		out = append(out, mark)
 	}
 	return out
 }
 
-// marked is the marks in the order the rows are listed, with the ones a marked
-// folder covers left out.
+// marked is the marks to delete: those a marked folder covers left out, in
+// order of path so the same marks always read the same.
 func (t *Tree) marked() []string {
+	list, _, _ := t.markedInfo()
+	return list
+}
+
+// markedInfo is marked, and how many marks a marked folder covers, and how
+// many marks are on rows that are not in the list at the moment, hidden by a
+// search or a closed folder.
+func (t *Tree) markedInfo() (list []string, covered, hidden int) {
 	if len(t.marks) == 0 {
-		return nil
+		return nil, 0, 0
+	}
+	shown := make(map[string]bool)
+	for _, m := range t.visibleMarks() {
+		shown[m] = true
 	}
 	all := make([]string, 0, len(t.marks))
-	for _, m := range t.visibleMarks() {
-		if t.marks[m] {
-			all = append(all, m)
+	for m := range t.marks {
+		all = append(all, m)
+		if !shown[m] {
+			hidden++
 		}
 	}
-	// What a search or a closed folder hides is marked all the same.
-	if len(all) < len(t.marks) {
-		seen := make(map[string]bool, len(all))
-		for _, m := range all {
-			seen[m] = true
+	sort.Slice(all, func(i, j int) bool {
+		a, _ := markPath(all[i])
+		b, _ := markPath(all[j])
+		if a != b {
+			return a < b
 		}
-		for m := range t.marks {
-			if !seen[m] {
-				all = append(all, m)
-			}
-		}
-	}
-	return coverMarks(all)
+		return all[i] < all[j]
+	})
+	list = coverMarks(all)
+	return list, len(all) - len(list), hidden
 }
 
 // markExists says whether the vault still has what a mark names.
@@ -231,11 +245,21 @@ func (t *Tree) markExists() func(string) bool {
 // seen before the row sees it, so a click that marks does not also open the
 // note.
 func (t *Tree) watchMarks() {
+	// The click is acted on when it is released, not when it is pressed:
+	// claiming a press would take it from a row that is being dragged, and from
+	// a finger that is scrolling. A drag or a scroll cancels the gesture, so
+	// no release arrives for it.
 	click := gtk.NewGestureClick()
 	click.SetButton(gdk.BUTTON_PRIMARY)
 	click.SetPropagationPhase(gtk.PhaseCapture)
+	var pending *gtk.TreeExpander
+	var pendingArrow bool
 	click.ConnectPressed(func(_ int, x, y float64) {
-		exp, onArrow := t.expanderAt(x, y)
+		pending, pendingArrow = t.expanderAt(x, y)
+	})
+	click.ConnectReleased(func(_ int, _, _ float64) {
+		exp, onArrow := pending, pendingArrow
+		pending = nil
 		if exp == nil {
 			return
 		}
@@ -257,6 +281,7 @@ func (t *Tree) watchMarks() {
 		t.cursorTo(exp)
 		click.SetState(gtk.EventSequenceClaimed)
 	})
+	click.ConnectCancel(func(_ *gdk.EventSequence) { pending = nil })
 	t.listView.AddController(click)
 
 	keys := gtk.NewEventControllerKey()
@@ -277,25 +302,32 @@ func (t *Tree) watchMarks() {
 		case gdk.KEY_Down, gdk.KEY_KP_Down:
 			return shift && !ctrl && t.extend(1)
 		}
-		if len(t.marks) == 0 {
-			return false
-		}
-		switch keyval {
-		case gdk.KEY_Escape:
-			t.ClearMarks()
-		case gdk.KEY_Delete, gdk.KEY_KP_Delete:
-			t.deleteMarked()
-		case gdk.KEY_a, gdk.KEY_A:
-			if !ctrl {
-				return false
-			}
-			t.markAll()
-		default:
-			return false
-		}
-		return true
+		return t.markKey(keyval, ctrl)
 	})
 	t.listView.AddController(keys)
+}
+
+// markKey is the keys that work while rows are marked: Escape lets them go,
+// Delete deletes them, Ctrl+A marks every row. The bar takes them as well as
+// the list, so they work wherever in the panel the focus is.
+func (t *Tree) markKey(keyval uint, ctrl bool) bool {
+	if len(t.marks) == 0 {
+		return false
+	}
+	switch keyval {
+	case gdk.KEY_Escape:
+		t.ClearMarks()
+	case gdk.KEY_Delete, gdk.KEY_KP_Delete:
+		t.deleteMarked()
+	case gdk.KEY_a, gdk.KEY_A:
+		if !ctrl {
+			return false
+		}
+		t.markAll()
+	default:
+		return false
+	}
+	return true
 }
 
 // expanderAt finds the row under a point on the list, and whether the point is
@@ -372,7 +404,9 @@ func (t *Tree) extend(by int) bool {
 	if abs(to-a) < abs(int(pos)-a) {
 		delete(t.marks, here)
 	} else {
-		t.marks[order[to]] = true
+		if order[to] != "" {
+			t.marks[order[to]] = true
+		}
 	}
 	t.showMarks()
 	t.listView.ScrollTo(uint(to), gtk.ListScrollFocus|gtk.ListScrollSelect, nil)
@@ -428,7 +462,9 @@ func (t *Tree) markRun(m string) {
 // markAll marks every row on screen.
 func (t *Tree) markAll() {
 	for _, m := range t.visibleMarks() {
-		t.marks[m] = true
+		if m != "" {
+			t.marks[m] = true
+		}
 	}
 	t.showMarks()
 }
@@ -455,6 +491,11 @@ func (t *Tree) dropMarks() {
 
 // showMarks brings the rows and the bar into line with what is marked.
 func (t *Tree) showMarks() {
+	// While marking, every row is checkable: one that is not marked says so,
+	// rather than saying nothing. Rows are all redrawn when that changes.
+	marking := len(t.marks) > 0
+	restate := marking != t.stated
+	t.stated = marking
 	for c := t.listView.FirstChild(); c != nil; {
 		w := gtk.BaseWidget(c)
 		c = w.NextSibling()
@@ -463,18 +504,22 @@ func (t *Tree) showMarks() {
 			continue
 		}
 		if n := nodeFromExpander(exp); n != nil {
-			t.paintMark(exp, n, false)
+			t.paintMark(exp, n, restate)
 		}
 	}
 	n := len(t.marks)
 	if n > 0 {
-		text := fmt.Sprintf("%d Selected", n)
-		if t.markLabel.Text() != text {
-			t.markLabel.SetText(text)
-			// The count is the one thing on the bar that changes under the
-			// reader, so it is said out loud.
-			t.widget.Announce(text, gtk.AccessibleAnnouncementPriorityLow)
+		t.markLabel.SetText(fmt.Sprintf("%d Selected", n))
+	}
+	// The count is the one thing on the bar that changes under the reader, so
+	// it is said out loud, and so is the selection ending.
+	if n != t.announced {
+		if n > 0 {
+			t.widget.Announce(fmt.Sprintf("%d Selected", n), gtk.AccessibleAnnouncementPriorityLow)
+		} else {
+			t.widget.Announce("Selection cleared", gtk.AccessibleAnnouncementPriorityLow)
 		}
+		t.announced = n
 	}
 	t.markBar.SetRevealChild(n > 0)
 	if n > 0 {
@@ -513,17 +558,18 @@ func (t *Tree) paintMark(exp *gtk.TreeExpander, n *node, force bool) {
 			}
 		}
 	}
-	if was != on {
+	switch {
+	case len(t.marks) == 0:
+		exp.ResetState(gtk.AccessibleStateChecked)
+		exp.ResetProperty(gtk.AccessiblePropertyDescription)
+	default:
 		state := gtk.AccessibleTristateFalse
+		desc := ""
 		if on {
-			state = gtk.AccessibleTristateTrue
+			state, desc = gtk.AccessibleTristateTrue, "Selected"
 		}
 		exp.UpdateState([]gtk.AccessibleState{gtk.AccessibleStateChecked},
 			[]coreglib.Value{*coreglib.NewValue(state)})
-		desc := ""
-		if on {
-			desc = "Selected"
-		}
 		exp.UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyDescription},
 			[]coreglib.Value{*coreglib.NewValue(desc)})
 	}
@@ -582,6 +628,11 @@ func (t *Tree) buildMarkBar() *gtk.Revealer {
 	t.markBar.SetTransitionDuration(140)
 	t.markBar.SetChild(bar)
 	t.markBar.SetRevealChild(false)
+	barKeys := gtk.NewEventControllerKey()
+	barKeys.ConnectKeyPressed(func(keyval, _ uint, state gdk.ModifierType) bool {
+		return t.markKey(keyval, state&gdk.ControlMask != 0)
+	})
+	t.markBar.AddController(barKeys)
 	return t.markBar
 }
 
@@ -589,7 +640,7 @@ func (t *Tree) buildMarkBar() *gtk.Revealer {
 // bring a note back from the system Trash from here, so unlike a chat's
 // delete it asks first rather than offering an Undo.
 func (t *Tree) deleteMarked() {
-	marks := t.marked()
+	marks, covered, hidden := t.markedInfo()
 	if len(marks) == 0 {
 		return
 	}
@@ -601,18 +652,26 @@ func (t *Tree) deleteMarked() {
 			notes++
 		}
 	}
-	names := marksNames(marks, 5)
+	body := marksNames(marks, 5)
+	if covered > 0 {
+		body += "\n\n" + plural(covered, "more selected item is", "more selected items are") +
+			" inside the marked folders."
+	}
+	if hidden > 0 {
+		body += "\n\n" + plural(hidden, "selected item is", "selected items are") + " not shown in the list."
+	}
 	what := countWords(notes, folders)
 	if t.store.Trash != nil {
-		body := names + "\n\nEverything in a folder goes with it. You can restore them from the Trash."
-		if folders == 0 {
-			body = names + "\n\nYou can restore them from the Trash."
+		body += "\n\n"
+		if folders > 0 {
+			body += "Everything in a folder goes with it. "
 		}
+		body += "You can restore them from the Trash."
 		t.confirm("Move "+what+" to the Trash?", body, "Move to Trash",
 			func() { t.deleteMany(marks, false) })
 		return
 	}
-	t.confirm("Delete "+what+"?", names+"\n\nThis cannot be undone.", "Delete",
+	t.confirm("Delete "+what+"?", body+"\n\nThis cannot be undone.", "Delete",
 		func() { t.deleteMany(marks, true) })
 }
 
@@ -620,10 +679,13 @@ func (t *Tree) deleteMarked() {
 // is set, and says what became of them. One that cannot be deleted stays
 // marked and does not stop the others.
 func (t *Tree) deleteMany(marks []string, permanently bool) {
+	if t.OnBeforeDelete != nil {
+		t.OnBeforeDelete()
+	}
 	var noTrash []string // could not be moved to the Trash
 	var failed []string
 	notes, folders := 0, 0
-	var firstErr error
+	var firstErr, trashErr error
 	for _, m := range marks {
 		rel, folder := markPath(m)
 		err := t.deleteOne(rel, folder, permanently)
@@ -639,6 +701,9 @@ func (t *Tree) deleteMany(marks []string, permanently bool) {
 			}
 		case !permanently && isTrashFailure(err):
 			noTrash = append(noTrash, m)
+			if trashErr == nil {
+				trashErr = err
+			}
 		default:
 			failed = append(failed, m)
 			if firstErr == nil {
@@ -666,10 +731,14 @@ func (t *Tree) deleteMany(marks []string, permanently bool) {
 	if len(noTrash) > 0 {
 		// Some places have no Trash, and deleting for good is a different thing
 		// to agree to, so ask about those on their own.
-		t.confirm("Delete permanently?",
-			plural(len(noTrash), "item", "items")+" couldn't be moved to the Trash, so "+
-				map[bool]string{true: "it", false: "they"}[len(noTrash) == 1]+
-				" would be deleted for good. This cannot be undone.",
+		body := marksNames(noTrash, 5) + "\n\nThey couldn't be moved to the Trash (" + trashErr.Error() + "), so they would be deleted for good. "
+		for _, m := range noTrash {
+			if _, folder := markPath(m); folder {
+				body += "Everything in a folder goes with it. "
+				break
+			}
+		}
+		t.confirm("Delete permanently?", body+"This cannot be undone.",
 			"Delete Permanently", func() { t.deleteMany(noTrash, true) })
 	}
 }

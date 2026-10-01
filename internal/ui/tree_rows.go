@@ -152,8 +152,9 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 	dbl := gtk.NewGestureClick()
 	dbl.SetButton(1)
 	dbl.ConnectPressed(func(nPress int, x, y float64) {
-		if nPress < 2 {
-			return
+		if nPress < 2 || len(t.marks) > 0 ||
+			dbl.CurrentEventState()&(gdk.ControlMask|gdk.ShiftMask) != 0 {
+			return // a click that marks is not a rename
 		}
 		if n := nodeFromExpander(expander); n != nil && !n.isFolder {
 			t.promptRename(n)

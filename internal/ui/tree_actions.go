@@ -234,6 +234,9 @@ func (t *Tree) promptDelete(n *node) {
 
 // deleteNode deletes a note or folder, to the Trash unless permanently is set.
 func (t *Tree) deleteNode(n *node, permanently bool) {
+	if t.OnBeforeDelete != nil {
+		t.OnBeforeDelete()
+	}
 	var err error
 	switch {
 	case n.isFolder && permanently:

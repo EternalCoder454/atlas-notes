@@ -113,6 +113,7 @@ func (a *App) buildWindow() {
 		a.tree.OnOpenSide = a.openToSide
 		a.tree.OnMerge = a.mergeInto
 		a.tree.OnBeforeRename = a.onBeforeRename
+		a.tree.OnBeforeDelete = a.onBeforeDelete
 		a.tree.OnLinksChanged = a.onLinksChanged
 		a.tree.OnChanged = a.refreshWelcome
 		a.tree.IsStarred = a.isStarred

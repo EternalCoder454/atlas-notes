@@ -121,6 +121,8 @@ type Tree struct {
 	anchor    string
 	markBar   *gtk.Revealer
 	markLabel *gtk.Label
+	announced int  // the count last said aloud
+	stated    bool // whether the rows last drew themselves as checkable
 
 	// OnOpenNote is invoked when a note row is activated.
 	OnOpenNote func(rel string)
@@ -144,6 +146,10 @@ type Tree struct {
 	// open note: renaming rewrites links in other notes' files, and the open
 	// one may be among them.
 	OnBeforeRename func()
+	// OnBeforeDelete fires before notes are deleted, so the app can write what
+	// is unsaved and wait for a save in flight: one that lands after the
+	// delete would make the note again.
+	OnBeforeDelete func()
 	// OnLinksChanged fires after a rename or a move, when other notes' links
 	// may have been rewritten on disk, so the app can reload the open note.
 	OnLinksChanged func()
