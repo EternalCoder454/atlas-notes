@@ -30,7 +30,7 @@ import (
 const (
 	introSlideAt = 1.10 // the mark starts moving aside for the name
 	introSlide   = 0.75
-	introFadeAt  = 2.55 // the intro starts fading into the window
+	introFadeAt  = 2.70 // the intro starts fading into the window; Monitor's is 2.55, Notes holds the name a little longer
 	introFade    = 0.40
 	introSkip    = 0.22 // how long the fade takes when a click or key cuts it short
 )
