@@ -150,6 +150,10 @@ type Config struct {
 	SystemPrompt        string     `json:"system_prompt"`
 	Actions             []AIAction `json:"actions"`
 	EnableTreeSummaries bool       `json:"enable_tree_summaries"`
+
+	// ShowIntro plays the Atlas mark and the app's name when the window opens.
+	// It is skipped anyway when the desktop has animations turned off.
+	ShowIntro bool `json:"show_intro"`
 }
 
 // dataDir and configDir are per-platform; see paths_*.go. Both honour an
@@ -226,6 +230,7 @@ func DefaultConfig() Config {
 		CheckUpdates:  true,
 		ShowFormatBar: true,
 		DueReminders:  true,
+		ShowIntro:     true,
 		SystemPrompt:  DefaultSystemPrompt,
 		Actions:       defaultActions(),
 	}

@@ -702,7 +702,8 @@ uninstall_app() {
 	local apps="$PREFIX/share/applications" icons="$PREFIX/share/icons/hicolor" f
 	REMOVED=()
 	for f in "$PREFIX/bin/atlas-notes" "$apps/io.github.atlasnotes.desktop" \
-		"$apps/atlas-notes.desktop" "$icons/scalable/apps/atlas-notes.svg"; do
+		"$apps/atlas-notes.desktop" "$icons/scalable/apps/atlas-notes.svg" \
+		"$icons/16x16/apps/atlas-notes.svg" "$icons/symbolic/apps/atlas-notes-symbolic.svg"; do
 		remove_path "$f"
 	done
 	if [ "${#REMOVED[@]}" -gt 0 ]; then

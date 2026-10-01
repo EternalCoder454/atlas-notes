@@ -57,6 +57,8 @@ go build -buildmode=pie -trimpath -ldflags="-s -w -X atlas-notes/internal/app.ve
 %install
 install -Dm755 %{name} %{buildroot}%{_bindir}/%{name}
 install -Dm644 assets/atlas-notes.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/atlas-notes.svg
+install -Dm644 assets/atlas-notes-16.svg %{buildroot}%{_datadir}/icons/hicolor/16x16/apps/atlas-notes.svg
+install -Dm644 assets/atlas-notes-symbolic.svg %{buildroot}%{_datadir}/icons/hicolor/symbolic/apps/atlas-notes-symbolic.svg
 install -d %{buildroot}%{_datadir}/applications
 sed 's|@BIN@|%{_bindir}/%{name}|g' packaging/io.github.atlasnotes.desktop \
     > %{buildroot}%{_datadir}/applications/io.github.atlasnotes.desktop
@@ -70,6 +72,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.atlasnotes.
 %{_bindir}/%{name}
 %{_datadir}/applications/io.github.atlasnotes.desktop
 %{_datadir}/icons/hicolor/scalable/apps/atlas-notes.svg
+%{_datadir}/icons/hicolor/16x16/apps/atlas-notes.svg
+%{_datadir}/icons/hicolor/symbolic/apps/atlas-notes-symbolic.svg
 
 %changelog
 * Wed Sep 30 2026 EternalHell <77252745+EternalCoder454@users.noreply.github.com> - 0.8.1-1

@@ -202,7 +202,13 @@ func (a *App) buildWindow() {
 	toolbar.AddTopBar(header)
 	toolbar.SetContent(a.toastOverlay)
 
-	a.win.SetContent(toolbar)
+	// The intro covers the whole window, title bar too, and fades into it. Not
+	// in a benchmark or a dev capture, which want the window as it is.
+	if a.cfg.ShowIntro && ui.IntroEnabled() && benchMode == "" && !fixedWindowTitle {
+		a.win.SetContent(ui.NewIntro(toolbar, "Notes", nil).Widget())
+	} else {
+		a.win.SetContent(toolbar)
+	}
 	a.syncPageCorners()
 	a.applyTransparency()
 }

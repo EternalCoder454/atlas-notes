@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Atlas — 16 px mark, one colour</title>
+  <g id="atlas-mark-16">
+    <path id="crossbar" fill="#000000" d="M325.3 576L698.7 576L778.7 768L245.3 768Z"></path>
+    <path id="leg-right" fill="#000000" d="M397.9 147.6Q384 128 408 128L632 128Q640 128 643.1 135.4L950.8 873.8Q960 896 936 896L728 896Q704 896 694.8 873.8L522.8 461Q512 435.2 522.8 409.4L545.3 355.2Z"></path>
+    <path id="leg-left" fill="#000000" d="M374.8 150.2Q384 128 408 128L632 128Q640 128 636.9 135.4L329.2 873.8Q320 896 296 896L88 896Q64 896 73.2 873.8Z"></path>
+  </g>
+</svg>

@@ -1417,3 +1417,21 @@ window.atlas-glass .atlas-page .tasks-open {
 	font-weight: 700;
 }
 .atlas-prop-date > button { padding: 0; min-height: 26px; }
+
+/* The intro (internal/ui/intro.go) covers the window while the content under
+   it is hidden, so it brings its own background, as see-through as the page. */
+.atlas-intro {
+	background-color: @view_bg_color;
+}
+
+window.atlas-glass-subtle .atlas-intro {
+	background-color: alpha(@view_bg_color, 0.90);
+}
+
+window.atlas-glass-medium .atlas-intro {
+	background-color: alpha(@view_bg_color, 0.78);
+}
+
+window.atlas-glass-strong .atlas-intro {
+	background-color: alpha(@view_bg_color, 0.62);
+}

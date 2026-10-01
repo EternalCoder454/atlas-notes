@@ -65,6 +65,10 @@ modules:
       # under both names.
       - install -Dm644 assets/atlas-notes.svg /app/share/icons/hicolor/scalable/apps/io.github.atlasnotes.svg
       - install -Dm644 assets/atlas-notes.svg /app/share/icons/hicolor/scalable/apps/atlas-notes.svg
+      - install -Dm644 assets/atlas-notes-16.svg /app/share/icons/hicolor/16x16/apps/io.github.atlasnotes.svg
+      - install -Dm644 assets/atlas-notes-16.svg /app/share/icons/hicolor/16x16/apps/atlas-notes.svg
+      - install -Dm644 assets/atlas-notes-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.atlasnotes-symbolic.svg
+      - install -Dm644 assets/atlas-notes-symbolic.svg /app/share/icons/hicolor/symbolic/apps/atlas-notes-symbolic.svg
       - sed -e 's|^Exec=@BIN@|Exec=atlas-notes|' -e 's|^Icon=.*|Icon=io.github.atlasnotes|' packaging/io.github.atlasnotes.desktop > io.github.atlasnotes.desktop
       - install -Dm644 io.github.atlasnotes.desktop /app/share/applications/io.github.atlasnotes.desktop
       - install -Dm644 packaging/flatpak/io.github.atlasnotes.metainfo.xml /app/share/metainfo/io.github.atlasnotes.metainfo.xml

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A new icon, and an intro when the app opens.** Atlas Notes and Atlas
+  Monitor share the new Atlas mark, on the desktop, in the title bar and on
+  Android. Opening the window plays the mark drawing itself, then "Atlas
+  Notes" sliding out beside it, and fades into the app in under three
+  seconds. A click or any key skips it; Settings, Appearance, Intro at startup
+  turns it off, and it never plays when the desktop has animations off.
 - **Select several notes and folders and delete them together.** Ctrl+click
   marks a row, Shift+click a run of rows, and once anything is marked a plain
   click marks or unmarks; long-press or Select in a row's menu starts it too,

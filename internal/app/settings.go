@@ -726,6 +726,14 @@ func (v *settingsView) buildAppearance() {
 		v.changed()
 	})
 	g.addRow(bar, "Formatting toolbar", barSub)
+
+	introSub := "Plays the Atlas logo for a moment when Atlas Notes opens. " +
+		"A click or any key skips it."
+	intro := switchRow("Intro at startup", introSub, a.cfg.ShowIntro, func(on bool) {
+		a.cfg.ShowIntro = on
+		v.changed()
+	})
+	g.addRow(intro, "Intro at startup", introSub+" animation splash logo")
 }
 
 // themePicker is the ten circles, as in Atlas Monitor: a colour is chosen by

@@ -1,34 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   The themed-icon variant, for Android 13 and up. A themed icon is recoloured by
-  the system from a single shape, so this is the card and its rows in one flat
-  silhouette rather than the full-colour version.
+  the system from a single shape, so this is the Atlas mark in one flat colour
+  (assets/atlas-notes.svg's one-colour version), at the same size as the full-colour one.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:strokeColor="#FF000000"
-        android:strokeWidth="2.6"
-        android:pathData="M38.57,28.5 H69.43 A4.7,4.7 0 0 1 74.13,33.2 V74.81 A4.7,4.7 0 0 1 69.43,79.51 H38.57 A4.7,4.7 0 0 1 33.87,74.81 V33.2 A4.7,4.7 0 0 1 38.57,28.5 Z" />
-    <path
-        android:fillColor="#FF000000"
-        android:pathData="M40.75,37.89 H43.77 A1.51,1.51 0 0 1 45.28,39.4 V42.42 A1.51,1.51 0 0 1 43.77,43.93 H40.75 A1.51,1.51 0 0 1 39.24,42.42 V39.4 A1.51,1.51 0 0 1 40.75,37.89 Z" />
-    <path
-        android:fillColor="#FF000000"
-        android:pathData="M40.75,49.97 H43.77 A1.51,1.51 0 0 1 45.28,51.48 V54.5 A1.51,1.51 0 0 1 43.77,56.01 H40.75 A1.51,1.51 0 0 1 39.24,54.5 V51.48 A1.51,1.51 0 0 1 40.75,49.97 Z" />
-    <path
-        android:fillColor="#FF000000"
-        android:pathData="M40.75,62.05 H43.77 A1.51,1.51 0 0 1 45.28,63.56 V66.58 A1.51,1.51 0 0 1 43.77,68.09 H40.75 A1.51,1.51 0 0 1 39.24,66.58 V63.56 A1.51,1.51 0 0 1 40.75,62.05 Z" />
-    <path
-        android:strokeColor="#FF000000" android:strokeWidth="2.35" android:strokeLineCap="round"
-        android:pathData="M48.63,40.91 L67.42,40.91" />
-    <path
-        android:strokeColor="#FF000000" android:strokeWidth="2.35" android:strokeLineCap="round"
-        android:pathData="M48.63,52.99 L67.42,52.99" />
-    <path
-        android:strokeColor="#FF000000" android:strokeWidth="2.35" android:strokeLineCap="round"
-        android:pathData="M48.63,65.07 L64.07,65.07" />
+    <group
+        android:scaleX="0.0875"
+        android:scaleY="0.0875"
+        android:translateX="9.20"
+        android:translateY="8.50">
+        <path android:fillColor="#FF000000" android:pathData="M615 215.8Q617.3 210.3 619.6 215.8L875.9 842.4Q888 872 856 872L744 872Q712 872 699.9 842.4L538.4 447.6Q529.3 425.4 538.4 403.2Z" />
+        <path android:fillColor="#FF000000" android:pathData="M464.8 583.1Q469.3 572 481.3 572L542.7 572Q554.7 572 559.2 583.1L605.4 695.9Q609.9 707 597.9 707L426.1 707Q414.1 707 418.6 695.9Z" />
+        <path android:fillColor="#FF000000" android:pathData="M411.9 197.6Q424 168 456 168L590 168Q600 168 596.2 177.3L324.1 842.4Q312 872 280 872L168 872Q136 872 148.1 842.4Z" />
+    </group>
 </vector>
