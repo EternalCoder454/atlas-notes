@@ -70,7 +70,7 @@ func (t *Tree) ensureSummary(rel string) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		summary, _, gerr := t.ai.RunAction(ctx, "Summarize this note in one short sentence:\n\n{content}", content, -1, nil)
+		summary, _, gerr := t.ai.RunAction(ctx, "In one short sentence, say what this note is about. Output only the sentence.\n\n{content}", content, -1, nil)
 		coreglib.IdleAdd(func() bool {
 			delete(t.summaryPending, rel)
 			if gerr == nil && strings.TrimSpace(summary) != "" {

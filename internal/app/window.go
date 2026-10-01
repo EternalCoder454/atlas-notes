@@ -224,6 +224,7 @@ func (a *App) buildSidebar() {
 	}
 	a.sidebar = ui.NewSidebar(a.ai)
 	a.sidebar.GetContent = a.editorContent
+	a.sidebar.GetTitle = a.noteName
 	a.sidebar.SetContent = a.applyAIContent
 	a.sidebar.SetActions(a.cfg.Actions)
 	a.sidebar.SetName(a.cfg.AssistantName)

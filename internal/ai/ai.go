@@ -28,7 +28,8 @@ const (
 	requestTimeout = 3 * time.Minute
 
 	// DefaultSystemPrompt is used when a client has no configured system prompt.
-	DefaultSystemPrompt = "You are a concise assistant. You only have access to the note provided. Do not reference external information. Be brief and precise."
+	// It is the same as Settings' default (storage.DefaultSystemPrompt).
+	DefaultSystemPrompt = "You are the assistant inside Atlas Notes, a note-taking app, helping the user with the note they have open. Read the whole note before you answer. When you say what the note says, stick to what it actually contains, and never make up facts, numbers, quotes or sources. When the user asks you to write something from the note, such as titles, a summary, an explanation or a rewrite, write it: new wording drawn from the note is what they want. Answer directly, with no preamble and no sign-off."
 )
 
 // Client talks to a local Ollama server. The model is configurable so the user
@@ -212,20 +213,83 @@ func (c *Client) generate(ctx context.Context, prompt string, temperature float6
 // RunAction runs a user-defined action: it substitutes {content} in the prompt
 // template with the note text and streams the model's response.
 func (c *Client) RunAction(ctx context.Context, promptTemplate, content string, temperature float64, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, strings.ReplaceAll(promptTemplate, "{content}", content), temperature, onToken)
+	return c.generate(ctx, fillTemplate(promptTemplate, content), temperature, onToken)
 }
 
-// Ask answers a question using only the supplied note.
-func (c *Client) Ask(ctx context.Context, content, question string, onToken func(string)) (string, Stats, error) {
-	return c.generate(ctx, fmt.Sprintf("Answer the question using only the note below. If the note does not contain the answer, say so in one sentence. Be concise.\n\nQuestion: %s\n\nNote:\n%s", question, content), -1, onToken)
+// fillTemplate puts the note into a shortcut's prompt. A prompt written
+// without {content}, such as "Translate this into French", still means this
+// note, so the note goes after it rather than nowhere.
+func fillTemplate(promptTemplate, content string) string {
+	if !strings.Contains(promptTemplate, "{content}") {
+		return strings.TrimRight(promptTemplate, "\n") + "\n\nNote:\n" + content
+	}
+	return strings.ReplaceAll(promptTemplate, "{content}", content)
+}
+
+// askRules say how to take a request about the note. A request to write
+// something (three titles, a summary) is not a question the note answers,
+// and the rules say so: told only to answer from the note, a small model
+// replied that the note contained no better title.
+const askRules = `Read the whole note, then do what the request asks.
+- If it asks you to write something from the note, such as titles, a summary, an explanation, a list, questions, ideas or a rewrite, write it from the note's content. Never reply that the note does not contain it: you are the one writing it.
+- If it asks what the note says about something, answer from the note. Only when the note really does not cover it, say so in one sentence.
+- You may use general knowledge to explain terms or ideas the note mentions, but do not present it as something the note says.
+Reply in Markdown, as briefly as the request allows.`
+
+// Ask does what the user asks about the open note: answers a question from it,
+// or writes something from it. title is the note's name, which is not part of
+// its text.
+func (c *Client) Ask(ctx context.Context, title, content, request string, onToken func(string)) (string, Stats, error) {
+	return c.generate(ctx, askPrompt(title, content, request), -1, onToken)
+}
+
+// askPrompt is the note, then the rules, then the request: last, where a small
+// model is least likely to lose it behind a long note.
+func askPrompt(title, content, request string) string {
+	var b strings.Builder
+	b.WriteString("The user has this note open in Atlas Notes.\n\n")
+	if title = strings.TrimSpace(title); title != "" {
+		b.WriteString("Title: " + title + "\n")
+	}
+	b.WriteString("Note:\n\"\"\"\n")
+	if strings.TrimSpace(content) == "" {
+		b.WriteString("(the note is empty)")
+	} else {
+		b.WriteString(strings.TrimRight(content, "\n"))
+	}
+	b.WriteString("\n\"\"\"\n\n")
+	b.WriteString(askRules)
+	b.WriteString("\n\nRequest: " + strings.TrimSpace(request))
+	return b.String()
 }
 
 // EditNote applies a free-form instruction to the note and returns the complete
 // updated note, for the assistant's "edit the note" mode. A low temperature keeps
 // it faithful — reproducing the note and changing only what the instruction asks.
 func (c *Client) EditNote(ctx context.Context, content, instruction string, onToken func(string)) (string, Stats, error) {
-	prompt := fmt.Sprintf("Apply the instruction to the note below, then output the ENTIRE updated note. Reproduce every original line exactly, including all headings, paragraphs, blank lines, and existing '- [ ]' / '- [x]' items, and change only what the instruction requires. Write any new task as a '- [ ] ' checkbox. Output only the note, with no commentary.\n\nInstruction: %s\n\nNote:\n%s", instruction, content)
-	return c.generate(ctx, prompt, 0, onToken) // greedy: faithful, deterministic edits
+	out, stats, err := c.generate(ctx, editPrompt(content, instruction), 0, onToken) // greedy: faithful, deterministic edits
+	return unquoteNote(out), stats, err
+}
+
+// editPrompt is the note first and the instruction after it, followed by what
+// to output, so the instruction is not lost behind a long note.
+func editPrompt(content, instruction string) string {
+	return fmt.Sprintf("Here is a note:\n\"\"\"\n%s\n\"\"\"\n\nInstruction: %s\n\n"+
+		"Apply the instruction to the note, then output the ENTIRE updated note. Reproduce every other line exactly, "+
+		"including all headings, paragraphs, blank lines, and existing '- [ ]' / '- [x]' items, and change only what "+
+		"the instruction requires. Write any new task as a '- [ ] ' checkbox. Output only the note itself: no "+
+		"commentary, and no quotation marks or code fence around it.",
+		strings.TrimRight(content, "\n"), strings.TrimSpace(instruction))
+}
+
+// unquoteNote takes off the triple quotes the note was sent in, should the
+// model copy them into its answer.
+func unquoteNote(s string) string {
+	t := strings.TrimSpace(s)
+	if strings.HasPrefix(t, `"""`) && strings.HasSuffix(t, `"""`) && len(t) >= 6 {
+		return strings.TrimSpace(t[3 : len(t)-3])
+	}
+	return s
 }
 
 // SortPriorities asks the model to reorder and re-prioritise the items, then

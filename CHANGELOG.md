@@ -20,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page. Updates shows the version with an Update button beside it, and the
   channel says in a line what each one is.
 
+### Fixed
+- **The assistant refused to write anything the note did not already hold.**
+  Every question went to the model as "answer using only the note; if it
+  does not contain the answer, say so", so Better title came back with "this
+  note contains no title suggestions". Requests to write something (titles,
+  a summary, an explanation) are now framed as that, with the note's title
+  included; questions about the note are still answered from it, and only
+  those the note truly does not cover get "the note doesn't say". The four
+  chips send precise requests (Better title asks for three, as a numbered
+  list), the default system prompt no longer forbids "inventing names",
+  which a small model read as forbidding titles, and an edit's instruction
+  now comes after the note so a long note cannot bury it. A prompt shortcut
+  written without {content} gets the note anyway. Installs still using the
+  old default system prompt or Summarize prompt are moved to the new ones.
+
 ### Added
 - **Things move rather than jump.** A folder's notes slide open beneath it
   and fade in one after another, and close up again before it collapses; its

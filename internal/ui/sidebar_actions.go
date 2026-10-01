@@ -108,9 +108,13 @@ func (s *Sidebar) runAsk() {
 		return
 	}
 	content := s.GetContent()
+	title := ""
+	if s.GetTitle != nil {
+		title = s.GetTitle()
+	}
 	s.askEntry.Buffer().SetText("", -1) // clear after capturing
 	s.runStream(true, func(ctx context.Context, onToken func(string)) (string, ai.Stats, error) {
-		return s.client.Ask(ctx, content, question, onToken)
+		return s.client.Ask(ctx, title, content, question, onToken)
 	}, func(full string) {
 		s.setAnswerMarkdown(full)
 	})

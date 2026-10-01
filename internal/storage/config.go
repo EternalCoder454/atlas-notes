@@ -47,9 +47,9 @@ const (
 // Default AI prompts ({content} = note text, {items} = checklist text), tuned for
 // small local models: concise, faithful to the note, and free of preamble.
 const (
-	DefaultSystemPrompt = "You are the assistant inside Atlas Notes, a note-taking app. You work only with the user's current note; never invent facts, names, numbers, or sources that aren't in it. Be clear, concise, and faithful to the note's meaning. Output only the result itself, with no preamble, no sign-off, and no commentary about what you did."
+	DefaultSystemPrompt = "You are the assistant inside Atlas Notes, a note-taking app, helping the user with the note they have open. Read the whole note before you answer. When you say what the note says, stick to what it actually contains, and never make up facts, numbers, quotes or sources. When the user asks you to write something from the note, such as titles, a summary, an explanation or a rewrite, write it: new wording drawn from the note is what they want. Answer directly, with no preamble and no sign-off."
 
-	defaultSummarizePrompt = "Summarize the key points of this note, shorter than the note itself; a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
+	defaultSummarizePrompt = "Summarize the key points of this note as a short bulleted list; a single sentence is enough for a brief note. Keep it shorter than the note itself, and state only what the note actually says: no benefits, implications, or speculation.\n\n{content}"
 
 	defaultCleanPrompt = "Reformat this note as clean, well-structured Markdown. Fix grammar and spelling, keep the '# ' title, use **bold** for the lead-in label and the key terms of each point, and use '- ' bullet lists for any series of features, items, or steps. Keep narrative paragraphs as paragraphs, preserve every fact (do not invent or drop content), and copy any existing '- [ ]' / '- [x]' task lines through unchanged (never add new checkboxes). Output only the formatted note.\n\n{content}"
 
@@ -76,6 +76,11 @@ const (
 	// The defaults through 0.5.10. 0.6.0 took the dashes out of them.
 	systemPromptV0510    = "You are the assistant inside Atlas Notes, a note-taking app. You work only with the user's current note; never invent facts, names, numbers, or sources that aren't in it. Be clear, concise, and faithful to the note's meaning. Output only the result itself \u2014 no preamble, no sign-off, no commentary about what you did."
 	summarizePromptV0510 = "Summarize the key points of this note, shorter than the note itself \u2014 a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
+
+	// The defaults from 0.6.0 through 0.9.0. Their "never invent names" read,
+	// to a small model, as never suggesting a title either.
+	systemPromptV090    = "You are the assistant inside Atlas Notes, a note-taking app. You work only with the user's current note; never invent facts, names, numbers, or sources that aren't in it. Be clear, concise, and faithful to the note's meaning. Output only the result itself, with no preamble, no sign-off, and no commentary about what you did."
+	summarizePromptV090 = "Summarize the key points of this note, shorter than the note itself; a single sentence is enough for a brief note. State only what the note actually says; do not add benefits, implications, or speculation.\n\n{content}"
 )
 
 // AIAction is a user-configurable AI button shown in the sidebar.
@@ -297,6 +302,8 @@ func supersededPrompts() map[string]string {
 		cleanPromptV032:      defaultCleanPrompt,
 		systemPromptV0510:    DefaultSystemPrompt,
 		summarizePromptV0510: defaultSummarizePrompt,
+		systemPromptV090:     DefaultSystemPrompt,
+		summarizePromptV090:  defaultSummarizePrompt,
 	}
 }
 

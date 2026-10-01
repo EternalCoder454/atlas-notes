@@ -62,6 +62,8 @@ type Sidebar struct {
 
 	// GetContent returns the current note's markdown.
 	GetContent func() string
+	// GetTitle returns the open note's name, which is not in its markdown.
+	GetTitle func() string
 	// SetContent replaces the note's content (used by replace/sort actions).
 	SetContent func(string)
 }
@@ -512,18 +514,27 @@ func (s *Sidebar) buildSuggestions() *gtk.FlowBox {
 	s.suggestions.AddCSSClass("ai-suggestions")
 	// The chip says less than it asks. A chip wide enough to hold the whole
 	// question wraps onto two lines in a panel this narrow, and four of those
-	// stack into a wall; two words fit side by side. The question the model
-	// actually gets is unchanged.
-	for _, sug := range []struct{ label, prompt string }{
-		{"Summarise", "Summarise this note"},
-		{"Open tasks", "What are the open tasks?"},
-		{"Better title", "Suggest a better title"},
-		{"Explain simply", "Explain this to a beginner"},
+	// stack into a wall; two words fit side by side. What the model is sent
+	// says exactly what is wanted and in what form: "Suggest a better title"
+	// alone was taken as a question about the note, and answered that the
+	// note had no title suggestions in it.
+	for _, sug := range []struct{ label, tooltip, prompt string }{
+		{"Summarise", "Summarise this note",
+			"Summarise this note in a few bullet points covering its main points."},
+		{"Open tasks", "List the open tasks",
+			"List this note's open tasks, the unchecked '- [ ]' items, one per line in the order they appear. " +
+				"If it has none, say there are no open tasks."},
+		{"Better title", "Suggest three better titles",
+			"Suggest 3 better titles for this note. Base them on what the note is mainly about, keep each " +
+				"under 8 words, and give each a different angle. Reply with only a numbered list of the 3 titles."},
+		{"Explain simply", "Explain this to a beginner",
+			"Explain what this note is about to a beginner, in plain words and short sentences, and say " +
+				"what any technical terms in it mean."},
 	} {
 		p := sug.prompt
 		chip := gtk.NewButtonWithLabel(sug.label)
 		chip.AddCSSClass("ai-chip")
-		chip.SetTooltipText(p)
+		chip.SetTooltipText(sug.tooltip)
 		chip.ConnectClicked(func() {
 			if s.askEntry == nil {
 				return

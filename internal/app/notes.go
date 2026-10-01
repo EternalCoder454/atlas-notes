@@ -150,6 +150,14 @@ func (a *App) scheduleStats() {
 	})
 }
 
+// noteName is the open note's name, as its header shows it; "" with none open.
+func (a *App) noteName() string {
+	if a.currentNote == "" {
+		return ""
+	}
+	return path.Base(a.currentNote)
+}
+
 func (a *App) editorContent() string {
 	if a.editor == nil {
 		return ""
