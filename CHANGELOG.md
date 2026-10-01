@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-30
+
 ### Added
 - **A new icon, and an intro when the app opens.** Atlas Notes and Atlas
   Monitor share the new Atlas mark, on the desktop, in the title bar and on

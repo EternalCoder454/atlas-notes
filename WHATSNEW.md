@@ -4,6 +4,14 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.9.0
+- A new icon: the Atlas mark, shared with Atlas Monitor
+- The app opens with a short intro of its logo; a click skips it, and Settings can turn it off
+- Select several notes and folders and delete them together
+- The outline sits beside the page, in the margin
+- A click on a table puts the cursor in the cell you clicked
+- A due date no longer shows over another note, and new folders open once notes are in them
+
 ## 0.8.2
 - Draw flowcharts, Gantt charts and sequence diagrams right in your notes
 - Build a flowchart by dragging boxes and connecting them, with no typing needed
