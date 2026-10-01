@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Select several notes and folders and delete them together.** Ctrl+click
+  marks a row, Shift+click a run of rows, and once anything is marked a plain
+  click marks or unmarks; long-press or Select in a row's menu starts it too,
+  and Ctrl+Space, Space and Shift+arrows do it from the keyboard. A bar under
+  the list counts them and has Select All and Delete; Escape stops. One
+  dialog lists what goes to the Trash, by path, and says when some are inside
+  marked folders or hidden by a search. Edits to an open note are saved first.
+
+### Fixed
+- **A task's due date showed over another note.** GTK cannot take a widget
+  laid over a text view off it again, so every chip, table, picture, diagram
+  and embed the editor put away stayed on the view: a "Jul 1" from one note
+  floated over the next. They are now hidden when done with.
+- **A folder made while empty could not be opened** once notes were put in
+  it, so the notes could not be seen, and the panel could not highlight the
+  open one. Folders, and folders in folders, now open whenever they have
+  something in them, and an open folder shows notes added to it.
+- **A click on a table** puts the caret in the cell that was clicked, at the
+  place it was clicked, instead of on the table's first line.
+
+### Changed
+- **The outline sits beside the page**, in the margin left of the text, rather
+  than on the document at its right edge.
+
 ## [0.8.2] - 2026-09-30
 
 ### Added
