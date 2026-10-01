@@ -503,7 +503,10 @@ func (e *Editor) rawText() string {
 }
 
 func (e *Editor) scheduleReparse() {
-	if e.reparseScheduled {
+	// An editor with no view has nothing to draw; the tests build some that
+	// way, and a pass queued for one would run later on a test that pumps the
+	// main loop.
+	if e.reparseScheduled || e.view == nil {
 		return
 	}
 	e.reparseScheduled = true

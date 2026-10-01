@@ -241,7 +241,7 @@ func (it *propsItem) wantPad(e *Editor, line, avail int) string {
 func (it *propsItem) size(e *Editor, avail int) (w, h int) {
 	root := it.w
 	if !it.shown {
-		e.view.AddOverlay(root, 0, tableParkY)
+		e.addOverlay(root, 0, tableParkY)
 		it.shown, it.x, it.y = true, 0, tableParkY
 	}
 	b := gtk.BaseWidget(root)

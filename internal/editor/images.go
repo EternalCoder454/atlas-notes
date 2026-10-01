@@ -320,7 +320,7 @@ func (e *Editor) addItem(h imageHit) {
 func (e *Editor) dropItem(it *imageItem) {
 	if it.box != nil {
 		if it.shown {
-			e.view.Remove(it.box.box)
+			e.dropOverlay(it.box.box)
 		}
 		e.giveBox(it.box)
 		it.box = nil
@@ -715,7 +715,7 @@ func (e *Editor) placeBlocks() {
 		x, y := e.view.IterLocation(iter).X(), top+textH
 		switch {
 		case !o.shown:
-			e.view.AddOverlay(w, x, y)
+			e.addOverlay(w, x, y)
 			o.shown, o.x, o.y = true, x, y
 		case x != o.x || y != o.y:
 			e.view.MoveOverlay(w, x, y)

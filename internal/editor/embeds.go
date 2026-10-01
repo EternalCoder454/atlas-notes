@@ -402,7 +402,7 @@ func (e *Editor) syncEmbeds(from, to int) {
 func (e *Editor) dropEmbed(it *embedItem) {
 	if it.box != nil {
 		if it.shown {
-			e.view.Remove(it.box.box)
+			e.dropOverlay(it.box.box)
 		}
 		e.emptyEmbedBox(it.box)
 		if len(e.emb.pool) < maxPooledBoxes {
@@ -703,7 +703,7 @@ func (it *embedItem) wantPad(e *Editor, _, avail int) string {
 func (it *embedItem) size(e *Editor, avail int) (w, h int) {
 	bx := it.box.box
 	if !it.shown {
-		e.view.AddOverlay(bx, 0, tableParkY)
+		e.addOverlay(bx, 0, tableParkY)
 		it.shown, it.x, it.y = true, 0, tableParkY
 	}
 	bx.SetVisible(true)

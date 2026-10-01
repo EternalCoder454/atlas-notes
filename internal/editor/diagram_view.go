@@ -237,7 +237,7 @@ func (e *Editor) syncDiagrams(from, to int) {
 func (e *Editor) dropDiagram(it *diagramItem) {
 	if it.box != nil {
 		if it.shown {
-			e.view.Remove(it.box.root)
+			e.dropOverlay(it.box.root)
 		}
 		if len(e.dia.pool) < maxPooledDiagrams {
 			it.box.scene, it.box.src, it.box.avail = nil, "", 0
@@ -420,7 +420,7 @@ func (it *diagramItem) wantPad(e *Editor, line, avail int) string {
 func (it *diagramItem) size(e *Editor, avail int) (w, h int) {
 	b := it.box
 	if !it.shown {
-		e.view.AddOverlay(b.root, 0, tableParkY)
+		e.addOverlay(b.root, 0, tableParkY)
 		it.shown, it.x, it.y = true, 0, tableParkY
 	}
 	if b.scene == nil || b.src != it.src || b.avail != avail {

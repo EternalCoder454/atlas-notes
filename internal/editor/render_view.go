@@ -213,13 +213,36 @@ func (e *Editor) putPart(p *part, x, y, w, h int) {
 	}
 	switch {
 	case !p.shown:
-		e.view.AddOverlay(p.w, x, y)
+		e.addOverlay(p.w, x, y)
 		p.shown, p.vis, p.x, p.y = true, true, x, y
 	case x != p.x || y != p.y:
 		e.view.MoveOverlay(p.w, x, y)
 		p.x, p.y = x, y
 	}
 	p.setVisible(true)
+}
+
+// addOverlay puts w over the text at x, y, and dropOverlay takes it away.
+//
+// GTK has no way to take an overlay off a text view once it is on:
+// gtk_text_view_remove knows the side panes and the widgets anchored in the
+// text, and for anything else warns "is not a child" and does nothing. The
+// editor used to call it for every block it was done with, so the widgets
+// stayed on the view, still showing: a due chip from one note was left
+// floating over the next. So a widget that is done with is hidden instead, and
+// one that is already on the view is moved and shown rather than added twice.
+func (e *Editor) addOverlay(w gtk.Widgetter, x, y int) {
+	b := gtk.BaseWidget(w)
+	if b.Parent() != nil {
+		e.view.MoveOverlay(w, x, y)
+		b.SetVisible(true)
+		return
+	}
+	e.view.AddOverlay(w, x, y)
+}
+
+func (e *Editor) dropOverlay(w gtk.Widgetter) {
+	gtk.BaseWidget(w).SetVisible(false)
 }
 
 // nearLines is the range of lines in or near the viewport.

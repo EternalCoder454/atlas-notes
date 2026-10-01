@@ -180,7 +180,7 @@ func (e *Editor) releaseRow(row *itemRow) {
 		e.view.Remove(row.box)
 	}
 	if row.cp.shown {
-		e.view.Remove(row.chip)
+		e.dropOverlay(row.chip)
 		row.cp = part{w: row.chip}
 	}
 	if len(e.rowPool) < maxPooledRows {

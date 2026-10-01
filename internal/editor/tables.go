@@ -808,7 +808,7 @@ func (e *Editor) addTable(h tableHit) {
 func (e *Editor) dropTable(it *tableItem) {
 	if it.grid != nil {
 		if it.shown {
-			e.view.Remove(it.grid.grid)
+			e.dropOverlay(it.grid.grid)
 		}
 		e.giveGrid(it.grid)
 		it.grid = nil
@@ -985,7 +985,7 @@ func (t *tableItem) wantPad(e *Editor, line, avail int) string {
 func (t *tableItem) size(e *Editor, avail int) (w, h int) {
 	g := t.grid.grid
 	if !t.shown {
-		e.view.AddOverlay(g, 0, tableParkY)
+		e.addOverlay(g, 0, tableParkY)
 		t.shown, t.x, t.y = true, 0, tableParkY
 	}
 	g.SetVisible(true)
