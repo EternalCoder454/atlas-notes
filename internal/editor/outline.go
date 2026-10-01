@@ -6,12 +6,14 @@ import (
 	"strings"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 )
 
-// This file draws the outline rail: a thin column of small marks at the right edge
-// of the page, one per heading and indented by level, with the section being read
+// This file draws the outline rail: a thin column of small marks beside the page
+// (in the margin to the left of the text, see PlaceOutlineBeside; at the page's
+// right edge where there is no margin), one per heading and indented by level, with the section being read
 // in the accent colour. Hovering it opens a list of the headings' names, and
 // clicking one scrolls there, opening the fold it is in.
 //
@@ -75,6 +77,43 @@ type outlineRail struct {
 	pinned        bool // the list was opened by the command, not by hovering
 	hoverGen      uint64
 	levelsOfMarks []int
+}
+
+// railGap is the space between the rail, out in the margin, and the page.
+const railGap = 14
+
+// PlaceOutlineBeside takes the outline rail off the page and puts it in outer,
+// an overlay around the centred column the editor sits in, in the margin to the
+// left of the text. On the page, at its right edge, the rail sat on the
+// document itself; beside it, it is out of the way of what is being read.
+// Where the window leaves no margin wide enough (the column fills it), the rail
+// goes back to the page's right edge, inside, as before.
+func (e *Editor) PlaceOutlineBeside(outer *gtk.Overlay) {
+	r := e.outline.rail
+	r.frame.RemoveOverlay(r.box)
+	r.pop.SetPosition(gtk.PosRight)
+	outer.AddOverlay(r.box)
+	outer.ConnectGetChildPosition(func(w gtk.Widgetter) (*gdk.Rectangle, bool) {
+		// The signal hands over a fresh wrapper, so the objects are compared.
+		if coreglib.InternObject(w).Native() != coreglib.InternObject(r.box).Native() {
+			return nil, false
+		}
+		b, ok := gtk.BaseWidget(e.scroll).ComputeBounds(outer)
+		if !ok {
+			return nil, false
+		}
+		_, rw, _, _ := r.box.Measure(gtk.OrientationHorizontal, -1)
+		_, rh, _, _ := r.box.Measure(gtk.OrientationVertical, -1)
+		sx, sy := int(b.X()), int(b.Y())
+		sw, sh := int(b.Width()), int(b.Height())
+		x := sx - rw - railGap
+		if x < 0 {
+			x = sx + sw - rw - 18 // clear of the overlay scrollbar
+		}
+		y := sy + max(sh-rh, 0)/2
+		rect := gdk.NewRectangle(x, y, rw, rh)
+		return &rect, true
+	})
 }
 
 // scanOutline finds the note's headings, from the text of the whole note. It runs

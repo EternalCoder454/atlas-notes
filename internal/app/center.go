@@ -59,7 +59,12 @@ func (a *App) buildEditorPage() *gtk.Box {
 	// (see sidepane.go). With no second note it is the only child, and looks as
 	// it did.
 	a.sidePaned = gtk.NewPaned(gtk.OrientationHorizontal)
-	a.sidePaned.SetStartChild(newClamp(a.editor))
+	// The main editor's outline rail sits beside its column, in the page's
+	// margin; the side pane's stays at its own right edge, having no margin.
+	mainColumn := gtk.NewOverlay()
+	mainColumn.SetChild(newClamp(a.editor))
+	a.editor.PlaceOutlineBeside(mainColumn)
+	a.sidePaned.SetStartChild(mainColumn)
 	a.sidePaned.SetResizeStartChild(true)
 	a.sidePaned.SetShrinkStartChild(false)
 	a.sidePaned.SetResizeEndChild(true)
