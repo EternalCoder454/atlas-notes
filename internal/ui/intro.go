@@ -9,7 +9,7 @@ import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/cairo"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
-	"github.com/diamondburned/gotk4/pkg/gdkpixbuf/v2"
+	"github.com/diamondburned/gotk4/pkg/graphene"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 	"github.com/diamondburned/gotk4/pkg/pangocairo"
@@ -54,6 +54,7 @@ func IntroEnabled() bool {
 type Intro struct {
 	overlay *gtk.Overlay
 	child   gtk.Widgetter
+	cover   *gtk.Box // the intro's background, over the whole window
 	area    *gtk.DrawingArea
 	keys    *gtk.EventControllerKey
 	product string
@@ -65,11 +66,14 @@ type Intro struct {
 	fadeDur float64
 	tickID  uint
 	done    bool
+	root    *gtk.Root // the window, while its own background is off
+	origin  *graphene.Point
 
 	glow glowCache
 
-	family string  // the desktop's font, for the product's name
-	cap    float64 // its capitals' height at 1000 units
+	family string        // the desktop's font, for the product's name
+	cap    float64       // its capitals' height at 1000 units
+	name   *pango.Layout // the product's name, set once
 }
 
 // NewIntro wraps child in an overlay that plays the intro over it, with product
@@ -79,29 +83,37 @@ func NewIntro(child gtk.Widgetter, product string, onDone func()) *Intro {
 	in := &Intro{
 		overlay: gtk.NewOverlay(),
 		child:   child,
+		cover:   gtk.NewBox(gtk.OrientationVertical, 0),
 		area:    gtk.NewDrawingArea(),
 		product: product,
 		onDone:  onDone,
 		fadeAt:  introFadeAt,
 		fadeDur: introFade,
+		origin:  graphene.NewPointAlloc(),
 	}
 	in.overlay.SetChild(child)
 	// The content is not drawn at all until the intro fades: at opacity 0 GTK
 	// skips it, so the window's first frames cost only the mark.
 	gtk.BaseWidget(child).SetOpacity(0)
 
-	in.area.AddCSSClass("atlas-intro")
+	// The background covers the window; the mark is drawn only across the
+	// band it can reach. A drawing area is a picture of its whole size on
+	// every frame (an offscreen copy in the software renderer, a texture to
+	// upload in the GPU ones), and the mark is a fifth of the window's height.
+	in.cover.AddCSSClass("atlas-intro")
 	in.area.SetHExpand(true)
 	in.area.SetVExpand(true)
+	in.area.SetVAlign(gtk.AlignCenter)
 	in.area.SetDrawFunc(in.draw)
-	in.overlay.AddOverlay(in.area)
+	in.cover.Append(in.area)
+	in.overlay.AddOverlay(in.cover)
 
 	// A click anywhere, or any key, cuts it short. The key still goes on to
 	// whatever has focus: someone who starts typing straight away should not
 	// lose the first letter.
 	click := gtk.NewGestureClick()
 	click.ConnectPressed(func(int, float64, float64) { in.Skip() })
-	in.area.AddController(click)
+	in.cover.AddController(click)
 	in.keys = gtk.NewEventControllerKey()
 	in.keys.SetPropagationPhase(gtk.PhaseCapture)
 	in.keys.ConnectKeyPressed(func(uint, uint, gdk.ModifierType) bool {
@@ -133,11 +145,25 @@ func (in *Intro) tick(_ gtk.Widgetter, clock gdk.FrameClocker) bool {
 	}
 	in.t = float64(now-in.start) / 1e6
 
+	if bh := bandHeight(in.cover.Height()); bh != in.area.ContentHeight() {
+		in.area.SetContentHeight(bh)
+	}
+	if in.root == nil && in.t < in.fadeAt {
+		// The intro's background covers the window's, which would otherwise
+		// be painted under it on every frame. The stylesheet makes a window
+		// with this class paint none until the intro starts to fade.
+		if r := in.overlay.Root(); r != nil {
+			r.AddCSSClass("atlas-intro-playing")
+			in.root = r
+		}
+	}
+
 	if in.t >= in.fadeAt {
+		in.uncoverWindow()
 		// Fading, it lets clicks through to the window it is uncovering.
-		in.area.SetCanTarget(false)
+		in.cover.SetCanTarget(false)
 		f := tween(in.t, in.fadeAt, in.fadeDur, 0, 1, splineStandard)
-		in.area.SetOpacity(1 - f)
+		in.cover.SetOpacity(1 - f)
 		gtk.BaseWidget(in.child).SetOpacity(f)
 		if f >= 1 {
 			in.finish()
@@ -154,12 +180,22 @@ func (in *Intro) finish() {
 	}
 	in.done = true
 	in.tickID = 0
+	in.uncoverWindow()
 	gtk.BaseWidget(in.child).SetOpacity(1)
-	in.overlay.RemoveOverlay(in.area)
+	in.overlay.RemoveOverlay(in.cover)
 	in.overlay.RemoveController(in.keys)
 	in.glow = glowCache{}
+	in.name = nil
 	if in.onDone != nil {
 		in.onDone()
+	}
+}
+
+// uncoverWindow gives the window its own background back.
+func (in *Intro) uncoverWindow() {
+	if in.root != nil {
+		in.root.RemoveCSSClass("atlas-intro-playing")
+		in.root = nil
 	}
 }
 
@@ -209,7 +245,7 @@ func linear(x1, y1, x2, y2 float64, stops ...stop) *cairo.Pattern {
 
 // markPaints are the mark's gradients, made once.
 type markPaints struct {
-	legLeft, legRight, crossbar, apexShadow, crossbarShadow, highlight *cairo.Pattern
+	legLeft, legRight, crossbar, apexShadow, crossbarShadow, highlight, shine *cairo.Pattern
 }
 
 var paints *markPaints
@@ -231,15 +267,17 @@ func markGradients() *markPaints {
 			hexStop(0, "#1A2A80", 0), hexStop(1, "#1A2A80", .42)),
 		highlight: linear(360, 0, 900, 0,
 			hexStop(0, "#FFE6F7", .8), hexStop(1, "#FFE6F7", .35)),
+		shine: shine(),
 	}
 	return paints
 }
 
-// shine is the light that sweeps across the mark once it is whole, offset by
-// (dx, dy) along its path.
-func shine(dx, dy float64) *cairo.Pattern {
+// shine is the light that sweeps across the mark once it is whole. It moves
+// along its path by being set as the source under a translation (see
+// fillShifted), so the one gradient serves every frame.
+func shine() *cairo.Pattern {
 	c := "#FFF3FB"
-	return linear(dx, dy, 1024+dx, 614+dy,
+	return linear(0, 0, 1024, 614,
 		hexStop(0, c, 0), hexStop(.40, c, 0),
 		hexStop(.455, c, .22), hexStop(.485, c, .5), hexStop(.505, c, .22),
 		hexStop(.53, c, 0), hexStop(.545, c, 0),
@@ -294,9 +332,18 @@ func bezier(x float64, sp [4]float64) float64 {
 }
 
 // draw paints one frame: the background, the mark, and the name.
-func (in *Intro) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
-	if w <= 0 || h <= 0 {
+func (in *Intro) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, bandH int) {
+	if w <= 0 || bandH <= 0 {
 		return
+	}
+	// The area is a band across the middle of the cover; the mark is placed
+	// in the cover's own terms, as if the area were the whole of it.
+	h := in.cover.Height()
+	if h <= 0 {
+		h = bandH
+	}
+	if p, ok := in.area.ComputePoint(in.cover, in.origin); ok {
+		cr.Translate(0, -float64(p.Y()))
 	}
 	t := in.t
 	dark := false
@@ -317,6 +364,9 @@ func (in *Intro) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
 	// window around it.
 	k := math.Min(introMarkHeight/(markBottom-markTop), 0.24*float64(h)/(markBottom-markTop))
 	k = math.Min(k, 0.84*float64(w)/lockup)
+	// The band is sized in the tick, from the last layout; on the frame a
+	// window grows, the mark keeps the size that fits it.
+	k = math.Min(k, float64(bandH-2)/960)
 
 	// Where the mark's left edge is: centred alone, then moved so the whole
 	// lockup is centred.
@@ -330,7 +380,7 @@ func (in *Intro) draw(_ *gtk.DrawingArea, cr *cairo.Context, w, h int) {
 	cr.Scale(k, k)
 	in.drawMark(cr, t, k)
 	if slide > 0 {
-		in.drawName(cr, name, slide, dark)
+		in.drawName(cr, name, nameW, ink.X(), slide, dark)
 	}
 	cr.Restore()
 }
@@ -349,13 +399,11 @@ func (in *Intro) drawMark(cr *cairo.Context, t, k float64) {
 	cr.Scale(s, s)
 	cr.Translate(-512, -520)
 
+	// The shine: one sweep, 1.5 s, from above the top left to below the
+	// bottom right.
 	shineOn := t > 1.25
-	var sh *cairo.Pattern
-	if shineOn {
-		// One sweep, 1.5 s, from above the top left to below the bottom right.
-		f := tween(t, 1.25, 1.5, 0, 1, splineShine)
-		sh = shine(-1100+2200*f, -660+1320*f)
-	}
+	f := tween(t, 1.25, 1.5, 0, 1, splineShine)
+	shX, shY := -1100+2200*f, -660+1320*f
 
 	// Crossbar, under both legs: revealed by a slanted edge sliding right.
 	cr.Save()
@@ -365,8 +413,8 @@ func (in *Intro) drawMark(cr *cairo.Context, t, k float64) {
 	cr.Translate(-dx, 0)
 	cr.Clip()
 	fill(cr, pathCrossbar, p.crossbar, alpha)
-	if sh != nil {
-		fill(cr, pathCrossbar, sh, alpha)
+	if shineOn {
+		fillShifted(cr, pathCrossbar, p.shine, shX, shY, alpha)
 	}
 	fill(cr, pathCrossbarShadow, p.crossbarShadow, alpha)
 	fill(cr, pathCrossbarHilite, p.highlight, alpha*tween(t, 1.05, .4, 0, 1, splineStandard))
@@ -380,8 +428,8 @@ func (in *Intro) drawMark(cr *cairo.Context, t, k float64) {
 	cr.Clip()
 	in.paintGlow(cr, k, true, alpha*glowRight)
 	fill(cr, pathLegRight, p.legRight, alpha)
-	if sh != nil {
-		fill(cr, pathLegRight, sh, alpha)
+	if shineOn {
+		fillShifted(cr, pathLegRight, p.shine, shX, shY, alpha)
 	}
 	cr.Restore()
 
@@ -391,8 +439,8 @@ func (in *Intro) drawMark(cr *cairo.Context, t, k float64) {
 	cr.Clip()
 	in.paintGlow(cr, k, false, alpha*glowLeft)
 	fill(cr, pathLegLeft, p.legLeft, alpha)
-	if sh != nil {
-		fill(cr, pathLegLeft, sh, alpha)
+	if shineOn {
+		fillShifted(cr, pathLegLeft, p.shine, shX, shY, alpha)
 	}
 	cr.Restore()
 
@@ -424,57 +472,81 @@ func glowLevels(t float64) (right, left float64) {
 
 // fill paints path with pattern at alpha.
 func fill(cr *cairo.Context, path svgPath, pat *cairo.Pattern, alpha float64) {
+	fillShifted(cr, path, pat, 0, 0, alpha)
+}
+
+// fillShifted paints path with pattern moved by (dx, dy), at alpha. Opaque,
+// it is a plain fill; only a part still fading in pays for a clip.
+func fillShifted(cr *cairo.Context, path svgPath, pat *cairo.Pattern, dx, dy, alpha float64) {
 	if pat == nil || alpha <= 0 {
 		return
 	}
 	cr.Save()
 	path.trace(cr)
-	cr.Clip()
+	// A pattern keeps the user space in force when it is set, which is what
+	// moves it; the path is already traced and stays where it is.
+	cr.Translate(dx, dy)
 	cr.SetSource(pat)
-	cr.PaintWithAlpha(alpha)
+	if alpha >= 1 {
+		cr.Fill()
+	} else {
+		cr.Clip()
+		cr.PaintWithAlpha(alpha)
+	}
 	cr.Restore()
+}
+
+// bandHeight is the height of the strip across the middle of a cover h high
+// that the mark, its glow and the name can reach: mark units 40 to 1000,
+// centred on the mark's middle at 520, at the largest scale draw could pick.
+func bandHeight(h int) int {
+	k := math.Min(introMarkHeight, 0.24*float64(h)) / (markBottom - markTop)
+	return max(1, int(math.Ceil(960*k))+2)
 }
 
 // --- The glow ---------------------------------------------------------------
 
-// The glow behind each leg is the leg's own shape blurred. Cairo has no blur,
-// so it is drawn once, by the SVG loader at the size the mark is on screen,
-// and painted at whatever opacity the moment wants. If the loader is missing
-// the mark goes without its glow.
+// The glow behind each leg is the leg's own shape blurred, as the animated
+// SVG's feGaussianBlur (stdDeviation 22) does it. Cairo has no blur, so it is
+// made once per size: the leg is filled into an alpha-only image at the
+// mark's size on screen, blurred here, and painted as a mask in the glow's
+// colour at whatever opacity the moment wants. Only the leg's box and the
+// blur's reach around it are kept.
 type glowCache struct {
-	px          int
-	left, right *gdkpixbuf.Pixbuf
-	failed      bool
+	px          int // pixels per 1024 mark units
+	left, right glowMask
 }
 
-func glowSVG(path, colour string) []byte {
-	return []byte(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">`+
-		`<filter id="g" x="-40%%" y="-40%%" width="180%%" height="180%%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="22"/></filter>`+
-		`<path d="%s" fill="%s" filter="url(#g)"/></svg>`, path, colour))
+type glowMask struct {
+	surf *cairo.Surface
+	x, y float64 // the image's top left, in mark units
 }
 
-func renderGlow(svg []byte, px int) *gdkpixbuf.Pixbuf {
-	l, err := gdkpixbuf.NewPixbufLoaderWithType("svg")
-	if err != nil {
-		return nil
-	}
-	l.SetSize(px, px)
-	if l.Write(svg) != nil {
-		l.Close()
-		return nil
-	}
-	if l.Close() != nil {
-		return nil
-	}
-	return l.Pixbuf()
+// glowSigma is the blur's standard deviation, in mark units.
+const glowSigma = 22.0
+
+func makeGlow(path svgPath, px int) glowMask {
+	u := float64(px) / 1024 // pixels per mark unit
+	x0, y0, x1, y1 := path.bounds()
+	reach := 3 * glowSigma
+	x0, y0, x1, y1 = x0-reach, y0-reach, x1+reach, y1+reach
+	w := int(math.Ceil((x1 - x0) * u))
+	h := int(math.Ceil((y1 - y0) * u))
+	surf := cairo.CreateImageSurface(cairo.FormatA8, w, h)
+	cr := cairo.Create(surf)
+	cr.Scale(u, u)
+	cr.Translate(-x0, -y0)
+	path.trace(cr)
+	cr.Fill()
+	surf.Flush()
+	gaussianBlurA8(surf.Data(), w, h, surf.Stride(), glowSigma*u)
+	surf.MarkDirty()
+	return glowMask{surf: surf, x: x0, y: y0}
 }
 
 func (in *Intro) paintGlow(cr *cairo.Context, k float64, right bool, alpha float64) {
-	if in.glow.failed {
-		return
-	}
-	// Rendered on the first frame, before the glow shows, and in steps of 128
-	// pixels so a window being resized does not render it again on every frame.
+	// Made on the first frame, before the glow shows, and in steps of 128
+	// pixels so a window being resized does not make it again on every frame.
 	px := int(math.Ceil(1024*k*float64(in.area.ScaleFactor())/128)) * 128
 	if px <= 0 {
 		return
@@ -482,26 +554,90 @@ func (in *Intro) paintGlow(cr *cairo.Context, k float64, right bool, alpha float
 	if in.glow.px != px {
 		in.glow = glowCache{
 			px:    px,
-			right: renderGlow(glowSVG(legRightData, "#7262EA"), px),
-			left:  renderGlow(glowSVG(legLeftData, "#C3B8FF"), px),
-		}
-		if in.glow.left == nil || in.glow.right == nil {
-			in.glow.failed = true
-			return
+			right: makeGlow(pathLegRight, px),
+			left:  makeGlow(pathLegLeft, px),
 		}
 	}
 	if alpha <= 0 {
 		return
 	}
-	pb := in.glow.left
+	g, c := in.glow.left, glowLeftColour
 	if right {
-		pb = in.glow.right
+		g, c = in.glow.right, glowRightColour
 	}
 	cr.Save()
+	cr.Translate(g.x, g.y)
 	cr.Scale(1024/float64(px), 1024/float64(px))
-	gdk.CairoSetSourcePixbuf(cr, pb, 0, 0)
-	cr.PaintWithAlpha(alpha)
+	cr.SetSourceRGBA(c.r, c.g, c.b, alpha)
+	cr.MaskSurface(g.surf, 0, 0)
 	cr.Restore()
+}
+
+// The glows' colours: the right leg's middle purple, the left leg's lilac.
+var (
+	glowRightColour = hexStop(0, "#7262EA", 1)
+	glowLeftColour  = hexStop(0, "#C3B8FF", 1)
+)
+
+// gaussianBlurA8 blurs an 8-bit alpha image in place the way SVG specifies
+// feGaussianBlur for a deviation of 2 or more, and as librsvg draws it: three
+// box blurs each way, of the width d the specification gives.
+func gaussianBlurA8(pix []byte, w, h, stride int, sigma float64) {
+	d := int(math.Floor(sigma*3*math.Sqrt(2*math.Pi)/4 + 0.5))
+	if d < 2 || w <= 0 || h <= 0 {
+		return
+	}
+	// The three boxes, as reach to the left and to the right of each pixel.
+	// An odd d is centred; an even one is shifted left, then right, and the
+	// third box is one wider and centred.
+	boxes := [3][2]int{{d / 2, d / 2}, {d / 2, d / 2}, {d / 2, d / 2}}
+	if d%2 == 0 {
+		boxes = [3][2]int{{d / 2, d/2 - 1}, {d/2 - 1, d / 2}, {d / 2, d / 2}}
+	}
+	n := max(w, h)
+	a := make([]byte, n)
+	b := make([]byte, n)
+	for y := 0; y < h; y++ {
+		row := pix[y*stride : y*stride+w]
+		copy(a, row)
+		for _, bx := range boxes {
+			boxBlur(a[:w], b[:w], bx[0], bx[1])
+			a, b = b, a
+		}
+		copy(row, a[:w])
+	}
+	for x := 0; x < w; x++ {
+		for y := 0; y < h; y++ {
+			a[y] = pix[y*stride+x]
+		}
+		for _, bx := range boxes {
+			boxBlur(a[:h], b[:h], bx[0], bx[1])
+			a, b = b, a
+		}
+		for y := 0; y < h; y++ {
+			pix[y*stride+x] = a[y]
+		}
+	}
+}
+
+// boxBlur sets each dst[i] to the mean of src from i-left to i+right, with
+// nothing beyond either end.
+func boxBlur(src, dst []byte, left, right int) {
+	size := left + right + 1
+	n := len(src)
+	sum := 0
+	for i := 0; i < right && i < n; i++ {
+		sum += int(src[i])
+	}
+	for i := 0; i < n; i++ {
+		if j := i + right; j < n {
+			sum += int(src[j])
+		}
+		if j := i - left - 1; j >= 0 {
+			sum -= int(src[j])
+		}
+		dst[i] = byte((sum + size/2) / size)
+	}
 }
 
 const (
@@ -524,8 +660,13 @@ const (
 )
 
 // nameLayout sets the product's name at the wordmark's cap height, in mark
-// units.
+// units. It is set once; later frames only bring it up to date with cr, which
+// shapes it again only if cr's font settings differ.
 func (in *Intro) nameLayout(cr *cairo.Context) *pango.Layout {
+	if in.name != nil {
+		pangocairo.UpdateLayout(cr, in.name)
+		return in.name
+	}
 	if in.family == "" {
 		in.family = "Sans"
 		if st := gtk.SettingsGetDefault(); st != nil {
@@ -544,7 +685,8 @@ func (in *Intro) nameLayout(cr *cairo.Context) *pango.Layout {
 	if in.cap > 0 {
 		size = 1000 * wordmarkCap / in.cap
 	}
-	return nameText(cr, in.family, size, in.product)
+	in.name = nameText(cr, in.family, size, in.product)
+	return in.name
 }
 
 func nameText(cr *cairo.Context, family string, size float64, text string) *pango.Layout {
@@ -560,9 +702,7 @@ func nameText(cr *cairo.Context, family string, size float64, text string) *pang
 
 // drawName draws "Atlas" and the product, sliding out from under the mark's
 // right leg as slide goes from 0 to 1, in mark units.
-func (in *Intro) drawName(cr *cairo.Context, name *pango.Layout, slide float64, dark bool) {
-	ink, _ := name.Extents()
-	nameW := float64(ink.X()+ink.Width()) / pango.SCALE
+func (in *Intro) drawName(cr *cairo.Context, name *pango.Layout, nameW float64, inkX int, slide float64, dark bool) {
 	wordmarkStart := 566.2 * wordmarkScale
 	travel := (wordmarkEnd + nameSpace + nameW - wordmarkStart) * 0.55
 	offset := -(1 - slide) * travel
@@ -594,7 +734,7 @@ func (in *Intro) drawName(cr *cairo.Context, name *pango.Layout, slide float64, 
 
 	// The product, its capitals' baseline on the wordmark's.
 	base := float64(name.Baseline()) / pango.SCALE
-	cr.MoveTo(wordmarkEnd+nameSpace-float64(ink.X())/pango.SCALE, wordmarkBase-base)
+	cr.MoveTo(wordmarkEnd+nameSpace-float64(inkX)/pango.SCALE, wordmarkBase-base)
 	if dark {
 		cr.SetSourceRGBA(0xC3/255.0, 0xB8/255.0, 1, alpha)
 	} else {
@@ -683,6 +823,25 @@ func parsePath(d string) (svgPath, error) {
 		}
 	}
 	return out, nil
+}
+
+// bounds is a box around the path: its points and its curves' control points.
+func (p svgPath) bounds() (x0, y0, x1, y1 float64) {
+	x0, y0, x1, y1 = math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
+	for _, op := range p {
+		n := 2
+		switch op.cmd {
+		case 'Z':
+			continue
+		case 'Q':
+			n = 4
+		}
+		for i := 0; i < n; i += 2 {
+			x0, x1 = math.Min(x0, op.pts[i]), math.Max(x1, op.pts[i])
+			y0, y1 = math.Min(y0, op.pts[i+1]), math.Max(y1, op.pts[i+1])
+		}
+	}
+	return x0, y0, x1, y1
 }
 
 // trace adds the path to cr's current path. Cairo has no quadratic curve, so

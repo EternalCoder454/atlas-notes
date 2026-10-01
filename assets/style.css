@@ -1502,6 +1502,13 @@ window.atlas-glass-strong .atlas-intro {
 	background-color: alpha(@view_bg_color, 0.62);
 }
 
+/* While the intro covers the window, the window's own background would be
+   painted under it on every frame for nothing; the intro takes it off until
+   it starts to fade. A see-through window has none to take off. */
+window.background.atlas-intro-playing {
+	background-color: transparent;
+}
+
 /* ---- Motion ----
  *
  * The app's small movements in one place. Durations stay short, 120 to 300ms,
