@@ -4,6 +4,10 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.10.1
+- Notes with tables and diagrams open about 40% faster
+- Clicking folders open and shut quickly no longer crashes the app
+
 ## 0.10.0
 - Settings is now a page of the window, with each setting on a card of its own
 - Folders slide open and closed, side panels slide, and pages ease in

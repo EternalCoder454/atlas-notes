@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-01
+
+### Fixed
+- **Clicking folders in the vault panel open and shut quickly could crash
+  the app.** Taking a row's animation class off asked GTK for the row's parent
+  while GTK was destroying it. The class now comes off when the row is next
+  shown. The fix was tagged as v0.10.0, after installs on beta had already
+  updated to that version, so they are offered it now.
+
 ### Changed
 - **Opening a note with tables and diagrams is about 40% faster**: 2.71 ms
   where 0.10.0 took 4.62 (median of six interleaved runs of 300 opens, across
