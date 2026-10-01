@@ -517,6 +517,13 @@ func (t *Tree) refresh(force bool) {
 	}
 
 	syncModel(t.rootModel, t.childrenOf(""))
+	// The folders' own lists too. GTK keeps the model it was given for a folder
+	// row as long as the row lives, so a note added to (or removed from) a
+	// folder that is already on screen only shows if that model is brought up
+	// to date here.
+	for rel, m := range t.childModels {
+		syncModel(m, t.childrenOf(rel))
+	}
 	t.restoreExpanded(expanded)
 	if t.currentRel != "" {
 		t.revealAndSelect(t.currentRel)
@@ -903,10 +910,11 @@ func (t *Tree) createChildModel(item *coreglib.Object) *gio.ListModel {
 	if n == nil || !n.isFolder {
 		return nil
 	}
+	// Every folder gets a model, an empty one included. GTK asks for it once,
+	// when the row is made, and a folder answered with nil stays a row with no
+	// arrow for good: a folder created empty, with a note put in it afterwards,
+	// could then never be opened to show that note.
 	children := t.childrenOf(n.rel)
-	if len(children) == 0 {
-		return nil
-	}
 	m, ok := t.childModels[n.rel]
 	if !ok {
 		m = gioutil.NewListModel[*node]()
