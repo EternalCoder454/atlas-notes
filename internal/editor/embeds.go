@@ -597,7 +597,7 @@ func (e *Editor) setEmbedBody(b *embedBox, blocks []embedBlock) {
 			for r, row := range blk.rows {
 				for c, cell := range row {
 					l := e.takeLabel()
-					dressCell(l, cell, blk.align[c], r == 0)
+					(&tableCell{l: l}).dress(cell, blk.align[c], r == 0)
 					g.grid.Attach(l, c, r, 1, 1)
 					g.cells = append(g.cells, l)
 				}

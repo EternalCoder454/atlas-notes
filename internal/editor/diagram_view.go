@@ -81,7 +81,7 @@ type diagramState struct {
 func (e *Editor) diagramSource(b *richBlock) string {
 	var sb strings.Builder
 	for l := b.first + 1; l < b.last; l++ {
-		t, _ := e.lineText(l)
+		t, _ := e.passLine(l)
 		sb.WriteString(t)
 		sb.WriteByte('\n')
 	}

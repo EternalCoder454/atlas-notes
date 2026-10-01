@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Opening a note with tables and diagrams is about 40% faster**: 2.71 ms
+  where 0.10.0 took 4.62 (median of six interleaved runs of 300 opens, across
+  30 different notes of 12 tables and 12 Mermaid diagrams each). A table's grid
+  keeps its cells when the note closes, and the next table it shows sets only
+  the cells that differ rather than taking every one apart and building it
+  again; a cell of plain words is set as text, without Pango reading it as
+  markup; and a diagram's source comes from the lines the render pass already
+  holds, rather than from the editor a line at a time, twice. Screenshots
+  before and after, switching between notes whose tables differ in shape,
+  match pixel for pixel. Typing beside or inside a table or diagram measured
+  the same before and after (0.02 to 0.1 ms a keystroke).
+- `ATLAS_BENCH_LINE=L` makes `ATLAS_BENCH=editor` type at the start of line L,
+  so typing beside a table or a diagram can be measured, not only at the top.
+
 ## [0.10.0] - 2026-09-30
 
 ### Changed

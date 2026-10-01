@@ -605,7 +605,20 @@ type tableItem struct {
 type tableGrid struct {
 	serial int
 	grid   *gtk.Grid
-	cells  []*gtk.Label // the labels in the grid now
+	cells  []tableCell // the labels in the grid now
+}
+
+// tableCell is a label in a table's grid, where it sits and what it was last
+// set to show. A grid keeps its labels between tables, so the next table it
+// shows sets only the cells that differ, and opening a note full of tables
+// does not take every cell apart and build it again.
+type tableCell struct {
+	l        *gtk.Label
+	row, col int
+	set      bool // the fields below say what l shows; false for a label from the pool
+	markup   string
+	align    tableAlign
+	head     bool
 }
 
 // tableState is the editor's table bookkeeping.
@@ -621,8 +634,10 @@ type tableState struct {
 // clearTables forgets every table. Opening another note replaces the text.
 func (e *Editor) clearTables() {
 	s := &e.tbl
-	for _, it := range s.items {
-		e.dropTable(it)
+	// Last first: the pool hands out the grid it took last, so the next note's
+	// first table gets this note's first grid, the likeliest to have its shape.
+	for i := len(s.items) - 1; i >= 0; i-- {
+		e.dropTable(s.items[i])
 	}
 	s.items = nil
 	s.hits = s.hits[:0]
@@ -859,25 +874,36 @@ func (e *Editor) takeGrid() *tableGrid {
 	return g
 }
 
-// giveGrid takes a grid back into the pool, or lets it go when the pool is full.
+// giveGrid takes a grid back into the pool with its cells still in it, for the
+// next table to reuse, or lets it go when the pool is full. The labels a pooled
+// grid holds are not counted against maxPooledLabels, so after a note of many
+// large tables up to maxPooledGrids grids' worth stay alive. They would anyway:
+// a label the pool cannot hold is never freed (see maxTableCells), and these
+// are at least used again.
 func (e *Editor) giveGrid(g *tableGrid) {
-	e.emptyGrid(g)
 	if len(e.tbl.grids) < maxPooledGrids {
 		e.tbl.grids = append(e.tbl.grids, g)
+		return
 	}
+	e.emptyGrid(g)
 }
 
 // emptyGrid takes the labels out of a grid, into the pool.
 func (e *Editor) emptyGrid(g *tableGrid) {
-	for i, l := range g.cells {
-		g.grid.Remove(l)
-		l.SetText("")
-		if len(e.tbl.labels) < maxPooledLabels {
-			e.tbl.labels = append(e.tbl.labels, l)
-		}
-		g.cells[i] = nil
+	for i := range g.cells {
+		e.poolCell(g, g.cells[i].l)
+		g.cells[i] = tableCell{}
 	}
 	g.cells = g.cells[:0]
+}
+
+// poolCell takes one label out of a grid, into the pool.
+func (e *Editor) poolCell(g *tableGrid, l *gtk.Label) {
+	g.grid.Remove(l)
+	l.SetText("")
+	if len(e.tbl.labels) < maxPooledLabels {
+		e.tbl.labels = append(e.tbl.labels, l)
+	}
 }
 
 // takeLabel hands out a cell, from the pool when it holds one.
@@ -899,30 +925,77 @@ func (e *Editor) takeLabel() *gtk.Label {
 	return l
 }
 
-// dressGrid fills a grid with a table's cells.
+// dressGrid fills a grid with a table's cells. A label already in the grid at a
+// cell's place shows that cell; only the places the grid lacks get a label, and
+// only the labels the table has no place for leave.
 func (e *Editor) dressGrid(g *tableGrid, t table) {
-	e.emptyGrid(g)
+	old := g.cells
+	at := make(map[[2]int]int, len(old))
+	for i, c := range old {
+		at[[2]int{c.row, c.col}] = i
+	}
+	kept := make([]bool, len(old))
+	var cells []tableCell
 	for r, row := range t.rows {
-		for c, cell := range row {
-			l := e.takeLabel()
-			dressCell(l, cell, t.align[c], r == 0)
-			g.grid.Attach(l, c, r, 1, 1)
-			g.cells = append(g.cells, l)
+		for c, text := range row {
+			var cell tableCell
+			if i, ok := at[[2]int{r, c}]; ok {
+				cell, kept[i] = old[i], true
+			} else {
+				cell = tableCell{l: e.takeLabel(), row: r, col: c}
+				g.grid.Attach(cell.l, c, r, 1, 1)
+			}
+			cell.dress(text, t.align[c], r == 0)
+			cells = append(cells, cell)
 		}
 	}
+	for i, c := range old {
+		if !kept[i] {
+			e.poolCell(g, c.l)
+		}
+	}
+	g.cells = cells
 }
 
-// dressCell sets a label to show a cell. The header is bold.
-func dressCell(l *gtk.Label, cell string, a tableAlign, head bool) {
-	m := cellMarkup(cell)
+// dress sets the cell's label to show text, touching only what differs from
+// what it shows already.
+func (c *tableCell) dress(text string, a tableAlign, head bool) {
+	m := cellMarkup(text)
 	if head {
 		m = "<b>" + m + "</b>"
+	}
+	if c.set && m == c.markup && a == c.align && head == c.head {
+		return
+	}
+	if !c.set || m != c.markup || head != c.head {
+		dressCell(c.l, text, m, a, head)
+	} else {
+		alignCell(c.l, a)
+	}
+	c.set, c.markup, c.align, c.head = true, m, a, head
+}
+
+// dressCell sets a label to show a cell, whose markup cellMarkup has made (in
+// <b> for the header, which is bold).
+func dressCell(l *gtk.Label, cell, m string, a tableAlign, head bool) {
+	if head {
 		l.AddCSSClass("md-table-head")
 	} else {
 		l.RemoveCSSClass("md-table-head")
 	}
-	// Only markup this file built goes in: the text in it is escaped.
-	l.SetMarkup(m)
+	// Markup that is only the cell's text escaped shows that text, and setting it
+	// as text spares Pango parsing it: most cells are plain words. Otherwise only
+	// markup this file built goes in, and the text in it is escaped.
+	if plain := cleanText(cell); !head && m == escapeMarkup(plain) {
+		l.SetText(plain)
+	} else {
+		l.SetMarkup(m)
+	}
+	alignCell(l, a)
+}
+
+// alignCell lines a cell's text up the way its column says.
+func alignCell(l *gtk.Label, a tableAlign) {
 	switch a {
 	case alignCenter:
 		l.SetXAlign(0.5)

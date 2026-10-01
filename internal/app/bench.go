@@ -26,6 +26,7 @@ import (
 //	ATLAS_BENCH=startup  print a JSON report once the first frame is on screen, quit
 //	ATLAS_BENCH=idle=10  sit idle for 10s, report CPU/RSS/IO consumed, quit
 //	ATLAS_BENCH=editor=N N type+reparse cycles on the open note, report latency, quit
+//	                     (ATLAS_BENCH_LINE=L types at the start of line L instead)
 //	ATLAS_BENCH=open=N   open notes round-robin N times, report latency
 //	ATLAS_BENCH=soak=N   N edit/save/switch cycles with the main loop running,
 //	                     reporting memory at checkpoints (leak hunting)
@@ -315,6 +316,12 @@ func (a *App) benchSettle() {
 func (a *App) benchEditor(n int) {
 	if a.editor == nil {
 		return
+	}
+	// Where the typing happens matters: a line beside a table or a diagram can
+	// cost what a line at the top does not.
+	if ln, err := strconv.Atoi(os.Getenv("ATLAS_BENCH_LINE")); err == nil {
+		a.editor.RevealLine(ln)
+		benchReport["editor_line"] = ln
 	}
 	durs := make([]float64, 0, n)
 	word := []string{"alpha ", "beta ", "gamma ", "delta "}

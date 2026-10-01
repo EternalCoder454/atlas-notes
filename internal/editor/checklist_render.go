@@ -197,6 +197,16 @@ func (e *Editor) dressRow(row *itemRow, it checklist.Item) {
 	dressDueChip(row.chip, it.DueDate)
 }
 
+// passLine is lineText, answered from the render pass in progress when it holds
+// the line. A line the buffer ends with "\r\n" ends before the "\r", which
+// splitting on "\n" leaves on it.
+func (e *Editor) passLine(ln int) (string, bool) {
+	if i := ln - e.passFrom; e.passLines != nil && i >= 0 && i < len(e.passLines) {
+		return strings.TrimSuffix(e.passLines[i], "\r"), true
+	}
+	return e.lineText(ln)
+}
+
 // lineText returns the text of one buffer line, including any anchor character,
 // without copying the rest of the document.
 func (e *Editor) lineText(ln int) (string, bool) {

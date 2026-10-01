@@ -62,6 +62,11 @@ type Editor struct {
 	// caretPassNeeded).
 	lastKey  caretKey
 	keyValid bool
+	// passLines are the lines of the render pass in progress, from line
+	// passFrom, while tagRange runs, so what it reads again (a diagram's source)
+	// comes from them rather than from the buffer a line at a time.
+	passLines []string
+	passFrom  int
 	// freshLoad is set when a note has just been opened, so that the first pass to
 	// draw its bullets leaves nothing in the undo history (see applyBulletEdits).
 	freshLoad bool
@@ -734,6 +739,8 @@ func (e *Editor) tagRange(from, to, cursorLine, caret int) {
 	e.buffer.RemoveAllTags(start, end)
 
 	lines := strings.Split(text, "\n")
+	e.passLines, e.passFrom = lines, from
+	defer func() { e.passLines = nil }()
 	// Tables are looked for only where there is a pipe, and a line without one
 	// costs nothing more than the search for it.
 	var tables []tableAt
