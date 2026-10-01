@@ -647,12 +647,22 @@ func (t *Tree) deleteMany(marks []string, permanently bool) {
 		}
 	}
 	t.ForceRefresh()
-	t.notifyChanged()
-	msg := deleteSummary(notes, folders, len(failed)+len(noTrash), permanently)
-	if firstErr != nil {
-		msg += " " + firstErr.Error()
+	// The list keeps its place when rows go, which would leave the highlight on
+	// whatever note slid up into it.
+	t.selection.SetSelected(gtk.InvalidListPosition)
+	if t.currentRel != "" {
+		t.revealAndSelect(t.currentRel)
 	}
-	t.message(msg)
+	t.notifyChanged()
+	// Those that could not go to the Trash are asked about below, so they are
+	// not yet ones that were kept.
+	if notes+folders+len(failed) > 0 {
+		msg := deleteSummary(notes, folders, len(failed), permanently)
+		if firstErr != nil {
+			msg += " " + firstErr.Error()
+		}
+		t.message(msg)
+	}
 	if len(noTrash) > 0 {
 		// Some places have no Trash, and deleting for good is a different thing
 		// to agree to, so ask about those on their own.
