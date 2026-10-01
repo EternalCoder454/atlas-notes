@@ -50,6 +50,18 @@ func (p *rowParts) row() *gtk.Widget {
 
 // settle puts a row back at rest: fully open, no animation classes.
 func (p *rowParts) settle() {
+	p.settleContent()
+	if row := p.row(); row != nil {
+		row.RemoveCSSClass("tree-anim")
+	}
+}
+
+// settleContent is settle without the list's row widget, for an unbind: GTK
+// may be destroying that row as it unbinds it, and asking the revealer for
+// its parent then hands back an object already half gone, which crashed the
+// app when folders were clicked open and shut quickly. The row's class comes
+// off when it is next bound.
+func (p *rowParts) settleContent() {
 	p.rev.SetTransitionDuration(0)
 	p.rev.SetRevealChild(true)
 	p.exp.RemoveCSSClass("row-enter")
@@ -58,9 +70,6 @@ func (p *rowParts) settle() {
 	p.exp.RemoveCSSClass("folding")
 	for i := 1; i <= rowStagger; i++ {
 		p.exp.RemoveCSSClass(staggerClass(i))
-	}
-	if row := p.row(); row != nil {
-		row.RemoveCSSClass("tree-anim")
 	}
 }
 
@@ -105,7 +114,7 @@ func (t *Tree) unbindParts(p *rowParts) {
 	}
 	p.n = nil
 	p.gen++
-	p.settle()
+	p.settleContent()
 }
 
 // playEnter slides a row open from nothing and fades it in, the i-th of its
