@@ -4,6 +4,12 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.10.0
+- Settings is now a page of the window, with each setting on a card of its own
+- Folders slide open and closed, side panels slide, and pages ease in
+- The assistant writes what you ask for: Better title gives three titles
+- Summarise, Open tasks and Explain simply ask the assistant more precisely
+
 ## 0.9.0
 - A new icon: the Atlas mark, shared with Atlas Monitor
 - The app opens with a short intro of its logo; a click skips it, and Settings can turn it off

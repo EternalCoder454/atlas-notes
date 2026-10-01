@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-30
+
 ### Changed
 - **Settings is a page of the window, laid out like Atlas Monitor's.** It
   opens in place of the note, from Settings at the foot of the vault panel
