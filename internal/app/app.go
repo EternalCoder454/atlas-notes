@@ -61,6 +61,16 @@ type App struct {
 
 	homeNav  navRow // the Home entry, current while the home screen shows
 	tasksNav navRow // the Tasks entry, current while the Tasks page shows
+	// settingsNav is the Settings entry, current while its page shows, and
+	// settings that page, while it is in the window.
+	settingsNav navRow
+	settings    *settingsView
+	// updating is true while Settings' Update runs; updateStatus is the last
+	// thing it said, and onUpdateStatus shows it on whichever copy of the
+	// page is current.
+	updating       bool
+	updateStatus   string
+	onUpdateStatus func(text string, done bool)
 	// themeCSS holds the chosen theme's colour overrides; appliedTheme is what
 	// it holds, so applying the same theme again restyles nothing.
 	themeCSS     *gtk.CSSProvider
@@ -82,10 +92,12 @@ type App struct {
 	rightToggle    *gtk.ToggleButton
 	outerPaned     *gtk.Paned
 	innerPaned     *gtk.Paned
-	centerStack    *gtk.Stack
-	sidePaned      *gtk.Paned // holds the note editor, and the side pane beside it when there is one
-	side           *sidePane  // the second note, or nil (see sidepane.go)
-	formatBar      *gtk.Box
+	// slides is the vault's and the assistant's slide in and out (panels.go).
+	slides      [2]*panelSlide
+	centerStack *gtk.Stack
+	sidePaned   *gtk.Paned // holds the note editor, and the side pane beside it when there is one
+	side        *sidePane  // the second note, or nil (see sidepane.go)
+	formatBar   *gtk.Box
 
 	titleEntry    *gtk.Entry
 	breadcrumb    *gtk.Label
@@ -107,11 +119,15 @@ type App struct {
 	// changing what they asked for. fitting marks the moment the window-width
 	// rule is the one moving the toggle. narrow and widthKnown are which side
 	// of the line the window was last on; see fitAssistant.
-	wantAssistant   bool
-	fitting         bool
-	narrow          bool
-	widthKnown      bool
-	welcomeBuilt    bool // the home screen is constructed on first use
+	wantAssistant bool
+	fitting       bool
+	narrow        bool
+	widthKnown    bool
+	welcomeBuilt  bool // the home screen is constructed on first use
+	// welcomeContent is the home screen's column, and noteIn the parts of the
+	// note view that play in as a note opens (motion.go).
+	welcomeContent  *gtk.Box
+	noteIn          []gtk.Widgetter
 	recents         []*recentRow
 	recentsHeading  *gtk.Label
 	snippets        map[string]snippet // home-screen previews, keyed by note path
@@ -234,6 +250,7 @@ func (a *App) activate() {
 func (a *App) shutdown() {
 	a.closing = true
 	a.flushDirty()
+	a.flushSettings()
 	a.rememberLayout()
 	if err := storage.SaveConfig(a.cfg); err != nil {
 		log.Printf("atlas-notes: save config: %v", err)
@@ -281,10 +298,18 @@ func (a *App) rememberLayout() {
 	// assistant's is worked out from what the other panes leave over, and
 	// with it hidden, or not built yet, that is the width of the drag handle:
 	// this is how 11 px came to be saved as the width of the assistant.
-	if a.outerPaned != nil && a.left != nil && a.left.Visible() {
+	// A panel part way in or out is remembered at the width it opens to.
+	if w, moving := a.panelWidth(false); moving {
+		a.cfg.LeftPanelWidth = w
+	} else if a.outerPaned != nil && a.left != nil && a.left.Visible() {
 		a.cfg.LeftPanelWidth = a.outerPaned.Position()
 	}
-	if a.innerPaned != nil && a.win != nil && a.right != nil && a.right.Visible() {
+	if w, moving := a.panelWidth(true); moving {
+		a.cfg.RightPanelWidth = w
+	} else if _, leftMoving := a.panelWidth(false); leftMoving {
+		// The assistant's width is worked out from the vault's position,
+		// which is not where it will rest.
+	} else if a.innerPaned != nil && a.win != nil && a.right != nil && a.right.Visible() {
 		if w := a.win.Width(); w > 0 {
 			if right := w - a.outerPaned.Position() - a.innerPaned.Position(); right >= rightMinWidth {
 				a.cfg.RightPanelWidth = right

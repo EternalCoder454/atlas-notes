@@ -24,6 +24,8 @@ func (a *App) openNote(rel string) {
 	}
 	a.flushDirty()
 	content, err := a.store.ReadNote(rel)
+	// Another note arriving plays in; the same one read again does not.
+	fresh := rel != a.currentNote || a.centerStack.VisibleChildName() != "editor"
 	if err == storage.ErrLocked {
 		// Not a failure: the note is protected and the password has not been
 		// given yet. Ask, then open it.
@@ -44,6 +46,9 @@ func (a *App) openNote(rel string) {
 	a.rememberSaved(rel, content) // what is on disk right now
 	a.bindImages(rel)
 	a.editor.SetContent(content)
+	if fresh {
+		a.playNoteIn()
+	}
 	a.showEditorPage()
 	a.refreshHeader()
 	a.editor.Focus()

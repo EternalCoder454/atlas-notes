@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Settings is a page of the window, laid out like Atlas Monitor's.** It
+  opens in place of the note, from Settings at the foot of the vault panel
+  (still Ctrl+,), rather than as a dialog. Each setting is a card of its own,
+  with an icon, a title, one line saying what it does and its control at the
+  end, under the headings Appearance, Notes, Assistant, Updates and About;
+  the model sits under the assistant's name, and the theme circles under
+  "Use system setting". The search and the list of sections are gone: the
+  page is short enough to scroll, and the command box still jumps to each
+  section. Text applies on Enter, on leaving the field, or on leaving the
+  page. Updates shows the version with an Update button beside it, and the
+  channel says in a line what each one is.
+
+### Added
+- **Things move rather than jump.** A folder's notes slide open beneath it
+  and fade in one after another, and close up again before it collapses; its
+  arrow turns, and a second click while it closes opens it back up. The side
+  panels slide in and out and turn round mid-way if toggled again. A note's
+  title comes up as it opens, Home, Tasks and Settings rise in, the note
+  opened beside another fades in, and the assistant's answer fades in as it
+  starts. All of it follows the desktop's animation setting.
+
 ## [0.9.0] - 2026-09-30
 
 ### Added

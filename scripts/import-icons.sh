@@ -149,6 +149,16 @@ map=(
     # Going back and forward
     arrow_back:back
     arrow_forward:forward
+
+    # Settings: one icon per setting card, as in Atlas Monitor's
+    contrast:theme
+    opacity:opacity
+    text_fields:text
+    toolbar:toolbar
+    play_circle:startup
+    folder_zip:file-format
+    update:update
+    alt_route:branch
 )
 
 fail=0

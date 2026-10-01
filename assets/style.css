@@ -284,6 +284,72 @@ list.atlas-nav-footer {
 	opacity: 1;
 }
 
+/* A folder opening and closing (tree_motion.go). While a row moves, its
+   height is carried by the content inside the row's revealer instead of by the
+   row, so that it can run down to nothing; the two add up to the same 40px. */
+.navigation-sidebar > row.tree-anim {
+	min-height: 0;
+	padding-top: 0;
+	padding-bottom: 0;
+	margin: 0;
+}
+
+.navigation-sidebar > row.tree-anim treeexpander {
+	min-height: 34px;
+	padding: 2px 0;
+	margin: 1px 0;
+}
+
+@keyframes atlas-row-in {
+	from { opacity: 0; transform: translateX(-10px); }
+	to { opacity: 1; transform: none; }
+}
+
+@keyframes atlas-row-out {
+	from { opacity: 1; transform: none; }
+	to { opacity: 0; transform: translateX(-6px); }
+}
+
+treeexpander.row-enter {
+	animation: atlas-row-in 280ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+treeexpander.row-enter-1 { animation-delay: 22ms; }
+treeexpander.row-enter-2 { animation-delay: 44ms; }
+treeexpander.row-enter-3 { animation-delay: 66ms; }
+treeexpander.row-enter-4 { animation-delay: 88ms; }
+treeexpander.row-enter-5 { animation-delay: 110ms; }
+treeexpander.row-enter-6 { animation-delay: 132ms; }
+
+treeexpander.row-leave {
+	animation: atlas-row-out 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* The disclosure arrow turns instead of swapping icons. */
+.navigation-sidebar treeexpander > expander {
+	-gtk-icon-source: -gtk-icontheme("pan-end-symbolic");
+}
+
+.navigation-sidebar treeexpander > expander:checked {
+	-gtk-icon-transform: rotate(90deg);
+}
+
+.navigation-sidebar treeexpander > expander:dir(rtl) {
+	-gtk-icon-source: -gtk-icontheme("pan-end-symbolic-rtl");
+}
+
+.navigation-sidebar treeexpander > expander:dir(rtl):checked {
+	-gtk-icon-transform: rotate(-90deg);
+}
+
+.navigation-sidebar treeexpander.folding > expander:checked {
+	-gtk-icon-transform: none;
+}
+
+.navigation-sidebar treeexpander.turning > expander {
+	transition: -gtk-icon-transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* The bar under the list while rows are selected. */
 .mark-bar {
 	padding: 8px 10px;
@@ -1019,7 +1085,8 @@ window.atlas-glass-strong dialog-host > dialog sheet {
 	background-color: alpha(@window_bg_color, 0.62);
 }
 
-window.atlas-glass dialog-host > dialog sheet list.boxed-list {
+window.atlas-glass dialog-host > dialog sheet list.boxed-list,
+window.atlas-glass list.boxed-list.settings-card {
 	background-color: alpha(@window_bg_color, 0.94);
 	background-image: linear-gradient(@card_bg_color, @card_bg_color);
 }
@@ -1053,25 +1120,53 @@ window.atlas-glass dialog-host > dialog sheet list.boxed-list {
 	background-color: alpha(@window_fg_color, 0.05);
 }
 
-/* ---- Settings (one scrolling page) ----
+/* ---- Settings ----
  *
- * The page is libadwaita's own preference groups, so nearly all of it is
- * libadwaita's styling. What is here is what it does not have: the theme
- * picker's circles, the way back from a chosen theme, and the prompt shortcut
- * cards. The circles' colours are not here; they are generated from the theme
- * table (internal/theme, SwatchCSS) so a new theme cannot leave one unpainted.
+ * A page of the window, laid out as Atlas Monitor's is: a heading per section
+ * and each setting a card of its own (libadwaita's boxed list), with an icon,
+ * a title, a line saying what it does and its control at the end. What is here
+ * is what libadwaita does not have: the page's spacing, the taller first row,
+ * the theme circles and the prompt fields. The circles' colours are not here;
+ * they are generated from the theme table (internal/theme, SwatchCSS) so a new
+ * theme cannot leave one unpainted.
  */
 
-/* The list of sections at the left. Rows a little taller than the sidebar
-   default, and clear of the dialog's edge. */
-.atlas-settings-nav {
-	background: none;
-	padding: 6px;
+.settings-content {
+	padding: 28px 24px 40px 24px;
 }
 
-.atlas-settings-nav > row {
-	min-height: 34px;
-	padding: 0 12px 0 14px;
+.settings-heading {
+	font-weight: 600;
+	font-size: 1.08em;
+}
+
+/* A card's first row: room for a title and its line beside the icon. */
+row.setting > box.header {
+	min-height: 62px;
+}
+
+/* A setting's button is one of its controls, set like the rest of the row, not
+   in the bold of a dialog's main action. */
+.settings-page button {
+	font-weight: normal;
+}
+
+/* "Use system setting" while it is the choice: in the accent, as the ring round
+   a chosen theme's circle is. GTK's own pressed look is a darker grey, which
+   reads as switched off rather than chosen. */
+.settings-page button.settings-choice:checked {
+	background-color: @accent_bg_color;
+	color: @accent_fg_color;
+}
+
+/* A prompt's text: a field with a frame, a shade off the card behind it. */
+.settings-field {
+	border: 1px solid alpha(@window_fg_color, 0.12);
+	border-radius: 8px;
+}
+
+.settings-field text {
+	background-color: alpha(@window_fg_color, 0.03);
 }
 
 /* A theme's circle. Its two colours are painted by the generated rules, which
@@ -1110,30 +1205,6 @@ window.atlas-glass dialog-host > dialog sheet list.boxed-list {
 	background-color: transparent;
 }
 
-/* The way back from a chosen theme. It is a correction, not an action, so it
-   is as quiet as a button can be and still be one; and when it is what is
-   chosen it says so with the accent, as the circles do with their ring. */
-.atlas-quiet-button {
-	font-size: 0.88em;
-	font-weight: normal;
-	padding: 2px 12px;
-	border-radius: 9999px;
-	box-shadow: inset 0 0 0 1px alpha(currentColor, 0.18);
-}
-
-.atlas-quiet-button:hover {
-	box-shadow: inset 0 0 0 1px alpha(currentColor, 0.32);
-}
-
-/* Not dimmed with opacity, as it once was: on a theme whose text is already
-   soft (Rose, Sage, Solarized) that left it barely readable. The outline says
-   it is a button; the accent says when it is the choice. */
-.atlas-quiet-button:checked {
-	color: @accent_color;
-	background-color: alpha(@accent_bg_color, 0.16);
-	box-shadow: none;
-}
-
 /* The choice a combo row shows beside its title. Its label ellipsizes, so its
    smallest size is a letter and a dot, and a row with a long subtitle gave it
    exactly that: "Markdow…", or just "…". A floor wide enough for the longest
@@ -1143,18 +1214,13 @@ row.combo listview.inline {
 	min-width: 118px;
 }
 
-/* A prompt shortcut: a card in the page, tighter than a preferences row
-   because it holds a whole field. The radius is the app's 7px, from .card. */
-.atlas-shortcut {
-	padding: 10px;
-}
-
 /* The Tasks page: every open task, grouped by when it is due. */
 .tasks-content {
 	padding: 28px 24px 32px 24px;
 }
 
-.tasks-title {
+.tasks-title,
+.settings-title {
 	font-size: 1.9em;
 	font-weight: 800;
 }
@@ -1434,4 +1500,124 @@ window.atlas-glass-medium .atlas-intro {
 
 window.atlas-glass-strong .atlas-intro {
 	background-color: alpha(@view_bg_color, 0.62);
+}
+
+/* ---- Motion ----
+ *
+ * The app's small movements in one place. Durations stay short, 120 to 300ms,
+ * so nothing ever waits on an animation, and every one follows the desktop's
+ * "animations" setting: with it off, GTK draws each end state at once.
+ *
+ * Entrances come in pairs ("rise-a" and "rise-b"): the same keyframes under
+ * two names, because GTK only starts an animation again when its name
+ * changes. ui.Replay swaps one for the other.
+ */
+
+/* The home screen and Tasks page, a piece at a time. */
+@keyframes atlas-rise-a {
+	from { opacity: 0; transform: translateY(14px); }
+	to { opacity: 1; transform: none; }
+}
+@keyframes atlas-rise-b {
+	from { opacity: 0; transform: translateY(14px); }
+	to { opacity: 1; transform: none; }
+}
+.rise-a { animation: atlas-rise-a 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.rise-b { animation: atlas-rise-b 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* A note opening: its title and text come up together, the text a beat
+   later. A shorter distance than the home screen's, since it happens often. */
+@keyframes atlas-note-in-a {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: none; }
+}
+@keyframes atlas-note-in-b {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: none; }
+}
+.note-in-a { animation: atlas-note-in-a 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.note-in-b { animation: atlas-note-in-b 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+.stagger-1 { animation-delay: 35ms; }
+.stagger-2 { animation-delay: 70ms; }
+.stagger-3 { animation-delay: 105ms; }
+.stagger-4 { animation-delay: 140ms; }
+.stagger-5 { animation-delay: 175ms; }
+.stagger-6 { animation-delay: 210ms; }
+.stagger-7 { animation-delay: 245ms; }
+.stagger-8 { animation-delay: 280ms; }
+.stagger-9 { animation-delay: 315ms; }
+
+/* Hover and selection fade rather than flick. The accent pill on the current
+   row grows from its middle: every row carries it at no height, and the
+   current one at full height. */
+.navigation-sidebar > row,
+list.atlas-nav > row {
+	background-image: linear-gradient(@accent_color, @accent_color);
+	background-size: 3px 0;
+	background-position: left center;
+	background-repeat: no-repeat;
+	transition: background-color 150ms ease-out,
+		background-size 240ms cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.welcome-recent,
+.tasks-open,
+.atlas-outline-item,
+.atlas-prop-add-chip,
+.atlas-props-add {
+	transition: background-color 150ms ease-out, border-color 150ms ease-out,
+		color 150ms ease-out;
+}
+
+.welcome-card {
+	transition: background-color 150ms ease-out, border-color 150ms ease-out,
+		box-shadow 200ms ease-out;
+}
+
+.welcome-card:hover {
+	box-shadow: 0 2px 10px alpha(black, 0.06);
+}
+
+.welcome-card:active {
+	background-color: alpha(@accent_bg_color, 0.16);
+}
+
+.ai-chip {
+	transition: background-color 150ms ease-out, border-color 150ms ease-out,
+		opacity 150ms ease-out;
+}
+
+/* Quiet controls brighten as the pointer reaches them. */
+.vault-header button.flat,
+.atlas-code-copy,
+.atlas-fold-chevron,
+.atlas-callout-chevron,
+.atlas-prop-remove,
+.atlas-chip-remove,
+.mark-close {
+	transition: opacity 150ms ease-out, background-color 150ms ease-out;
+}
+
+.atlas-outline-mark {
+	transition: background-color 200ms ease-out;
+}
+
+/* The save state changes colour gently, and pulses while a save is under
+   way. */
+.save-dot {
+	transition: background-color 300ms ease-out;
+}
+
+@keyframes atlas-saving {
+	from { opacity: 1; }
+	to { opacity: 0.35; }
+}
+
+.save-dot.save-saving {
+	animation: atlas-saving 600ms ease-in-out infinite alternate;
+}
+
+.task-progress {
+	transition: color 300ms ease-out, background-color 300ms ease-out;
 }

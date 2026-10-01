@@ -125,10 +125,11 @@ func (a *App) buildWindow() {
 	} else {
 		a.left.Append(placeholder("Vault unavailable"))
 	}
-	foot, _ := navList(struct {
+	foot, footRows := navList(struct {
 		icon, label, tooltip string
 		activate             func()
 	}{iconName("atlasnotes-settings-symbolic", "atlasnotes-menu-symbolic"), "Settings", "Settings (Ctrl+,)", a.showSettings})
+	a.settingsNav = footRows[0]
 	foot.AddCSSClass("atlas-nav-footer")
 	a.left.Append(foot)
 
@@ -180,12 +181,10 @@ func (a *App) buildWindow() {
 	a.outerPaned, a.innerPaned = outer, inner
 
 	a.leftToggle.ConnectToggled(func() {
-		a.left.SetVisible(a.leftToggle.Active())
-		a.syncPageCorners()
+		a.setPanel(false, a.leftToggle.Active()) // slides, once on screen (panels.go)
 	})
 	a.rightToggle.ConnectToggled(func() {
-		a.right.SetVisible(a.rightToggle.Active())
-		a.syncPageCorners()
+		a.setPanel(true, a.rightToggle.Active())
 		// A toggle the user pressed is what they want. One this code made to
 		// fit the window is not, and must not overwrite it.
 		if !a.fitting {
@@ -284,8 +283,10 @@ func panePosition(stored, fallback int) int {
 // setWindowSubtitle shows the open note in the header bar, so the window title
 // says what you are looking at instead of repeating the app's version.
 func (a *App) setWindowSubtitle(note string) {
-	a.homeNav.setCurrent(note == "" && !a.tasksShowing())
-	a.tasksNav.setCurrent(note == "" && a.tasksShowing())
+	tasks, settings := a.tasksShowing(), a.settingsShowing()
+	a.homeNav.setCurrent(note == "" && !tasks && !settings)
+	a.tasksNav.setCurrent(note == "" && tasks)
+	a.settingsNav.setCurrent(note == "" && settings)
 	if a.win == nil || fixedWindowTitle {
 		return
 	}

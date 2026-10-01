@@ -28,6 +28,9 @@ func (a *App) buildCenter() *gtk.Box {
 
 	a.centerStack = gtk.NewStack()
 	a.centerStack.SetTransitionType(gtk.StackTransitionTypeCrossfade)
+	// Short, so the page being left is gone by the time the new one's
+	// contents rise into place (motion.go).
+	a.centerStack.SetTransitionDuration(160)
 	a.centerStack.SetVExpand(true)
 	// The home screen is built the first time it is shown. Launching straight
 	// into a note — the common case — then costs nothing for a page the user
@@ -43,7 +46,9 @@ func (a *App) buildCenter() *gtk.Box {
 // buildEditorPage is the note view itself.
 func (a *App) buildEditorPage() *gtk.Box {
 	page := gtk.NewBox(gtk.OrientationVertical, 0)
-	page.Append(a.buildNoteHeader())
+	header := a.buildNoteHeader()
+	a.noteIn = append(a.noteIn, header)
+	page.Append(header)
 	a.formatBar = a.buildFormatBar()
 	a.formatBar.SetVisible(a.cfg.ShowFormatBar)
 	page.Append(a.formatBar)
@@ -538,15 +543,34 @@ func (a *App) showWelcome() {
 	if a.centerStack == nil {
 		return
 	}
+	if !a.leaveNote() {
+		return
+	}
+	a.welcomeBuilt = true
+	a.refreshWelcome()
+	if a.centerStack.VisibleChildName() != "welcome" {
+		a.playWelcome()
+	}
+	a.centerStack.SetVisibleChildName("welcome")
+	a.setWindowSubtitle("")
+	a.syncNoteActions()
+	if a.backlinksBar != nil {
+		a.backlinksBar.SetVisible(false)
+	}
+}
+
+// leaveNote puts the open note away for a page that shows none: Home, Tasks
+// or Settings. It is false, and nothing has changed, if the note beside it
+// could not be closed.
+func (a *App) leaveNote() bool {
 	a.closeFind(false) // the note it searched is going away
 	// Typing from the last moment before the autosave would otherwise go
 	// with the note: the editor is emptied below.
 	a.flushDirty()
 	if !a.closeSide() { // there is no note left for it to be beside
-		return
+		return false
 	}
 	a.backlinksGen++ // an answer for the note being left is no longer wanted
-	a.welcomeBuilt = true
 	a.currentNote = ""
 	a.dirty = false
 	if a.editor != nil {
@@ -555,13 +579,7 @@ func (a *App) showWelcome() {
 	if a.tree != nil {
 		a.tree.SetCurrent("")
 	}
-	a.refreshWelcome()
-	a.centerStack.SetVisibleChildName("welcome")
-	a.setWindowSubtitle("")
-	a.syncNoteActions()
-	if a.backlinksBar != nil {
-		a.backlinksBar.SetVisible(false)
-	}
+	return true
 }
 
 // refreshWelcome brings the home screen up to date. The page itself is built

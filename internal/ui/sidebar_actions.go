@@ -37,6 +37,9 @@ func (s *Sidebar) runStream(echo bool, call func(context.Context, func(string)) 
 		full, stats, err := call(ctx, func(tok string) {
 			coreglib.IdleAdd(func() bool {
 				s.streamTokens++
+				if echo && s.streamTokens == 1 {
+					Replay(s.answer, "note-in") // the answer comes up as it starts
+				}
 				if echo {
 					s.respBuilder.WriteString(tok)
 					s.answer.SetText(s.respBuilder.String())

@@ -10,15 +10,19 @@ import (
 
 	"atlas-notes/internal/storage"
 	"atlas-notes/internal/theme"
+	"atlas-notes/internal/ui"
 )
 
-// Settings is one scrolling page of libadwaita preference groups, not a stack
-// of pages. Everything is reachable by scrolling; the list of sections at the
-// left only scrolls to one, and a search entry above narrows the rows. Every
-// control takes effect the moment it changes. Nothing has a Save button, and
-// nothing opens a second page to reach a setting.
+// Settings is a page of the window, as Home and Tasks are, laid out the way
+// Atlas Monitor's is: a heading per section, and under it each setting as a
+// card of its own, with an icon, a title, one line saying what it does, and
+// its control at the right-hand end. Options that belong to another, such as
+// the model under the assistant's name, sit in the same card beneath it, lined
+// up with its title. Nothing is hidden behind a second page, and nothing waits
+// for a Save button: every control applies the moment it changes, and text
+// applies on Enter, on leaving the field, or on leaving the page.
 
-// Section ids, in the order the page and the list show them.
+// Section ids, in the order the page shows them. The command box jumps to them.
 const (
 	sectionAppearance = "appearance"
 	sectionNotes      = "notes"
@@ -45,63 +49,6 @@ func settingsSectionFor(name string) string {
 	return ""
 }
 
-// matchesSearch reports whether every word of query is somewhere in fields,
-// whatever the case. Words rather than the whole phrase, so "hover summary"
-// finds "Show a 1-sentence AI summary when you hover a note". An empty query
-// matches everything.
-func matchesSearch(query string, fields ...string) bool {
-	words := strings.Fields(strings.ToLower(query))
-	if len(words) == 0 {
-		return true
-	}
-	hay := strings.ToLower(strings.Join(fields, "\n"))
-	for _, w := range words {
-		if !strings.Contains(hay, w) {
-			return false
-		}
-	}
-	return true
-}
-
-// sectionSlack is how far past a section's top the page may be scrolled while
-// that section still counts as the one you are in. Without it the list's mark
-// would only move once a heading had passed the very top edge, which reads as
-// lagging.
-const sectionSlack = 40
-
-// settingsPageMargin is the page's margin. A section is scrolled to with this
-// much above it, so the first one lands exactly where the page opens.
-const settingsPageMargin = 12
-
-// activeSection says which section the list should mark, given each section's
-// top in page coordinates, which of them are showing (a search hides some),
-// and where the scroller is. At the very bottom it is the last one showing:
-// About is shorter than the viewport, so its top can never reach the top edge,
-// and going by tops alone the list would never get to it. -1 means none are
-// showing.
-func activeSection(tops []float64, shown []bool, pos, page, upper float64) int {
-	first, last, found := -1, -1, -1
-	for i, top := range tops {
-		if i >= len(shown) || !shown[i] {
-			continue
-		}
-		if first < 0 {
-			first = i
-		}
-		last = i
-		if top <= pos+sectionSlack {
-			found = i
-		}
-	}
-	if last >= 0 && upper > page && pos+page >= upper-1 {
-		return last
-	}
-	if found < 0 {
-		return first
-	}
-	return found
-}
-
 // clampScroll keeps a scroll target inside what the scroller can reach.
 func clampScroll(y, upper, page float64) float64 {
 	if limit := upper - page; y > limit {
@@ -115,7 +62,7 @@ func clampScroll(y, upper, page float64) float64 {
 
 // debouncer runs fn once, delay milliseconds after the last Trigger. It is how
 // a control that changes many times in a row (typing, a slider) becomes one
-// change to save. Flush runs a pending fn now, which is what closing the dialog
+// change to save. Flush runs a pending fn now, which is what leaving the page
 // needs: nothing may be lost to a timer that never gets to fire.
 //
 // The scheduler is a field so the logic can be tested without a main loop.
@@ -179,12 +126,7 @@ var noteFormats = []storage.Compression{
 }
 
 // noteFormatLabels are what noteFormats are called in the combo.
-var noteFormatLabels = []string{
-	"Markdown (.md)",
-	"Zstandard (.zst)",
-	"Gzip (.gz)",
-	"XZ (.xz)",
-}
+var noteFormatLabels = []string{"Markdown", "Zstandard", "Gzip", "XZ"}
 
 // noteFormatIndex is a format's position in the combo. A format this build does
 // not list is shown as plain Markdown, the way the vault treats one it does
@@ -253,23 +195,36 @@ func modeFromIndex(i uint) string {
 	}
 }
 
-// themeDescription is the line under the picker: which theme is chosen, or
-// what following the desktop means.
+// themeDescription is the line under the theme's title: which theme is chosen,
+// or what following the desktop means.
 func themeDescription(id string) string {
-	if t, ok := theme.ByID(id); ok {
+	if t, ok := theme.ByID(id); ok && !theme.IsFollowing(id) {
 		return t.Name + ": " + t.Summary
 	}
-	return "Following the desktop's light and dark setting. Choose a theme to set it here instead."
+	return "Follows the desktop's light and dark setting"
 }
 
-// updateStatusLine is what the update status shows before anything has been
-// tried: the version, and the channel it would update from.
-func updateStatusLine(ver, channel string) string {
-	name := "Release"
-	if channel == storage.ChannelBeta {
-		name = "Beta"
+// updateChannels are the channels Settings offers, each with what it is in one
+// sentence.
+var updateChannels = []struct{ Value, Label, Detail string }{
+	{storage.ChannelRelease, "Release", "The stable version, from the main branch"},
+	{storage.ChannelBeta, "Beta", "The newest features and fixes, before they reach Release. It may be unstable"},
+}
+
+// channelName is what a channel is called on the page.
+func channelName(ch string) string {
+	for _, c := range updateChannels {
+		if c.Value == ch {
+			return c.Label
+		}
 	}
-	return "Version " + ver + " on the " + name + " channel"
+	return "Release"
+}
+
+// updateStatusLine is what the version card says before anything has been
+// tried: the channel it updates from.
+func updateStatusLine(channel string) string {
+	return "On the " + channelName(channel) + " channel"
 }
 
 // The waits before typing becomes a change, and before changes become a file.
@@ -280,78 +235,38 @@ const (
 	settingsSaveDelay   = 300
 )
 
-// openSettings holds each App's open Settings dialog, so opening it twice
-// brings the first forward rather than stacking a second that edits the same
-// config from stale widgets.
-var openSettings = map[*App]*settingsView{}
-
-// settingsItem is one thing on the page that a search can hide: its widget and
-// the words it answers to.
-type settingsItem struct {
-	w    gtk.Widgetter
-	text func() string
-}
-
-// settingsGroup is one AdwPreferencesGroup and what a search sees in it.
-type settingsGroup struct {
-	box   *adw.PreferencesGroup
-	title string
-	desc  string
-	items []settingsItem
-}
-
-// settingsSection is one heading and its groups, and its entry in the list.
-type settingsSection struct {
-	id, title string
-	box       *gtk.Box
-	groups    []*settingsGroup
-	navRow    *gtk.ListBoxRow
-}
-
-func (s *settingsSection) addGroup(title, desc string) *settingsGroup {
-	g := &settingsGroup{box: adw.NewPreferencesGroup(), title: title, desc: desc}
-	if title != "" {
-		g.box.SetTitle(title)
-	}
-	if desc != "" {
-		g.box.SetDescription(desc)
-	}
-	s.box.Append(g.box)
-	s.groups = append(s.groups, g)
-	return g
-}
-
-// addRow adds a row a search matches by its title and subtitle.
-func (g *settingsGroup) addRow(w gtk.Widgetter, title, subtitle string) {
-	g.addItem(w, func() string { return title + "\n" + subtitle })
-}
-
-// addItem adds anything to the group; text says what a search may find it by.
-func (g *settingsGroup) addItem(w gtk.Widgetter, text func() string) {
-	g.box.Add(w)
-	g.items = append(g.items, settingsItem{w: w, text: text})
-}
+// settingIconSize and the margins round it decide where a card's titles start,
+// and settingIndent is that position, for the rows and blocks beneath a card's
+// first row that have no icon of their own but line up with its title. The 12
+// and the 6 are libadwaita's own: a row's header box starts 12px in, and puts
+// 6px between its prefixes and the title.
+const (
+	settingIconSize     = 20
+	settingIconStart    = 6
+	settingIconEnd      = 10
+	settingIndent       = 12 + settingIconStart + settingIconSize + settingIconEnd + 6
+	settingTextWidth    = 24 // characters, for the text fields at a row's end
+	settingPromptHeight = 140
+	settingsPageID      = "settings" // the page's name in the center stack
+)
 
 // shortcutCard is one prompt shortcut, all of it editable in place.
 type shortcutCard struct {
-	root   *gtk.Box
+	row    *gtk.ListBoxRow
 	name   *gtk.Entry
 	mode   *gtk.DropDown
 	prompt *gtk.TextView
 }
 
-// settingsView is the open dialog and everything it edits.
+// settingsView is the page and everything it edits. It is built afresh each
+// time the page is opened, so it never shows a value changed elsewhere since.
 type settingsView struct {
-	a      *App
-	dialog *adw.Dialog
-
-	search  *gtk.SearchEntry
-	nav     *gtk.ListBox
-	scroll  *gtk.ScrolledWindow
+	a       *App
+	root    *gtk.ScrolledWindow
 	content *gtk.Box
-	empty   *gtk.Label
 
-	sections []*settingsSection
+	// headings are the sections' headings, by id, for scrolling to one.
+	headings map[string]*gtk.Label
 
 	// save writes the config; typing applies the shortcuts and sysTyping the
 	// system prompt, each after the person stops typing. The two are separate
@@ -360,34 +275,72 @@ type settingsView struct {
 	typing    *debouncer
 	sysTyping *debouncer
 
-	// commits apply what an entry row holds but has not yet applied, for the
-	// close: a name typed and never confirmed is still what was meant.
+	// commits apply what a text field holds but has not yet applied, for
+	// leaving the page: a name typed and never confirmed is still what was
+	// meant.
 	commits []func()
 
-	cards    []*shortcutCard
-	cardList *gtk.Box
+	cards     []*shortcutCard
+	shortcuts *gtk.ListBox
 
-	// scrolling is true while a click's scroll is under way, so the list's mark
-	// does not flicker through every section on the way.
-	scrolling bool
-	anim      *adw.TimedAnimation
+	anim *adw.TimedAnimation // a scroll to a section, while it runs
 }
 
-// showSettings opens the settings dialog.
+// showSettings opens the Settings page at the top.
 func (a *App) showSettings() { a.showSettingsPage("") }
 
-// showSettingsPage opens it scrolled to a named section. Everything but the
-// screenshot tooling passes an empty string and gets the top.
+// showSettingsPage opens the Settings page at a named section, and moves to
+// that section if the page is already open.
 func (a *App) showSettingsPage(page string) {
-	want := settingsSectionFor(page)
-	if v := openSettings[a]; v != nil {
-		v.dialog.Present(a.win)
-		v.goTo(want, true)
+	if a.centerStack == nil {
 		return
 	}
+	want := settingsSectionFor(page)
+	if a.settingsShowing() && a.settings != nil {
+		a.settings.goTo(want, true)
+		return
+	}
+	if !a.leaveNote() {
+		return
+	}
+	// A page left a moment ago may still be fading out, holding an edit it
+	// applies only once it is gone. It applies it now, before the new page
+	// reads the config.
+	a.flushSettings()
+	if old := a.centerStack.ChildByName(settingsPageID); old != nil {
+		a.centerStack.Remove(old) // leaving it applied what it held
+	}
+	v := a.buildSettings()
+	a.settings = v
+	a.centerStack.AddNamed(v.root, settingsPageID)
+	ui.ReplayChildren(v.content, "rise", 0)
+	a.centerStack.SetVisibleChildName(settingsPageID)
+	a.setWindowSubtitle("")
+	a.syncNoteActions()
+	if a.backlinksBar != nil {
+		a.backlinksBar.SetVisible(false)
+	}
+	if want != "" {
+		v.scrollWhenReady(want)
+	}
+}
 
-	v := &settingsView{a: a}
-	openSettings[a] = v
+// settingsShowing says whether the Settings page is what the center panel shows.
+func (a *App) settingsShowing() bool {
+	return a.centerStack != nil && a.centerStack.VisibleChildName() == settingsPageID
+}
+
+// flushSettings applies whatever the Settings page holds and has not yet
+// applied, and writes it. Quitting needs it: the page may never be left.
+func (a *App) flushSettings() {
+	if a.settings != nil {
+		a.settings.flush()
+	}
+}
+
+// buildSettings builds the page.
+func (a *App) buildSettings() *settingsView {
+	v := &settingsView{a: a, headings: map[string]*gtk.Label{}}
 	v.save = newDebouncer(settingsSaveDelay, func() {
 		if err := storage.SaveConfig(a.cfg); err != nil {
 			log.Printf("atlas-notes: save settings: %v", err)
@@ -395,380 +348,364 @@ func (a *App) showSettingsPage(page string) {
 	})
 	v.typing = newDebouncer(settingsTypingDelay, v.syncActions)
 
-	v.dialog = adw.NewDialog()
-	v.dialog.SetTitle("Settings")
-	v.dialog.SetContentWidth(760)
-	v.dialog.SetContentHeight(680)
+	v.content = gtk.NewBox(gtk.OrientationVertical, 6)
+	v.content.AddCSSClass("settings-content")
 
-	v.content = gtk.NewBox(gtk.OrientationVertical, 30)
-	v.content.SetMarginTop(settingsPageMargin)
-	v.content.SetMarginBottom(settingsPageMargin + 8)
-	v.content.SetMarginStart(settingsPageMargin + 4)
-	v.content.SetMarginEnd(settingsPageMargin + 4)
-	v.content.AddCSSClass("atlas-settings-page")
+	title := gtk.NewLabel("Settings")
+	title.SetXAlign(0)
+	title.AddCSSClass("settings-title")
+	v.content.Append(title)
 
-	v.buildAppearance()
-	v.buildNotes()
-	v.buildAssistant()
-	v.buildUpdates()
-	v.buildAbout()
+	v.section(sectionAppearance, "Appearance",
+		v.themeCard(),
+		v.transparencyCard(),
+		settingsCard(v.fontRow()),
+		settingsCard(v.formatBarRow()),
+		settingsCard(v.introRow()))
+	v.section(sectionNotes, "Notes",
+		settingsCard(v.noteFormatRow()),
+		settingsCard(v.remindersRow()),
+		settingsCard(v.hoverRow()),
+		settingsCard(v.passwordRow()))
+	v.section(sectionAssistant, "Assistant",
+		v.assistantCard(),
+		v.promptCard(),
+		v.shortcutsCard())
+	v.section(sectionUpdates, "Updates", v.updateCards()...)
+	v.section(sectionAbout, "About", v.aboutCards()...)
 
-	v.empty = gtk.NewLabel("No setting matches that search.")
-	v.empty.AddCSSClass("dim-label")
-	v.empty.SetMarginTop(24)
-	v.empty.SetVisible(false)
-	v.content.Append(v.empty)
+	// Wide enough for a title, its line and a text field side by side, but not
+	// so wide on a maximised window that a title and its control end up a
+	// screen apart.
+	clamp := adw.NewClamp()
+	clamp.SetMaximumSize(860)
+	clamp.SetTighteningThreshold(640)
+	clamp.SetChild(v.content)
 
-	v.scroll = pageScroll(v.content)
+	v.root = gtk.NewScrolledWindow()
+	v.root.SetChild(clamp)
+	v.root.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	v.root.SetHExpand(true)
+	v.root.SetVExpand(true)
+	v.root.AddCSSClass("settings-page")
+	// Leaving the page, for a note or another page, applies whatever was being
+	// typed, as leaving the field would have.
+	v.root.ConnectUnmap(v.flush)
+	return v
+}
 
-	navBox := v.buildNav()
-
-	v.search = gtk.NewSearchEntry()
-	v.search.SetPlaceholderText("Search settings")
-	v.search.SetHExpand(true)
-	v.search.ConnectSearchChanged(func() { v.filter(v.search.Text()) })
-	// Escape clears a search first and closes the dialog second. The entry
-	// takes the key otherwise, and a dialog that will not close on Escape
-	// while the search is empty is a trap.
-	v.search.ConnectStopSearch(func() {
-		if v.search.Text() != "" {
-			v.search.SetText("")
-			return
-		}
-		v.dialog.Close()
-	})
-	searchBar := gtk.NewBox(gtk.OrientationHorizontal, 0)
-	searchBar.SetMarginTop(8)
-	searchBar.SetMarginBottom(8)
-	searchBar.SetMarginStart(12)
-	searchBar.SetMarginEnd(12)
-	searchBar.Append(v.search)
-
-	body := gtk.NewBox(gtk.OrientationHorizontal, 0)
-	body.Append(navBox)
-	body.Append(v.scroll)
-
-	main := gtk.NewBox(gtk.OrientationVertical, 0)
-	main.Append(searchBar)
-	main.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
-	main.Append(body)
-
-	tv := adw.NewToolbarView()
-	tv.AddTopBar(adw.NewHeaderBar())
-	tv.SetContent(main)
-	// A breakpoint needs a floor to shrink to. The page's own minimum would do
-	// with the list showing, but not once the list has gone.
-	tv.SetSizeRequest(340, -1)
-	v.dialog.SetChild(tv)
-
-	// Under this width the dialog is a phone-sized sheet, and the list would
-	// take a third of it. Everything is still there to scroll to.
-	bp := adw.NewBreakpoint(adw.NewBreakpointConditionLength(
-		adw.BreakpointConditionMaxWidth, 640, adw.LengthUnitPx))
-	bp.ConnectApply(func() { navBox.SetVisible(false) })
-	bp.ConnectUnapply(func() { navBox.SetVisible(true) })
-	v.dialog.AddBreakpoint(bp)
-
-	v.scroll.VAdjustment().ConnectValueChanged(func() {
-		if !v.scrolling {
-			v.syncNav()
-		}
-	})
-
-	v.dialog.ConnectClosed(func() {
-		for _, commit := range v.commits {
-			commit()
-		}
+// flush applies everything pending and writes the config.
+func (v *settingsView) flush() {
+	for _, commit := range v.commits {
+		commit()
+	}
+	if v.sysTyping != nil {
 		v.sysTyping.Flush()
-		v.typing.Flush()
-		v.save.Flush() // last: the flushes above may each have changed something
-		delete(openSettings, a)
-	})
-
-	v.dialog.SetFocus(v.search)
-	v.dialog.Present(a.win)
-	if len(v.sections) > 0 {
-		v.nav.SelectRow(v.sections[0].navRow)
 	}
-	if want != "" && want != sectionAppearance {
-		v.scrollWhenReady(want)
-	}
+	v.typing.Flush()
+	v.save.Flush() // last: the flushes above may each have changed something
 }
 
 // changed says a setting has changed and the config wants writing.
 func (v *settingsView) changed() { v.save.Trigger() }
 
-// newSection starts a section: its heading, and a place for its groups.
-func (v *settingsView) newSection(id, title string) *settingsSection {
-	s := &settingsSection{id: id, title: title}
-	s.box = gtk.NewBox(gtk.OrientationVertical, 18)
+// ---- Layout -----------------------------------------------------------------
+
+// section appends a section to the page: its heading, then its cards.
+func (v *settingsView) section(id, title string, cards ...gtk.Widgetter) {
 	heading := gtk.NewLabel(title)
+	heading.AddCSSClass("settings-heading")
 	heading.SetXAlign(0)
-	heading.AddCSSClass("title-3")
-	s.box.Append(heading)
-	v.content.Append(s.box)
-	v.sections = append(v.sections, s)
-	return s
-}
-
-// buildNav is the list of sections down the left.
-func (v *settingsView) buildNav() *gtk.Box {
-	v.nav = gtk.NewListBox()
-	v.nav.SetSelectionMode(gtk.SelectionSingle)
-	v.nav.AddCSSClass("navigation-sidebar")
-	v.nav.AddCSSClass("atlas-settings-nav")
-	for _, s := range v.sections {
-		label := gtk.NewLabel(s.title)
-		label.SetXAlign(0)
-		row := gtk.NewListBoxRow()
-		row.SetChild(label)
-		v.nav.Append(row)
-		s.navRow = row
+	heading.SetMarginTop(18)
+	heading.SetMarginBottom(4)
+	v.content.Append(heading)
+	v.headings[id] = heading
+	for _, c := range cards {
+		v.content.Append(c)
 	}
-	// Activated, not selected: the list's own mark moves as the page scrolls,
-	// and a selection that scrolls the page would answer that by scrolling it.
-	v.nav.ConnectRowActivated(func(row *gtk.ListBoxRow) {
-		if i := row.Index(); i >= 0 && i < len(v.sections) {
-			v.goTo(v.sections[i].id, true)
-		}
-	})
-
-	// A fixed 170px: set to expand, the list passed that on to its box and
-	// took half the dialog, squeezing the settings into what was left.
-	box := gtk.NewBox(gtk.OrientationHorizontal, 0)
-	box.SetSizeRequest(170, -1)
-	box.SetHExpand(false)
-	v.nav.SetHExpand(true)
-	box.Append(v.nav)
-	box.Append(gtk.NewSeparator(gtk.OrientationVertical))
-	return box
 }
 
-// section finds one by id.
-func (v *settingsView) section(id string) *settingsSection {
-	for _, s := range v.sections {
-		if s.id == id {
-			return s
+// settingsCard is one card on the page: its rows joined on one surface.
+func settingsCard(rows ...gtk.Widgetter) *gtk.ListBox {
+	lb := gtk.NewListBox()
+	lb.SetSelectionMode(gtk.SelectionNone)
+	lb.AddCSSClass("boxed-list")
+	lb.AddCSSClass("settings-card")
+	for _, r := range rows {
+		lb.Append(r)
+	}
+	return lb
+}
+
+// withIcon makes row the first row of a card: its icon at the start, and a
+// taller row for a setting's title and description.
+func withIcon(row *adw.ActionRow, icon string) {
+	img := gtk.NewImageFromIconName(icon)
+	img.SetPixelSize(settingIconSize)
+	img.SetMarginStart(settingIconStart)
+	img.SetMarginEnd(settingIconEnd)
+	row.AddPrefix(img)
+	row.AddCSSClass("setting")
+}
+
+// indented makes row one that belongs to the row above it: no icon, and its
+// title lined up with that row's.
+func indented(row *adw.ActionRow) {
+	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	spacer.SetSizeRequest(settingIconSize, -1)
+	spacer.SetMarginStart(settingIconStart)
+	spacer.SetMarginEnd(settingIconEnd)
+	row.AddPrefix(spacer)
+}
+
+// blockRow holds something that is not a row, such as the theme circles or a
+// prompt's text, beneath a card's first row, starting where its title does.
+func blockRow(child gtk.Widgetter) *gtk.ListBoxRow {
+	row := gtk.NewListBoxRow()
+	row.SetActivatable(false)
+	// The row is only a frame. Whatever is inside it takes focus; the row
+	// itself would be one more stop on the way there.
+	row.SetFocusable(false)
+	w := gtk.BaseWidget(child)
+	w.SetMarginStart(settingIndent)
+	w.SetMarginEnd(12)
+	w.SetMarginTop(6)
+	w.SetMarginBottom(12)
+	row.SetChild(child)
+	return row
+}
+
+// headRow is a card's first row, with nothing at its end yet.
+func headRow(icon, title, subtitle string) *adw.ActionRow {
+	row := adw.NewActionRow()
+	row.SetUseMarkup(false) // before the text: a path may hold an ampersand
+	row.SetTitle(title)
+	row.SetSubtitle(subtitle)
+	withIcon(row, icon)
+	return row
+}
+
+// switchRow is a switch that applies the moment it is flipped.
+func switchRow(icon, title, subtitle string, on bool, apply func(on bool)) *adw.SwitchRow {
+	row := adw.NewSwitchRow()
+	row.SetUseMarkup(false)
+	row.SetTitle(title)
+	row.SetSubtitle(subtitle)
+	withIcon(&row.ActionRow, icon)
+	row.SetActive(on)
+	row.NotifyProperty("active", func() { apply(row.Active()) })
+	return row
+}
+
+// comboRow is a dropdown that applies the moment something else is chosen. The
+// handler is connected after the model and selection are set, which would
+// otherwise each count as a choice.
+func comboRow(icon, title, subtitle string, labels []string, selected int, apply func(i int)) *adw.ComboRow {
+	row := adw.NewComboRow()
+	row.SetUseMarkup(false)
+	row.SetTitle(title)
+	row.SetSubtitle(subtitle)
+	withIcon(&row.ActionRow, icon)
+	row.SetModel(gtk.NewStringList(labels))
+	row.SetSelected(uint(selected))
+	row.NotifyProperty("selected", func() { apply(int(row.Selected())) })
+	return row
+}
+
+// textField is a text setting's entry. It applies itself on Enter and when focus
+// leaves it; apply stores the trimmed text and returns what was stored, which
+// the entry then shows: an emptied name comes back as the default, rather than
+// staying blank while the default is what is used. Anything still pending when
+// the page is left is applied then.
+func (v *settingsView) textField(value string, apply func(text string) string) *gtk.Entry {
+	e := gtk.NewEntry()
+	e.SetText(value)
+	e.SetWidthChars(settingTextWidth)
+	e.SetVAlign(gtk.AlignCenter)
+	applied := value
+	commit := func() {
+		if e.Text() == applied {
+			return
+		}
+		applied = apply(strings.TrimSpace(e.Text()))
+		if e.Text() != applied {
+			e.SetText(applied)
 		}
 	}
-	return nil
+	e.ConnectActivate(commit)
+	focus := gtk.NewEventControllerFocus()
+	focus.ConnectLeave(commit)
+	e.AddController(focus)
+	v.commits = append(v.commits, commit)
+	return e
 }
+
+// textRow is a text setting beneath a card's first row: its title and
+// description, and the field at the end, with anything in before just ahead of
+// it.
+func (v *settingsView) textRow(title, desc, value string, apply func(text string) string,
+	before ...gtk.Widgetter) *adw.ActionRow {
+	row := adw.NewActionRow()
+	row.SetUseMarkup(false)
+	row.SetTitle(title)
+	row.SetSubtitle(desc)
+	indented(row)
+	for _, w := range before {
+		row.AddSuffix(w)
+	}
+	field := v.textField(value, apply)
+	row.AddSuffix(field)
+	// A click anywhere on the row puts the cursor in the field.
+	row.SetActivatableWidget(field)
+	return row
+}
+
+// promptField is a multi-line text field in a frame of its own. It grows with
+// its text up to three times its smallest height, and scrolls after that.
+func promptField(text string, minHeight int) (*gtk.TextView, *gtk.ScrolledWindow) {
+	tv := gtk.NewTextView()
+	tv.SetWrapMode(gtk.WrapWordChar)
+	tv.SetLeftMargin(8)
+	tv.SetRightMargin(8)
+	tv.SetTopMargin(8)
+	tv.SetBottomMargin(8)
+	tv.Buffer().SetText(text)
+
+	scroll := gtk.NewScrolledWindow()
+	scroll.SetChild(tv)
+	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	scroll.SetMinContentHeight(minHeight)
+	scroll.SetMaxContentHeight(minHeight * 3)
+	scroll.SetPropagateNaturalHeight(true)
+	scroll.AddCSSClass("settings-field")
+	return tv, scroll
+}
+
+// flushOnLeave applies a pending change when focus leaves a field, so clicking
+// away from it is as good as waiting.
+func flushOnLeave(w gtk.Widgetter, d *debouncer) {
+	fc := gtk.NewEventControllerFocus()
+	fc.ConnectLeave(d.Flush)
+	gtk.BaseWidget(w).AddController(fc)
+}
+
+func textViewText(tv *gtk.TextView) string {
+	b := tv.Buffer()
+	start, end := b.Bounds()
+	return b.Text(start, end, true)
+}
+
+// ---- Scrolling to a section -------------------------------------------------
 
 // goTo scrolls to a section, or to the top for an unknown or empty id.
 func (v *settingsView) goTo(id string, animate bool) {
-	s := v.section(id)
-	if s == nil {
-		if v.scroll != nil {
-			v.scrollTo(0, animate)
+	y := 0.0
+	if h := v.headings[id]; h != nil {
+		rect, ok := h.ComputeBounds(v.content)
+		if !ok {
+			return
 		}
-		return
+		y = float64(rect.Y()) - 8
 	}
-	rect, ok := s.box.ComputeBounds(v.content)
-	if !ok {
-		return
-	}
-	adj := v.scroll.VAdjustment()
-	v.scrollTo(clampScroll(float64(rect.Y())-settingsPageMargin, adj.Upper(), adj.PageSize()), animate)
-	if s.navRow != nil {
-		v.nav.SelectRow(s.navRow)
-	}
+	adj := v.root.VAdjustment()
+	v.scrollTo(clampScroll(y, adj.Upper(), adj.PageSize()), animate)
 }
 
 // scrollTo moves the page to y, gently, unless the person has asked their
 // desktop for no animation, which adw honours by jumping.
 func (v *settingsView) scrollTo(y float64, animate bool) {
-	adj := v.scroll.VAdjustment()
-	if v.anim != nil && v.scrolling {
-		v.anim.Skip() // an earlier one still running is finished, not left fighting this one
+	adj := v.root.VAdjustment()
+	if v.anim != nil {
+		anim := v.anim
+		v.anim = nil
+		anim.Skip() // an earlier one still running is finished, not left fighting this one
 	}
-	v.anim = nil
 	from := adj.Value()
 	if !animate || from == y {
-		v.scrolling = false
 		adj.SetValue(y)
 		return
 	}
-	v.scrolling = true
 	target := adw.NewCallbackAnimationTarget(func(x float64) { adj.SetValue(x) })
-	anim := adw.NewTimedAnimation(v.scroll, from, y, 220, target)
+	anim := adw.NewTimedAnimation(v.root, from, y, 260, target)
 	anim.SetEasing(adw.EaseOutCubic)
 	anim.ConnectDone(func() {
-		v.scrolling = false
-		v.syncNav()
+		if v.anim == anim {
+			v.anim = nil
+		}
 	})
 	v.anim = anim
 	anim.Play()
 }
 
-// scrollWhenReady is goTo for a dialog that has only just been presented,
-// where nothing has a size yet. It waits for the page to be laid out, and
-// scrolls again a moment later because the text fields settle after the rest.
+// scrollWhenReady is goTo for a page that has only just been shown, where
+// nothing has a size yet. It waits for the page to be laid out, and scrolls
+// again a moment later because the text fields settle after the rest.
 func (v *settingsView) scrollWhenReady(id string) {
 	tries := 0
 	coreglib.TimeoutAdd(60, func() bool {
+		if v.a.settings != v {
+			return false // replaced by a newer copy of the page
+		}
 		tries++
-		adj := v.scroll.VAdjustment()
+		adj := v.root.VAdjustment()
 		if adj.Upper() <= adj.PageSize() && tries < 40 {
 			return true
 		}
 		v.goTo(id, false)
 		coreglib.TimeoutAdd(300, func() bool {
-			v.goTo(id, false)
+			if v.a.settings == v {
+				v.goTo(id, false)
+			}
 			return false
 		})
 		return false
 	})
 }
 
-// syncNav marks in the list the section the page is scrolled to.
-func (v *settingsView) syncNav() {
-	tops := make([]float64, len(v.sections))
-	shown := make([]bool, len(v.sections))
-	for i, s := range v.sections {
-		shown[i] = s.box.Visible()
-		if r, ok := s.box.ComputeBounds(v.content); ok {
-			tops[i] = float64(r.Y()) - settingsPageMargin
-		}
-	}
-	adj := v.scroll.VAdjustment()
-	if i := activeSection(tops, shown, adj.Value(), adj.PageSize(), adj.Upper()); i >= 0 {
-		if row := v.sections[i].navRow; row != nil && !row.IsSelected() {
-			v.nav.SelectRow(row)
-		}
-	}
-}
-
-// filter hides the rows a search rules out, then the groups and sections it
-// has emptied. A group's title and its section's count as words of every row in
-// them, so searching "assistant" shows the whole of that section.
-func (v *settingsView) filter(query string) {
-	anyShown := false
-	for _, s := range v.sections {
-		sectionShown := false
-		for _, g := range s.groups {
-			groupShown := false
-			for _, it := range g.items {
-				ok := matchesSearch(query, s.title, g.title, g.desc, it.text())
-				gtk.BaseWidget(it.w).SetVisible(ok)
-				groupShown = groupShown || ok
-			}
-			g.box.SetVisible(groupShown)
-			sectionShown = sectionShown || groupShown
-		}
-		s.box.SetVisible(sectionShown)
-		s.navRow.SetVisible(sectionShown)
-		anyShown = anyShown || sectionShown
-	}
-	v.empty.SetVisible(!anyShown)
-	v.scroll.VAdjustment().SetValue(0)
-	// The list's mark follows the page, which has just changed shape.
-	coreglib.IdleAdd(func() bool {
-		v.syncNav()
-		return false
-	})
-}
-
 // ---- Appearance -------------------------------------------------------------
 
-func (v *settingsView) buildAppearance() {
-	a := v.a
-	s := v.newSection(sectionAppearance, "Appearance")
-
-	v.themePicker(s.addGroup("Theme", ""))
-
-	g := s.addGroup("", "")
-
-	// True translucency, where the desktop can show it. Elsewhere the choice
-	// stays, greyed, with the reason beside it, and the saved level is kept for
-	// a desktop that can.
-	glassSub := "Lets the desktop show through the window's frame and page. Text stays solid."
-	ok, why := TransparencyAvailable()
-	if !ok {
-		glassSub = why
-	}
-	glass := comboRow("Window transparency", glassSub, transparencyLabels,
-		transparencyIndex(a.cfg.WindowTransparency), func(i int) {
-			if i < 0 || i >= len(storage.TransparencyLevels) {
-				return
-			}
-			a.cfg.WindowTransparency = storage.TransparencyLevels[i]
-			a.applyTransparency()
-			v.changed()
-		})
-	glass.SetSensitive(ok)
-	g.addRow(glass, "Window transparency", glassSub)
-
-	// Text rendering: the right choice depends on the screen, so it is a
-	// setting rather than a guess. See internal/app/fonts.go.
-	// The choices are one word each: the combo shows the chosen one beside the
-	// row's title, and the longer names were cut off there. What each is for
-	// is in the subtitle instead.
-	fontSub := "Automatic picks per screen; Crisp suits 1080p screens and Smooth " +
-		"suits HiDPI ones. Takes effect on the next launch."
-	fonts := comboRow("Text rendering", fontSub, []string{
-		"Automatic",
-		"Crisp",
-		"Smooth",
-	}, fontModeIndex(a.cfg.FontRendering), func(i int) {
-		if i < 0 || i >= len(fontRenderingModes) {
-			return
-		}
-		a.cfg.FontRendering = fontRenderingModes[i]
-		v.changed()
-	})
-	g.addRow(fonts, "Text rendering", fontSub+" crisp smooth font")
-
-	barSub := "Shows what the editor understands above each note. " +
-		"Every command it offers also has a keyboard shortcut."
-	bar := switchRow("Formatting toolbar", barSub, a.cfg.ShowFormatBar, func(on bool) {
-		a.cfg.ShowFormatBar = on
-		a.applyFormatBarVisibility()
-		v.changed()
-	})
-	g.addRow(bar, "Formatting toolbar", barSub)
-
-	introSub := "Plays the Atlas logo for a moment when Atlas Notes opens. " +
-		"A click or any key skips it."
-	intro := switchRow("Intro at startup", introSub, a.cfg.ShowIntro, func(on bool) {
-		a.cfg.ShowIntro = on
-		v.changed()
-	})
-	g.addRow(intro, "Intro at startup", introSub+" animation splash logo")
-}
-
-// themePicker is the ten circles, as in Atlas Monitor: a colour is chosen by
-// looking at it, and a list of names makes you pick one to find out what it is.
-// Each circle is split between the window's background and its accent, since a
-// theme is those two decisions.
+// themeCard is the colour theme: one circle per theme, split between the
+// window's background and its accent, since a theme is those two decisions.
+// A colour is chosen by looking at it; a list of names would make you pick one
+// to find out what it is.
 //
 // There is no circle for following the desktop. It is where the app starts and
-// it is not a palette, so it is a quiet button under them, marked while it is
-// what is chosen.
-func (v *settingsView) themePicker(g *settingsGroup) {
+// it is not a palette, so it is the button at the end of the row, which stays
+// pressed while it is the choice.
+func (v *settingsView) themeCard() *gtk.ListBox {
 	a := v.a
-	g.box.SetDescription(themeDescription(a.cfg.Theme))
+	head := headRow("atlasnotes-theme-symbolic", "Theme", "")
 
-	// Two rows of five rather than one of ten: ten circles and their names are
-	// wider than the dialog can be at its narrowest, and a FlowBox wraps to
-	// fewer per line there instead of clipping.
-	flow := gtk.NewFlowBox()
-	flow.SetSelectionMode(gtk.SelectionNone)
-	flow.SetActivateOnSingleClick(false)
-	flow.SetMaxChildrenPerLine(5)
-	flow.SetMinChildrenPerLine(1)
-	flow.SetHomogeneous(true)
-	flow.SetColumnSpacing(18)
-	flow.SetRowSpacing(12)
-	flow.SetHAlign(gtk.AlignCenter)
-	flow.SetMarginTop(6)
-	flow.SetMarginBottom(6)
+	system := gtk.NewToggleButtonWithLabel("Use system setting")
+	system.SetVAlign(gtk.AlignCenter)
+	system.AddCSSClass("settings-choice")
+	system.SetTooltipText("Use the desktop's light or dark setting")
+	head.AddSuffix(system)
 
-	follow := gtk.NewToggleButton()
-	follow.SetLabel("Follow the desktop")
-	follow.SetHAlign(gtk.AlignCenter)
-	follow.AddCSSClass("flat")
-	follow.AddCSSClass("atlas-quiet-button")
-	follow.SetTooltipText("Use the desktop's light or dark setting, as Atlas Notes did before themes")
+	// The circles in two halves, side by side where they fit and one above the
+	// other where they do not: a line of ten, or two of five. Wrapping the ten
+	// one by one would leave whatever did not fit alone on a second line.
+	circles := gtk.NewFlowBox()
+	circles.SetSelectionMode(gtk.SelectionNone)
+	circles.SetActivateOnSingleClick(false)
+	circles.SetMaxChildrenPerLine(2)
+	circles.SetMinChildrenPerLine(1)
+	circles.SetHomogeneous(true)
+	circles.SetColumnSpacing(18)
+	circles.SetRowSpacing(12)
+	circles.SetHAlign(gtk.AlignStart)
+	perHalf := (len(theme.Themes) + 1) / 2
+	var halves [2]*gtk.Box
+	for i := range halves {
+		halves[i] = gtk.NewBox(gtk.OrientationHorizontal, 18)
+		halves[i].SetHomogeneous(true)
+		circles.Append(halves[i])
+		// The FlowBox wraps each half in a child that takes focus, which would
+		// put a stop that does nothing in front of the circles.
+		if child := circles.ChildAtIndex(i); child != nil {
+			child.SetFocusable(false)
+		}
+	}
 
 	// Every circle is held so that choosing one can clear the others. A
 	// GtkCheckButton group would do that itself, but its indicator cannot be
@@ -784,9 +721,9 @@ func (v *settingsView) themePicker(g *settingsGroup) {
 		for i, b := range swatches {
 			b.SetActive(!following && theme.Themes[i].ID == a.cfg.Theme)
 		}
-		follow.SetActive(following)
+		system.SetActive(following)
 		syncing = false
-		g.box.SetDescription(themeDescription(a.cfg.Theme))
+		head.SetSubtitle(themeDescription(a.cfg.Theme))
 	}
 	choose := func(id string) {
 		if a.cfg.Theme == id {
@@ -797,12 +734,16 @@ func (v *settingsView) themePicker(g *settingsGroup) {
 		sync()
 		v.changed()
 	}
+	// keep puts back a toggle clicked while already chosen: turning it off
+	// would leave nothing chosen.
+	keep := func(b *gtk.ToggleButton) {
+		syncing = true
+		b.SetActive(true)
+		syncing = false
+	}
 
-	words := []string{"theme colour color palette dark light"}
 	for _, t := range theme.Themes {
 		t := t
-		words = append(words, t.Name, t.Summary)
-
 		sw := gtk.NewToggleButton()
 		// Centred, not filled: a button fills its cell, and the cell is as wide
 		// as the name under it, so every longer name drew an oval.
@@ -820,120 +761,178 @@ func (v *settingsView) themePicker(g *settingsGroup) {
 		name.AddCSSClass("caption")
 
 		cell := gtk.NewBox(gtk.OrientationVertical, 6)
-		cell.SetHAlign(gtk.AlignCenter)
 		cell.Append(sw)
 		cell.Append(name)
-		flow.Append(cell)
-		// The FlowBox wraps each cell in a child that takes focus, which would
-		// put two tab stops in front of every circle. Only the button should.
-		if child := flow.ChildAtIndex(len(swatches)); child != nil {
-			child.SetFocusable(false)
-		}
+		halves[min(len(swatches)/perHalf, 1)].Append(cell)
 
 		sw.ConnectToggled(func() {
 			if syncing {
 				return
 			}
 			if !sw.Active() {
-				// Clicking the chosen one again would turn it off and leave
-				// nothing chosen. It stays chosen.
-				sw.SetActive(true)
+				keep(sw)
 				return
 			}
 			choose(t.ID)
 		})
 		swatches = append(swatches, sw)
 	}
-	follow.ConnectToggled(func() {
+	system.ConnectToggled(func() {
 		if syncing {
 			return
 		}
-		if !follow.Active() {
-			follow.SetActive(true)
+		if !system.Active() {
+			keep(system)
 			return
 		}
 		choose(theme.Follow)
 	})
 
-	// A box of its own, because a group puts its rows above its other content
-	// and a bare widget added to it would land wherever that leaves it.
-	box := gtk.NewBox(gtk.OrientationVertical, 4)
-	box.Append(flow)
-	box.Append(follow)
-	joined := strings.Join(words, "\n")
-	g.addItem(box, func() string { return joined })
 	sync()
+	return settingsCard(head, blockRow(circles))
+}
+
+// transparencyCard is true translucency, where the desktop can show it.
+// Elsewhere the choice stays, greyed, with the reason as its line, and the
+// saved level is kept for a desktop that can.
+func (v *settingsView) transparencyCard() *gtk.ListBox {
+	a := v.a
+	sub := "Lets the desktop show through the window. Text stays solid"
+	ok, why := TransparencyAvailable()
+	if !ok {
+		sub = why
+	}
+	row := comboRow("atlasnotes-opacity-symbolic", "Window transparency", sub, transparencyLabels,
+		transparencyIndex(a.cfg.WindowTransparency), func(i int) {
+			if i < 0 || i >= len(storage.TransparencyLevels) {
+				return
+			}
+			a.cfg.WindowTransparency = storage.TransparencyLevels[i]
+			a.applyTransparency()
+			v.changed()
+		})
+	row.SetSensitive(ok)
+	return settingsCard(row)
+}
+
+// fontRow is how text is drawn. The right choice depends on the screen, so it
+// is a setting rather than a guess; see fonts.go.
+func (v *settingsView) fontRow() *adw.ComboRow {
+	a := v.a
+	return comboRow("atlasnotes-text-symbolic", "Text rendering",
+		"Crisp suits 1080p screens, Smooth suits HiDPI ones. Applies on the next launch",
+		[]string{"Automatic", "Crisp", "Smooth"}, fontModeIndex(a.cfg.FontRendering), func(i int) {
+			if i < 0 || i >= len(fontRenderingModes) {
+				return
+			}
+			a.cfg.FontRendering = fontRenderingModes[i]
+			v.changed()
+		})
+}
+
+func (v *settingsView) formatBarRow() *adw.SwitchRow {
+	a := v.a
+	return switchRow("atlasnotes-toolbar-symbolic", "Formatting toolbar",
+		"The formatting buttons above each note. Each has a keyboard shortcut too",
+		a.cfg.ShowFormatBar, func(on bool) {
+			a.cfg.ShowFormatBar = on
+			a.applyFormatBarVisibility()
+			v.changed()
+		})
+}
+
+func (v *settingsView) introRow() *adw.SwitchRow {
+	a := v.a
+	return switchRow("atlasnotes-startup-symbolic", "Intro at startup",
+		"Plays the Atlas logo when Atlas Notes opens. A click or any key skips it",
+		a.cfg.ShowIntro, func(on bool) {
+			a.cfg.ShowIntro = on
+			v.changed()
+		})
 }
 
 // ---- Notes ------------------------------------------------------------------
 
-func (v *settingsView) buildNotes() {
+// noteFormatRow is how notes are stored. The format belongs to the vault, not
+// to this machine: it is saved in the vault, so every device that syncs it
+// writes notes the same way. Protected notes stay encrypted in any of them.
+func (v *settingsView) noteFormatRow() *adw.ComboRow {
 	a := v.a
-	s := v.newSection(sectionNotes, "Notes")
-	g := s.addGroup("", "")
-
-	// The format belongs to the vault, not to this machine: it is saved in the
-	// vault, so every device that syncs it writes notes the same way.
-	formatSub := "Plain Markdown opens in any app, and is what most sync " +
-		"and backup tools expect. The others take less space. Changing this converts " +
-		"every note in the vault; protected notes stay encrypted either way."
 	selected := 0
 	if a.store != nil {
 		selected = noteFormatIndex(a.store.Compression())
 	}
-	format := comboRow("Note files", formatSub, noteFormatLabels, selected, func(i int) {
-		if a.store != nil && i >= 0 && i < len(noteFormats) {
+	var row *adw.ComboRow
+	putting := false
+	row = comboRow("atlasnotes-file-format-symbolic", "Note files",
+		"Markdown opens in any app; the others take less space. Changing it converts every note",
+		noteFormatLabels, selected, func(i int) {
+			if putting || a.store == nil || i < 0 || i >= len(noteFormats) {
+				return
+			}
 			a.changeNoteFormat(noteFormats[i])
-		}
-	})
-	format.SetSensitive(a.store != nil)
-	g.addRow(format, "Note files", formatSub+" markdown compression zstd gzip xz")
+			// A change the vault refused leaves the format as it was, and the
+			// row says so rather than showing the one that never applied.
+			if now := noteFormatIndex(a.store.Compression()); now != i {
+				putting = true
+				row.SetSelected(uint(now))
+				putting = false
+			}
+		})
+	row.SetSensitive(a.store != nil)
+	return row
+}
 
-	remindSub := "Notify me about checklist items that are due today or overdue"
-	remind := switchRow("Reminders", remindSub, a.cfg.DueReminders, func(on bool) {
-		a.cfg.DueReminders = on
-		v.changed()
-	})
-	g.addRow(remind, "Reminders", remindSub)
+func (v *settingsView) remindersRow() *adw.SwitchRow {
+	a := v.a
+	return switchRow("atlasnotes-alarm-symbolic", "Reminders",
+		"Notify me about checklist items due today or overdue",
+		a.cfg.DueReminders, func(on bool) {
+			a.cfg.DueReminders = on
+			v.changed()
+		})
+}
 
-	hoverSub := "Show a 1-sentence AI summary when you hover a note"
-	hover := switchRow("Hover previews", hoverSub, a.cfg.EnableTreeSummaries, func(on bool) {
-		a.cfg.EnableTreeSummaries = on
-		if a.tree != nil {
-			a.tree.SetSummariesEnabled(on)
-		}
-		v.changed()
-	})
-	g.addRow(hover, "Hover previews", hoverSub)
+func (v *settingsView) hoverRow() *adw.SwitchRow {
+	a := v.a
+	return switchRow("atlasnotes-summarize-symbolic", "Hover previews",
+		"A one-sentence AI summary when you hover a note in the vault panel",
+		a.cfg.EnableTreeSummaries, func(on bool) {
+			a.cfg.EnableTreeSummaries = on
+			if a.tree != nil {
+				a.tree.SetSummariesEnabled(on)
+			}
+			v.changed()
+		})
+}
 
-	// The one setting here that needs a dialog of its own: it asks for the old
-	// password, then the new one, and nothing on this page could hold that.
-	lockSub := "Right-click a note or folder in the vault panel to protect it. " +
-		"One password covers everything you protect."
-	lock := adw.NewActionRow()
-	lock.SetTitle("Password protection")
-	lock.SetSubtitle(lockSub)
-	lock.SetUseMarkup(false)
-	change := gtk.NewButtonWithLabel("Change Password…")
+// passwordRow is the one setting that needs a dialog of its own: it asks for
+// the old password, then the new one, and nothing on this page could hold
+// that.
+func (v *settingsView) passwordRow() *adw.ActionRow {
+	a := v.a
+	row := headRow("atlasnotes-lock-symbolic", "Password protection",
+		"One password covers everything you protect. Right-click a note or folder to protect it")
+	change := gtk.NewButtonWithLabel("Change password…")
 	change.SetVAlign(gtk.AlignCenter)
 	change.SetSensitive(a.store != nil && a.store.HasPassword())
 	if !change.Sensitive() {
-		change.SetTooltipText("No password has been set yet.")
+		change.SetTooltipText("No password has been set yet")
 	}
 	change.ConnectClicked(a.promptChangePassword)
-	lock.AddSuffix(change)
-	g.addRow(lock, "Password protection", lockSub+" change password")
+	row.AddSuffix(change)
+	return row
 }
 
 // ---- Assistant --------------------------------------------------------------
 
-func (v *settingsView) buildAssistant() {
+// assistantCard is what the assistant is called, with the model that answers
+// beneath it.
+func (v *settingsView) assistantCard() *gtk.ListBox {
 	a := v.a
-	s := v.newSection(sectionAssistant, "Assistant")
-
-	names := s.addGroup("", "What the assistant is called in the side panel, and the Ollama model that answers.")
-	name := v.entryRow("Assistant name", a.cfg.AssistantName, func(text string) string {
-		text = strings.TrimSpace(text)
+	head := headRow("atlasnotes-assistant-symbolic", "Assistant name",
+		"What the assistant is called in the side panel")
+	name := v.textField(a.cfg.AssistantName, func(text string) string {
 		if text == "" {
 			text = storage.DefaultAssistantName
 		}
@@ -944,9 +943,15 @@ func (v *settingsView) buildAssistant() {
 		v.changed()
 		return text
 	})
-	names.addRow(name, "Assistant name", "")
-	model := v.entryRow("Ollama model", a.cfg.Model, func(text string) string {
-		text = strings.TrimSpace(text)
+	head.AddSuffix(name)
+	head.SetActivatableWidget(name)
+
+	// The link goes before the field rather than after it, so that the fields'
+	// right-hand edges still line up down the card.
+	browse := gtk.NewLinkButtonWithLabel("https://ollama.com/library", "Browse models")
+	browse.SetVAlign(gtk.AlignCenter)
+	browse.SetTooltipText("The models Ollama can pull, on ollama.com")
+	model := v.textRow("Model", "Any model Ollama has pulled", a.cfg.Model, func(text string) string {
 		if text == "" {
 			text = storage.DefaultModel
 		}
@@ -959,32 +964,22 @@ func (v *settingsView) buildAssistant() {
 		}
 		v.changed()
 		return text
-	})
-	names.addRow(model, "Ollama model", "")
+	}, browse)
 
-	v.systemPrompt(s.addGroup("System prompt", "The standing instructions the assistant is given with every request."))
-	v.shortcuts(s.addGroup("Prompt shortcuts", "{content} = note text   ·   {items} = checklist (Sort mode)"))
+	return settingsCard(head, model)
 }
 
-// systemPrompt is the prompt's field and the way back to the default.
-func (v *settingsView) systemPrompt(g *settingsGroup) {
+// promptCard is the system prompt, in full, with the button that puts back
+// the one Atlas Notes ships with.
+func (v *settingsView) promptCard() *gtk.ListBox {
 	a := v.a
-	field, frame := multilineField(a.cfg.SystemPrompt, 6)
-	frame.SetMarginTop(12)
-	frame.SetMarginBottom(12)
-	frame.SetMarginStart(12)
-	frame.SetMarginEnd(12)
-	// In a row of its own, so it sits above the reset button; a bare widget
-	// added to a group goes below every row in it.
-	holder := gtk.NewListBoxRow()
-	holder.SetActivatable(false)
-	holder.SetSelectable(false)
-	holder.SetChild(frame)
-	g.addItem(holder, func() string { return "system prompt instructions " + textViewText(field) })
+	head := headRow("atlasnotes-sparkle-symbolic", "System prompt",
+		"The standing instructions the assistant is given with every request")
+	field, frame := promptField(a.cfg.SystemPrompt, settingPromptHeight)
 
-	reset := adw.NewButtonRow()
-	reset.SetTitle("Reset to default")
-	g.addRow(reset, "Reset to default", "system prompt")
+	reset := gtk.NewButtonWithLabel("Reset to default")
+	reset.SetVAlign(gtk.AlignCenter)
+	head.AddSuffix(reset)
 	dimReset := func() {
 		reset.SetSensitive(strings.TrimSpace(textViewText(field)) != storage.DefaultSystemPrompt)
 	}
@@ -1002,58 +997,47 @@ func (v *settingsView) systemPrompt(g *settingsGroup) {
 		v.sysTyping.Trigger()
 	})
 	flushOnLeave(field, v.sysTyping)
-	reset.ConnectActivated(func() {
+	reset.ConnectClicked(func() {
 		field.Buffer().SetText(storage.DefaultSystemPrompt)
 		v.sysTyping.Flush()
 	})
+	return settingsCard(head, blockRow(frame))
 }
 
-// shortcuts lists every prompt shortcut as a card in the page itself, with the
-// way to add one.
-func (v *settingsView) shortcuts(g *settingsGroup) {
-	v.cardList = gtk.NewBox(gtk.OrientationVertical, 10)
-	for _, act := range v.a.cfg.Actions {
-		v.addCard(act)
-	}
+// shortcutsCard lists every prompt shortcut beneath its heading, each editable
+// in place, with the way to add one at the heading's end.
+func (v *settingsView) shortcutsCard() *gtk.ListBox {
+	head := headRow("atlasnotes-prompts-symbolic", "Prompt shortcuts",
+		"One click in the assistant panel. {content} is the note's text, {items} its checklist")
 
 	addContent := adw.NewButtonContent()
 	addContent.SetIconName("atlasnotes-add-symbolic")
-	addContent.SetLabel("Add shortcut")
+	addContent.SetLabel("Add")
 	add := gtk.NewButton()
 	add.SetChild(addContent)
-	add.SetHAlign(gtk.AlignStart)
+	add.SetVAlign(gtk.AlignCenter)
+	add.SetTooltipText("Add a prompt shortcut")
+	head.AddSuffix(add)
+
+	v.shortcuts = settingsCard(head)
+	for _, act := range v.a.cfg.Actions {
+		v.addShortcut(act)
+	}
 	add.ConnectClicked(func() {
-		c := v.addCard(storage.AIAction{Name: "New shortcut", Mode: storage.ActionModeShow, Prompt: "{content}"})
+		c := v.addShortcut(storage.AIAction{Name: "New shortcut", Mode: storage.ActionModeShow, Prompt: "{content}"})
 		v.syncActions()
 		c.name.GrabFocus()
 		c.name.SelectRegion(0, -1)
 	})
-
-	// One box for the cards and the button, so their order is not the group's
-	// to decide.
-	holder := gtk.NewBox(gtk.OrientationVertical, 12)
-	holder.Append(v.cardList)
-	holder.Append(add)
-	g.addItem(holder, func() string {
-		var b strings.Builder
-		b.WriteString("shortcuts actions prompts add")
-		for _, c := range v.cards {
-			b.WriteString("\n" + c.name.Text() + "\n" + textViewText(c.prompt))
-		}
-		return b.String()
-	})
+	return v.shortcuts
 }
 
-// addCard builds a shortcut's card and puts it at the end of the list. Its
-// name is applied after a pause in typing, on Enter, or on leaving it; there is
-// no apply button on a plain entry to wait for.
-func (v *settingsView) addCard(act storage.AIAction) *shortcutCard {
+// addShortcut puts a shortcut at the end of the card: its name, what it does
+// with the answer, the way to remove it, and its prompt beneath. Its name and
+// prompt are applied after a pause in typing, or on leaving them.
+func (v *settingsView) addShortcut(act storage.AIAction) *shortcutCard {
 	c := &shortcutCard{}
-	c.root = gtk.NewBox(gtk.OrientationVertical, 8)
-	c.root.AddCSSClass("card")
-	c.root.AddCSSClass("atlas-shortcut")
 
-	top := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	c.name = gtk.NewEntry()
 	c.name.SetHExpand(true)
 	c.name.SetPlaceholderText("Shortcut name")
@@ -1061,18 +1045,25 @@ func (v *settingsView) addCard(act storage.AIAction) *shortcutCard {
 	c.mode = gtk.NewDropDownFromStrings(modeLabels)
 	c.mode.SetSelected(modeIndex(act.Mode))
 	c.mode.SetVAlign(gtk.AlignCenter)
+	c.mode.SetTooltipText("What happens to the answer")
 	remove := gtk.NewButtonFromIconName("atlasnotes-trash-symbolic")
 	remove.AddCSSClass("flat")
 	remove.SetVAlign(gtk.AlignCenter)
 	remove.SetTooltipText("Remove shortcut")
+
+	top := gtk.NewBox(gtk.OrientationHorizontal, 8)
 	top.Append(c.name)
 	top.Append(c.mode)
 	top.Append(remove)
-	c.root.Append(top)
 
-	var frame *gtk.Frame
-	c.prompt, frame = multilineField(act.Prompt, 3)
-	c.root.Append(frame)
+	var frame *gtk.ScrolledWindow
+	c.prompt, frame = promptField(act.Prompt, 64)
+
+	box := gtk.NewBox(gtk.OrientationVertical, 8)
+	box.Append(top)
+	box.Append(frame)
+	c.row = blockRow(box)
+	box.SetMarginTop(10)
 
 	c.name.ConnectChanged(v.typing.Trigger)
 	c.name.ConnectActivate(v.typing.Flush)
@@ -1081,7 +1072,7 @@ func (v *settingsView) addCard(act storage.AIAction) *shortcutCard {
 	flushOnLeave(c.prompt, v.typing)
 	c.mode.NotifyProperty("selected", v.syncActions)
 	remove.ConnectClicked(func() {
-		v.cardList.Remove(c.root)
+		v.shortcuts.Remove(c.row)
 		kept := v.cards[:0]
 		for _, x := range v.cards {
 			if x != c {
@@ -1093,13 +1084,12 @@ func (v *settingsView) addCard(act storage.AIAction) *shortcutCard {
 	})
 
 	v.cards = append(v.cards, c)
-	v.cardList.Append(c.root)
+	v.shortcuts.Append(c.row)
 	return c
 }
 
-// syncActions makes the config's shortcuts what the cards say. A card with no
-// name is left out, as it was when Save read them, but it stays on the page so
-// its name can be typed.
+// syncActions makes the config's shortcuts what the page says. One with no
+// name is left out, but it stays on the page so its name can be typed.
 func (v *settingsView) syncActions() {
 	var actions []storage.AIAction
 	for _, c := range v.cards {
@@ -1122,69 +1112,95 @@ func (v *settingsView) syncActions() {
 
 // ---- Updates ----------------------------------------------------------------
 
-func (v *settingsView) buildUpdates() {
+// updateCards are the version with its Update button, the channel it follows,
+// and whether it checks by itself.
+func (v *settingsView) updateCards() []gtk.Widgetter {
 	a := v.a
-	s := v.newSection(sectionUpdates, "Updates")
-	g := s.addGroup("", "Automatically check and install updates from GitHub.")
+	status := headRow("atlasnotes-update-symbolic", "Atlas Notes "+version, updateStatusLine(a.cfg.UpdateChannel))
+	status.SetSubtitleSelectable(true) // a failed build's output, for a bug report
 
-	status := adw.NewActionRow()
-	status.SetTitle("Status")
-	status.SetSubtitle(updateStatusLine(version, a.cfg.UpdateChannel))
-	status.SetSubtitleSelectable(true)
-	status.SetUseMarkup(false) // the text is a build's output, which may hold anything
-
-	selected := 0
-	if a.cfg.UpdateChannel == storage.ChannelBeta {
-		selected = 1
-	}
-	chanSub := "Release is the stable main branch. Beta is the beta branch: the newest, and it may be unstable."
-	channel := comboRow("Update channel", chanSub, []string{"Release", "Beta"}, selected, func(i int) {
-		a.cfg.UpdateChannel = channelFromIndex(uint(i))
-		status.SetSubtitle(updateStatusLine(version, a.cfg.UpdateChannel))
-		v.changed()
-	})
-	g.addRow(channel, "Update channel", chanSub)
-
-	checkSub := "Asks GitHub whether a newer version has been published. " +
-		"Nothing about you or your notes is sent."
-	check := switchRow("Check for updates when Atlas Notes starts", checkSub, a.cfg.CheckUpdates, func(on bool) {
-		a.cfg.CheckUpdates = on
-		v.changed()
-	})
-	g.addRow(check, "Check for updates when Atlas Notes starts", checkSub)
-
-	g.addRow(status, "Status", "version channel")
-
-	update := adw.NewButtonRow()
-	// Markup off before the title goes in: set after, GTK has already tried
-	// to read "&" as the start of an entity and logged a warning about it.
-	update.SetUseMarkup(false)
-	update.SetTitle("Update & Restart")
+	update := gtk.NewButtonWithLabel("Update")
+	update.SetVAlign(gtk.AlignCenter)
 	update.AddCSSClass("suggested-action")
-	update.ConnectActivated(func() {
-		a.cfg.UpdateChannel = channelFromIndex(channel.Selected())
-		// The update ends in a restart, so the choice goes to disk now rather
+	update.SetTooltipText("Install the newest version from the chosen channel, and restart")
+	status.AddSuffix(update)
+	// An update runs on after the page is left and opened again, which builds
+	// the page anew: the new one carries on showing it, and cannot start a
+	// second build in the same clone.
+	if a.updateStatus != "" {
+		status.SetSubtitle(a.updateStatus)
+	}
+	update.SetSensitive(!a.updating)
+	a.onUpdateStatus = func(text string, done bool) {
+		status.SetSubtitle(text)
+		update.SetSensitive(done)
+	}
+	update.ConnectClicked(func() {
+		if a.updating {
+			return
+		}
+		// The update ends in a restart, so the config goes to disk now rather
 		// than after the usual wait.
-		v.changed()
-		v.save.Flush()
+		v.flush()
+		a.updating = true
+		a.updateStatus = ""
 		update.SetSensitive(false)
 		a.installUpdate(channelBranch(a.cfg.UpdateChannel), func(text string, done bool) {
-			status.SetSubtitle(text)
-			if done {
-				update.SetSensitive(true)
+			a.updating = !done
+			a.updateStatus = text
+			if a.onUpdateStatus != nil {
+				a.onUpdateStatus(text, done)
 			}
 		})
 	})
-	g.addRow(update, "Update & Restart", "check now install")
+
+	// The channel is which Atlas Notes this copy is: moving to the other is
+	// choosing it here and pressing Update.
+	current := a.cfg.UpdateChannel
+	labels := make([]string, len(updateChannels))
+	selected := 0
+	for i, c := range updateChannels {
+		labels[i] = c.Label
+		if c.Value == current {
+			selected = i
+		}
+	}
+	var channel *adw.ComboRow
+	channel = comboRow("atlasnotes-branch-symbolic", "Update channel", updateChannels[selected].Detail,
+		labels, selected, func(i int) {
+			if i < 0 || i >= len(updateChannels) {
+				return
+			}
+			c := updateChannels[i]
+			a.cfg.UpdateChannel = c.Value
+			channel.SetSubtitle(c.Detail)
+			switch {
+			case a.updating:
+				// The status is the build's progress, not to be talked over.
+			case c.Value == current:
+				status.SetSubtitle(updateStatusLine(c.Value))
+			default:
+				status.SetSubtitle("Press Update to switch to " + c.Label)
+			}
+			v.changed()
+		})
+
+	check := switchRow("atlasnotes-recent-symbolic", "Check for updates on launch",
+		"Asks GitHub once at startup. Nothing about you or your notes is sent",
+		a.cfg.CheckUpdates, func(on bool) {
+			a.cfg.CheckUpdates = on
+			v.changed()
+		})
+
+	return []gtk.Widgetter{settingsCard(status), settingsCard(channel), settingsCard(check)}
 }
 
 // ---- About ------------------------------------------------------------------
 
-func (v *settingsView) buildAbout() {
+// aboutCards are where Atlas Notes keeps things, and the build, for a bug
+// report or a backup. Every value can be selected and copied.
+func (v *settingsView) aboutCards() []gtk.Widgetter {
 	a := v.a
-	s := v.newSection(sectionAbout, "About")
-	g := s.addGroup("", "Where Atlas Notes keeps things, for a bug report or a backup.")
-
 	vault := a.cfg.VaultPath
 	if a.store != nil {
 		vault = a.store.VaultPath
@@ -1192,124 +1208,23 @@ func (v *settingsView) buildAbout() {
 	if vault == "" {
 		vault = storage.DefaultVaultPath()
 	}
+	where := headRow("atlasnotes-folder-symbolic", "Vault", vault)
+	where.SetSubtitleSelectable(true)
+	rows := []gtk.Widgetter{where}
 	for _, r := range []struct{ title, value string }{
-		{"Version", "Atlas Notes v" + version},
-		{"Vault", vault},
 		{"Data", storage.DataDir()},
 		{"Config", storage.ConfigPath()},
-		{"Build", buildInfo()},
 	} {
-		g.addRow(infoRow(r.title, r.value), r.title, r.value)
+		row := adw.NewActionRow()
+		row.SetUseMarkup(false)
+		row.SetTitle(r.title)
+		row.SetSubtitle(r.value)
+		row.SetSubtitleSelectable(true)
+		indented(row)
+		rows = append(rows, row)
 	}
-}
 
-// infoRow is a title with a value under it that can be selected and copied.
-// Markup is off: a path may hold an ampersand.
-func infoRow(title, value string) *adw.ActionRow {
-	row := adw.NewActionRow()
-	row.SetTitle(title)
-	row.SetSubtitle(value)
-	row.SetSubtitleSelectable(true)
-	row.SetUseMarkup(false)
-	return row
-}
-
-// ---- Row builders -----------------------------------------------------------
-
-// switchRow is a switch that applies the moment it is flipped.
-func switchRow(title, subtitle string, on bool, apply func(on bool)) *adw.SwitchRow {
-	row := adw.NewSwitchRow()
-	row.SetTitle(title)
-	row.SetSubtitle(subtitle)
-	row.SetUseMarkup(false)
-	row.SetActive(on)
-	row.NotifyProperty("active", func() { apply(row.Active()) })
-	return row
-}
-
-// comboRow is a dropdown that applies the moment something else is chosen. The
-// handler is connected after the model and selection are set, which would
-// otherwise each count as a choice.
-func comboRow(title, subtitle string, labels []string, selected int, apply func(i int)) *adw.ComboRow {
-	row := adw.NewComboRow()
-	row.SetTitle(title)
-	row.SetSubtitle(subtitle)
-	row.SetUseMarkup(false)
-	row.SetModel(gtk.NewStringList(labels))
-	row.SetSelected(uint(selected))
-	row.NotifyProperty("selected", func() { apply(int(row.Selected())) })
-	return row
-}
-
-// entryRow is a text row that applies on its apply button or Enter, not on
-// every keystroke: a model name typed halfway is not a model. apply returns the
-// text as it kept it, which the row then shows (a blank name becomes the
-// default, and the person sees that it did).
-func (v *settingsView) entryRow(title, value string, apply func(text string) string) *adw.EntryRow {
-	row := adw.NewEntryRow()
-	row.SetTitle(title)
-	row.SetText(value)
-	row.SetShowApplyButton(true)
-	applied := value
-	commit := func() {
-		applied = apply(row.Text())
-		if row.Text() != applied {
-			row.SetText(applied)
-		}
-	}
-	row.ConnectApply(commit)
-	v.commits = append(v.commits, func() {
-		if row.Text() != applied {
-			commit()
-		}
-	})
-	return row
-}
-
-// flushOnLeave applies a pending change when focus leaves a field, so clicking
-// away from it is as good as waiting.
-func flushOnLeave(w gtk.Widgetter, d *debouncer) {
-	fc := gtk.NewEventControllerFocus()
-	fc.ConnectLeave(d.Flush)
-	gtk.BaseWidget(w).AddController(fc)
-}
-
-// ---- Shared widgets ---------------------------------------------------------
-
-// pageScroll wraps a settings page so it scrolls vertically only. Horizontal
-// scrolling is switched off deliberately: with it on, the page is as wide as
-// its widest unwrappable label, and anything past the dialog's edge is simply
-// cut off rather than reachable. Held to the viewport's width, labels that can
-// wrap do, and the page fits.
-func pageScroll(child gtk.Widgetter) *gtk.ScrolledWindow {
-	scroll := gtk.NewScrolledWindow()
-	scroll.SetChild(child)
-	scroll.SetVExpand(true)
-	scroll.SetHExpand(true)
-	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
-	return scroll
-}
-
-// multilineField returns a bordered multi-line text field that grows to fit its
-// content (the page scrolls), so prompts are never clipped. minLines sets the
-// minimum height.
-func multilineField(text string, minLines int) (*gtk.TextView, *gtk.Frame) {
-	tv := gtk.NewTextView()
-	tv.SetWrapMode(gtk.WrapWordChar)
-	tv.SetLeftMargin(6)
-	tv.SetRightMargin(6)
-	tv.SetTopMargin(6)
-	tv.SetBottomMargin(6)
-	tv.SetSizeRequest(-1, minLines*24)
-	tv.Buffer().SetText(text)
-
-	frame := gtk.NewFrame("")
-	frame.SetChild(tv)
-	return tv, frame
-}
-
-func textViewText(tv *gtk.TextView) string {
-	b := tv.Buffer()
-	start, end := b.Bounds()
-	return b.Text(start, end, true)
+	build := headRow("atlasnotes-info-symbolic", "Build", buildInfo())
+	build.SetSubtitleSelectable(true)
+	return []gtk.Widgetter{settingsCard(rows...), settingsCard(build)}
 }

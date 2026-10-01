@@ -124,6 +124,16 @@ type Tree struct {
 	announced int  // the count last said aloud
 	stated    bool // whether the rows last drew themselves as checkable
 
+	// The folder animation's state (see tree_motion.go): the row widget each
+	// node is bound to, the rows of a folder just opened that are still to
+	// play in (with their place in it), and the folders closing up.
+	bound     map[*node]*rowParts
+	entering  map[*node]int
+	closing   map[*node]*folderClose
+	expandGen uint64 // which folder opened last, so an older timer leaves entering alone
+	// parts is each row widget's pieces, by its list item.
+	parts map[uintptr]*rowParts
+
 	// OnOpenNote is invoked when a note row is activated.
 	OnOpenNote func(rel string)
 	// OnDeleted is invoked after a note or folder is deleted.
@@ -187,6 +197,10 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 		summaries:      map[string]string{},
 		summaryPending: map[string]bool{},
 		marks:          map[string]bool{},
+		bound:          map[*node]*rowParts{},
+		entering:       map[*node]int{},
+		closing:        map[*node]*folderClose{},
+		parts:          map[uintptr]*rowParts{},
 	}
 	t.rootModel = gioutil.NewListModel[*node]()
 
@@ -198,6 +212,12 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 	factory := gtk.NewSignalListItemFactory()
 	factory.ConnectSetup(t.setupItem)
 	factory.ConnectBind(t.bindItem)
+	factory.ConnectUnbind(t.unbindItem)
+	factory.ConnectTeardown(func(obj *coreglib.Object) {
+		if item, ok := obj.Cast().(*gtk.ListItem); ok {
+			delete(t.parts, item.Native())
+		}
+	})
 
 	t.listView = gtk.NewListView(t.selection, &factory.ListItemFactory)
 	t.listView.SetSingleClickActivate(true)

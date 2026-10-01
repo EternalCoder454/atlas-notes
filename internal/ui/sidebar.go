@@ -482,6 +482,7 @@ func (s *Sidebar) refreshStats() {
 
 func (s *Sidebar) setAnswerText(text string) {
 	s.answer.SetText(text)
+	Replay(s.answer, "note-in")
 	s.setSuggestionsVisible(false)
 }
 

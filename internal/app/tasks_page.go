@@ -12,6 +12,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/storage"
+	"atlas-notes/internal/ui"
 )
 
 // The Tasks page: every unfinished task in the vault, grouped by when it is
@@ -85,6 +86,7 @@ type taskRowWidgets struct {
 // tasksPage holds the page's widgets. One App, one page.
 type tasksPage struct {
 	root     *gtk.Box
+	content  *gtk.Box // what plays in as the page opens
 	subtitle *gtk.Label
 	empty    *gtk.Box
 	groups   [taskGroups]struct {
@@ -112,6 +114,7 @@ func (a *App) buildTasks() *gtk.Widget {
 
 	content := gtk.NewBox(gtk.OrientationVertical, 0)
 	content.AddCSSClass("tasks-content")
+	p.content = content
 
 	title := gtk.NewLabel("Tasks")
 	title.SetXAlign(0)
@@ -279,30 +282,56 @@ func (a *App) showTasks() {
 	if a.centerStack == nil {
 		return
 	}
-	a.closeFind(false)
-	a.flushDirty()      // a note edited just before must be on disk before it is read
-	if !a.closeSide() { // and no editor may hold a note that ticking is about to change
+	// A note edited just before must be on disk before it is read, and no
+	// editor may hold a note that ticking is about to change.
+	if !a.leaveNote() {
 		return
-	}
-	a.backlinksGen++
-	a.currentNote = ""
-	a.dirty = false
-	if a.editor != nil {
-		a.editor.SetContent("")
-	}
-	if a.tree != nil {
-		a.tree.SetCurrent("")
 	}
 	if a.centerStack.ChildByName("tasks") == nil {
 		a.centerStack.AddNamed(a.buildTasks(), "tasks")
 	}
 	a.refreshTasks()
+	if !a.tasksShowing() {
+		tasksUI.playIn()
+	}
 	a.centerStack.SetVisibleChildName("tasks")
 	a.setWindowSubtitle("")
 	a.syncNoteActions()
 	if a.backlinksBar != nil {
 		a.backlinksBar.SetVisible(false)
 	}
+}
+
+// playIn plays the page in: its title, then each group's heading and rows in
+// turn.
+func (p *tasksPage) playIn() {
+	step := 0
+	for c := p.content.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+		if !gtk.BaseWidget(c).Visible() {
+			continue
+		}
+		if group := p.groupOf(c); group != nil {
+			ui.ReplayAt(group.heading, "rise", step)
+			step = ui.ReplayChildren(group.list, "rise", step+1)
+			continue
+		}
+		ui.ReplayAt(c, "rise", step)
+		step++
+	}
+}
+
+// groupOf finds the group whose box w is, if it is one.
+func (p *tasksPage) groupOf(w gtk.Widgetter) *struct {
+	box     *gtk.Box
+	heading *gtk.Label
+	list    *gtk.Box
+} {
+	for i := range p.groups {
+		if p.groups[i].box != nil && coreglib.BaseObject(p.groups[i].box).Native() == coreglib.BaseObject(w).Native() {
+			return &p.groups[i]
+		}
+	}
+	return nil
 }
 
 // tasksShowing says whether the Tasks page is what the center panel shows.

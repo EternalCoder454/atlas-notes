@@ -39,6 +39,7 @@ func (a *App) buildWelcome() *gtk.Widget {
 	content.SetHAlign(gtk.AlignCenter)
 	content.SetVExpand(true)
 	content.AddCSSClass("welcome-content")
+	a.welcomeContent = content
 
 	orb := ui.NewStaticOrb(76)
 	orb.SetMarginBottom(6)

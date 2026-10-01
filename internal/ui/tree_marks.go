@@ -275,6 +275,14 @@ func (t *Tree) watchMarks() {
 			t.toggleMark(markOf(n))
 		case len(t.marks) > 0 && !onArrow:
 			t.toggleMark(markOf(n))
+		case onArrow && n.isFolder:
+			// The arrow's own click would flip the folder at once; this one
+			// lets it open and close the way a click on its name does.
+			if row := exp.ListRow(); row != nil {
+				t.toggleFolder(row)
+			}
+			click.SetState(gtk.EventSequenceClaimed)
+			return
 		default:
 			return // an ordinary click, which opens the note or the folder
 		}
@@ -535,7 +543,7 @@ func (t *Tree) showMarks() {
 // note.
 func (t *Tree) paintMark(exp *gtk.TreeExpander, n *node, force bool) {
 	on := t.marks[markOf(n)]
-	row := gtk.BaseWidget(exp.Parent())
+	row := rowOf(exp)
 	was := row != nil && row.HasCSSClass("marked")
 	if was == on && !force {
 		return

@@ -13,6 +13,7 @@ import (
 	"atlas-notes/internal/editor"
 	"atlas-notes/internal/markup"
 	"atlas-notes/internal/storage"
+	"atlas-notes/internal/ui"
 )
 
 // A second note beside the first: a pane to the right of the editor, with its
@@ -191,6 +192,9 @@ func (a *App) openToSide(rel string) {
 		if w := a.sidePaned.AllocatedWidth(); w > 0 {
 			a.sidePaned.SetPosition(w / 2)
 		}
+		// It comes up into place rather than appearing. The divider itself
+		// does not slide: that would wrap both notes' text again every frame.
+		ui.Replay(a.side.box, "note-in")
 	}
 	a.side.ed.Focus()
 }

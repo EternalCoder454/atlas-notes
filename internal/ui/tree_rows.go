@@ -172,7 +172,23 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 	})
 	expander.AddController(long)
 
-	item.SetChild(expander)
+	// The revealer is what lets the row open and close with its folder (see
+	// tree_motion.go). At rest it is open and costs nothing.
+	rev := gtk.NewRevealer()
+	rev.SetTransitionType(gtk.RevealerTransitionTypeSlideDown)
+	rev.SetTransitionDuration(0)
+	rev.SetRevealChild(true)
+	rev.SetChild(expander)
+	item.SetChild(rev)
+	t.parts[item.Native()] = &rowParts{rev: rev, exp: expander}
+}
+
+func (t *Tree) unbindItem(obj *coreglib.Object) {
+	if item, ok := obj.Cast().(*gtk.ListItem); ok {
+		if p := t.parts[item.Native()]; p != nil {
+			t.unbindParts(p)
+		}
+	}
 }
 
 func (t *Tree) bindItem(obj *coreglib.Object) {
@@ -184,16 +200,18 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 	if !ok {
 		return
 	}
-	expander, ok := item.Child().(*gtk.TreeExpander)
-	if !ok {
+	parts := t.parts[item.Native()]
+	if parts == nil {
 		return
 	}
+	expander := parts.exp
 	expander.SetListRow(row)
 
 	n := gioutil.ObjectValue[*node](row.Item())
 	if n == nil {
 		return
 	}
+	t.bindParts(parts, n)
 	box, ok := expander.Child().(*gtk.Box)
 	if !ok {
 		return
@@ -249,7 +267,7 @@ func (t *Tree) onActivate(position uint) {
 		return
 	}
 	if n.isFolder {
-		row.SetExpanded(!row.Expanded())
+		t.toggleFolder(row)
 		return
 	}
 	if t.OnOpenNote != nil {

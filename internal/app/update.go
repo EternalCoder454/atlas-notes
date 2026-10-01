@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,14 +37,6 @@ func channelBranch(channel string) string {
 		return "beta"
 	}
 	return "main" // release
-}
-
-// channelFromIndex maps the channel dropdown's selection to a channel id.
-func channelFromIndex(i uint) string {
-	if i == 1 {
-		return storage.ChannelBeta
-	}
-	return storage.ChannelRelease
 }
 
 // installedBinary resolves the path of the running binary (following symlinks) so
@@ -100,6 +93,11 @@ func (a *App) installUpdate(branch string, onStatus func(text string, done bool)
 			}
 			onStatus("Updated. Restarting Atlas Notes…", true)
 			a.flushDirty() // synchronous save before we replace the process
+			// Settings changed while it built: the restart skips shutdown.
+			a.flushSettings()
+			if err := storage.SaveConfig(a.cfg); err != nil {
+				log.Printf("atlas-notes: save config: %v", err)
+			}
 
 			exe, e := installedBinary()
 			if e != nil {

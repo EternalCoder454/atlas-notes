@@ -29,62 +29,6 @@ func TestSettingsSectionFor(t *testing.T) {
 	}
 }
 
-func TestMatchesSearch(t *testing.T) {
-	cases := []struct {
-		query  string
-		fields []string
-		want   bool
-	}{
-		{"", []string{"anything"}, true},
-		{"   ", []string{"anything"}, true},
-		{"hover", []string{"Hover previews", "Show a summary"}, true},
-		{"HOVER", []string{"hover previews"}, true},
-		{"summary", []string{"Hover previews", "Show a 1-sentence AI summary"}, true},
-		// Words, in any order and in any of the fields.
-		{"summary hover", []string{"Hover previews", "Show a 1-sentence AI summary"}, true},
-		{"previews toolbar", []string{"Hover previews", "Show a summary"}, false},
-		{"model", []string{"Window transparency", "Lets the desktop show through"}, false},
-		{"desk", []string{"Window transparency", "Lets the desktop show through"}, true},
-	}
-	for _, c := range cases {
-		if got := matchesSearch(c.query, c.fields...); got != c.want {
-			t.Errorf("matchesSearch(%q, %q) = %v, want %v", c.query, c.fields, got, c.want)
-		}
-	}
-}
-
-func TestActiveSection(t *testing.T) {
-	// Five sections a screen apart, in a page of 1000 with a viewport of 300.
-	tops := []float64{0, 200, 450, 700, 850}
-	all := []bool{true, true, true, true, true}
-	cases := []struct {
-		name  string
-		shown []bool
-		pos   float64
-		want  int
-	}{
-		{"top", all, 0, 0},
-		{"inside the second", all, 210, 1},
-		// A section counts a little before its top reaches the edge.
-		{"just before the third", all, 450 - sectionSlack + 1, 2},
-		{"just too early for the third", all, 450 - sectionSlack - 1, 1},
-		// About is too short to reach the top; the bottom of the page is it.
-		{"bottom", all, 700, 4},
-		{"none showing", []bool{false, false, false, false, false}, 100, -1},
-		{"a hidden one is skipped", []bool{true, false, true, true, true}, 210, 0},
-		{"last showing at the bottom", []bool{true, true, true, true, false}, 700, 3},
-	}
-	for _, c := range cases {
-		if got := activeSection(tops, c.shown, c.pos, 300, 1000); got != c.want {
-			t.Errorf("%s: activeSection at %v = %d, want %d", c.name, c.pos, got, c.want)
-		}
-	}
-	// A page that fits without scrolling is not "at the bottom" of anything.
-	if got := activeSection([]float64{0, 100}, []bool{true, true}, 0, 500, 500); got != 0 {
-		t.Errorf("page shorter than the viewport: got %d, want 0", got)
-	}
-}
-
 func TestClampScroll(t *testing.T) {
 	cases := []struct{ y, upper, page, want float64 }{
 		{50, 1000, 300, 50},
@@ -254,10 +198,15 @@ func TestThemeDescription(t *testing.T) {
 }
 
 func TestUpdateStatusLine(t *testing.T) {
-	if got := updateStatusLine("0.7.1", storage.ChannelRelease); got != "Version 0.7.1 on the Release channel" {
+	if got := updateStatusLine(storage.ChannelRelease); got != "On the Release channel" {
 		t.Errorf("release: %q", got)
 	}
-	if got := updateStatusLine("0.7.1", storage.ChannelBeta); got != "Version 0.7.1 on the Beta channel" {
+	if got := updateStatusLine(storage.ChannelBeta); got != "On the Beta channel" {
 		t.Errorf("beta: %q", got)
+	}
+	// A channel from a newer version this build lacks is taken as Release,
+	// as channelBranch takes it.
+	if got := updateStatusLine("nightly"); got != "On the Release channel" {
+		t.Errorf("unknown: %q", got)
 	}
 }
