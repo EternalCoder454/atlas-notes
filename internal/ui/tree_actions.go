@@ -105,6 +105,7 @@ func (t *Tree) showContextMenu(parent gtk.Widgetter, x, y float64, n *node) {
 			addIcon("atlasnotes-merge-note-symbolic", "Merge into…", func() { t.OnMerge(n.rel) })
 		}
 		box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+		add("Select", false, func() { t.Mark(n) })
 		add("Delete", true, func() { t.promptDelete(n) })
 	}
 
@@ -233,6 +234,9 @@ func (t *Tree) promptDelete(n *node) {
 
 // deleteNode deletes a note or folder, to the Trash unless permanently is set.
 func (t *Tree) deleteNode(n *node, permanently bool) {
+	if t.OnBeforeDelete != nil {
+		t.OnBeforeDelete()
+	}
 	var err error
 	switch {
 	case n.isFolder && permanently:

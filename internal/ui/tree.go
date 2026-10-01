@@ -115,6 +115,15 @@ type Tree struct {
 
 	currentRel string // the open note, kept selected/highlighted in the list
 
+	// marks is the rows picked out to delete together (see tree_marks.go),
+	// anchor the one a Shift and click runs from, and the bar says how many.
+	marks     map[string]bool
+	anchor    string
+	markBar   *gtk.Revealer
+	markLabel *gtk.Label
+	announced int  // the count last said aloud
+	stated    bool // whether the rows last drew themselves as checkable
+
 	// OnOpenNote is invoked when a note row is activated.
 	OnOpenNote func(rel string)
 	// OnDeleted is invoked after a note or folder is deleted.
@@ -137,6 +146,10 @@ type Tree struct {
 	// open note: renaming rewrites links in other notes' files, and the open
 	// one may be among them.
 	OnBeforeRename func()
+	// OnBeforeDelete fires before notes are deleted, so the app can write what
+	// is unsaved and wait for a save in flight: one that lands after the
+	// delete would make the note again.
+	OnBeforeDelete func()
 	// OnLinksChanged fires after a rename or a move, when other notes' links
 	// may have been rewritten on disk, so the app can reload the open note.
 	OnLinksChanged func()
@@ -173,6 +186,7 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 		ai:             aiClient,
 		summaries:      map[string]string{},
 		summaryPending: map[string]bool{},
+		marks:          map[string]bool{},
 	}
 	t.rootModel = gioutil.NewListModel[*node]()
 
@@ -189,6 +203,7 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 	t.listView.SetSingleClickActivate(true)
 	t.listView.AddCSSClass("navigation-sidebar")
 	t.listView.ConnectActivate(t.onActivate)
+	t.watchMarks()
 
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetChild(t.listView)
@@ -209,6 +224,7 @@ func NewTree(store *storage.Store, parent gtk.Widgetter, aiClient *ai.Client) *T
 	t.widget.Append(scroll)
 	t.emptyState = t.buildEmptyState()
 	t.widget.Append(t.emptyState)
+	t.widget.Append(t.buildMarkBar())
 
 	return t
 }
@@ -485,6 +501,7 @@ func (t *Tree) taggedNotes(notes []storage.NoteMeta) []*node {
 }
 
 func (t *Tree) refresh(force bool) {
+	defer t.dropMarks()
 	expanded := t.snapshotExpanded()
 	t.reloadCache()
 	if sig := t.vaultSignature(); !force && sig == t.signature {
