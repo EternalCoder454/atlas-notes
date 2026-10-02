@@ -4,6 +4,9 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.11.1
+- A new icon: a page on the purple Atlas tile, matching Atlas Updater
+
 ## 0.11.0
 - Claude Code can read, search, create and edit your notes, once you turn it on in Settings
 - You choose what it may do, and password-protected notes stay out of its reach
