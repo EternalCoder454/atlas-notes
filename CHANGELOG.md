@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-02
+
 ### Added
 - **Claude Code can work with your notes.** `atlas-notes mcp` is a local MCP
   server (JSON-RPC over stdin and stdout, built into the app's own binary) with

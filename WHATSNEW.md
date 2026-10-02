@@ -4,6 +4,13 @@ This file is what the app shows you when an update is available. One version
 per heading, a few plain lines each. The detailed, technical history lives in
 CHANGELOG.md.
 
+## 0.11.0
+- Claude Code can read, search, create and edit your notes, once you turn it on in Settings
+- You choose what it may do, and password-protected notes stay out of its reach
+- Every change it makes is kept in Version History, and the lines it changed light up
+- A diagnostic log you can turn on in Settings, About, to help track down bugs
+- The intro at startup appears faster
+
 ## 0.10.1
 - Notes with tables and diagrams open about 40% faster
 - Clicking folders open and shut quickly no longer crashes the app

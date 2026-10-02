@@ -15,7 +15,7 @@
 %global debug_package %{nil}
 
 Name:           atlas-notes
-Version:        %{?_version}%{!?_version:0.10.1}
+Version:        %{?_version}%{!?_version:0.11.0}
 Release:        1%{?dist}
 Summary:        Fast local-first notes and checklists with an optional local AI assistant
 
