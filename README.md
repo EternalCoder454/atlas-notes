@@ -373,7 +373,52 @@ home screen.
   every protected note.
 
 The assistant never sees a note you have not unlocked — it only ever reads what
-is open in the editor.
+is open in the editor. Claude Code never sees a protected note at all, unlocked
+or not: see the next section.
+
+## Using your notes from Claude Code
+
+Atlas Notes has a connector for [Claude Code](https://claude.com/claude-code),
+so you can say "put this spec.md into Atlas Notes" or "add eggs to my shopping
+list" and Claude does it in your vault. It is a local MCP server built into the
+app, `atlas-notes mcp`: Claude Code starts it on your machine and talks to it
+over a pipe. Nothing goes over the network on its account.
+
+**Turn it on** in Settings → **Claude Code** → *Let Claude Code use your notes*,
+then run the command shown under *Connect Claude Code* once in a terminal. It
+looks like this (the path is wherever your copy of the app is):
+
+```sh
+claude mcp add --scope user atlas-notes -- /path/to/atlas-notes mcp
+```
+
+**Choose what it may do.** Three switches under the main one:
+
+| Switch | What Claude Code can do |
+|---|---|
+| *Read and search notes* (on) | list notes and folders, read them, search by name and text, list tags |
+| *Create and edit notes* (on) | create notes, import a file as a note, edit, add to or replace a note, rename and move notes and folders, create folders |
+| *Delete notes* (off) | move notes and folders to the Trash |
+
+The switches take effect straight away, in a Claude Code session that is
+already running too. Claude Code also asks before each tool it uses, unless
+you tell it not to.
+
+**Password-protected notes are out of reach.** The connector never has your
+password, and it does not show that protected notes exist: they are left out of
+every list and search, and asking for one by name gets the same answer as
+asking for a note that is not there. It cannot create a note inside a protected
+folder, or move, rename or delete a folder that has anything protected in it.
+
+**Every change can be undone.** Before Claude Code edits or replaces a note,
+the text it had is kept in *Version History*. Deleting moves things to the
+Trash, and the connector refuses to delete anything when there is no Trash.
+
+**The window keeps up.** If Atlas Notes is open, notes Claude Code creates
+appear in the vault panel, and the open note reloads when Claude Code edits it,
+with the lines it changed lit up for a moment. Notes it changes elsewhere pulse
+in the vault panel. If you were typing in the open note at that moment, your
+text stays and Claude's version goes into Version History.
 
 ## Where your notes live
 

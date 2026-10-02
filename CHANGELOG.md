@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Claude Code can work with your notes.** `atlas-notes mcp` is a local MCP
+  server (JSON-RPC over stdin and stdout, built into the app's own binary) with
+  tools to list, read, search, create, import, edit, rename, move and delete
+  notes and folders. It is off until Settings → Claude Code turns it on, and
+  three switches there decide what it may do: read, create and edit, delete.
+  It reads them on every call and tells Claude Code when its tool list changes.
+  Password-protected notes are invisible to it. It never has the password,
+  it filters them out of every listing and search, and it answers about one
+  exactly as it would about a note that is not there. It refuses to create a
+  note in a locked folder, or move or delete a folder holding anything locked.
+  Every edit keeps the previous text in Version History first, and deletes go
+  to the Trash or not at all. The server keeps its own search index, so it
+  never waits on the window's. It logs each change for a running window, which
+  rescans, follows the open note through a rename or delete, and reloads it
+  after an edit. When the person was typing at the time, the window keeps
+  their text and puts Claude's version in Version History.
+- **You can watch Claude Code work.** When it changes the open note, the lines
+  it changed light up in a warm tint that fades over two seconds, and a table
+  or diagram it changed pulses as a whole. The caret and the scroll stay where
+  they were. A note it changes anywhere else pulses in the vault panel.
+- **The Claude Code tools say more and cost fewer tokens.** `read_note` can
+  return just a note's outline (its headings with line numbers), one section
+  by its heading, or up to ten notes in one call. `edit_note` takes several
+  edits at once and makes all of them or none, and answers with the changed
+  lines, numbered, so Claude Code need not read the note again. When its text
+  is not found it says where a near match is, or at which lines a repeated one
+  occurs. `append_to_note` can add to the end of one section. `search_notes`
+  shows up to three numbered matching lines a note and can keep to a folder. A
+  misspelt note name gets "Did you mean" with the closest names. Every answer
+  is kept well under Claude Code's size limit.
+- **A diagnostic log, for bugs that only show up in your own use.** Settings →
+  About → *Keep a diagnostic log* (or `ATLAS_DIAG=1`) records what was clicked,
+  which note and page were on screen, and what the app did about it. It holds
+  note names and the labels of what was clicked, never what is typed into a
+  note, stays in one file in the data directory, rotates at 2 MB and is never
+  sent anywhere. It is off by default.
+
+### Changed
+- **The intro starts faster.** The glow behind the mark is blurred in Go and
+  painted as a mask instead of going through librsvg on the first frame (30-60
+  ms) and being converted on every frame, and only the band the mark sits in
+  is redrawn.
+
 ## [0.10.1] - 2026-10-01
 
 ### Fixed

@@ -10,6 +10,8 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
+
+	"atlas-notes/internal/diag"
 )
 
 // How one row of the vault panel is built and filled in: the list factory, the
@@ -125,6 +127,9 @@ func (t *Tree) setupItem(obj *coreglib.Object) {
 		if n == nil || n.isFolder {
 			return nil // only notes are draggable
 		}
+		// A drag cancels the click that started it, so a note that did not
+		// open after a slightly moving click shows up here.
+		diag.Event("tree.drag", "rel", n.rel)
 		return gdk.NewContentProviderForValue(coreglib.NewValue(n.rel))
 	})
 	expander.AddController(drag)
@@ -246,6 +251,7 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 		}
 	}
 	t.paintMark(expander, n, true)
+	t.paintTouch(expander, n)
 	expander.SetTooltipText(t.tooltipFor(n))
 	if !n.isFolder && t.summariesEnabled {
 		t.ensureSummary(n.rel)
@@ -256,6 +262,7 @@ func (t *Tree) bindItem(obj *coreglib.Object) {
 func (t *Tree) onActivate(position uint) {
 	obj := t.selection.Item(position)
 	if obj == nil {
+		diag.Event("tree.activate", "pos", position, "result", "no item")
 		return
 	}
 	row, ok := obj.Cast().(*gtk.TreeListRow)
@@ -264,8 +271,10 @@ func (t *Tree) onActivate(position uint) {
 	}
 	n := gioutil.ObjectValue[*node](row.Item())
 	if n == nil {
+		diag.Event("tree.activate", "pos", position, "result", "no node")
 		return
 	}
+	diag.Event("tree.activate", "pos", position, "rel", n.rel, "folder", n.isFolder, "current", t.currentRel)
 	if n.isFolder {
 		t.toggleFolder(row)
 		return

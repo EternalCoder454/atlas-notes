@@ -4,11 +4,9 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"log"
-	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
@@ -18,6 +16,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/ai"
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/editor"
 	"atlas-notes/internal/storage"
 	"atlas-notes/internal/ui"
@@ -112,7 +111,13 @@ type App struct {
 	backgroundDone  bool   // the scan and content pass after the first frame have finished
 	backgroundCount int    // notes that pass had to read, for the settle benchmark
 	bg              *background
-	closing         bool // shutdown has begun; late main-loop callbacks do nothing
+	rescan          atomic.Bool // the vault is to be scanned again on the worker's next pass
+	ext             *externalWatch
+	claudeToast     *adw.Toast // the message about Claude Code's edits, while it is up
+	claudeToastMain bool       // it is about the main pane's note, not the side pane's
+	claudeToastNote string     // the name of the note it is about
+	claudeEdits     int        // how many edits it is telling of
+	closing         bool       // shutdown has begun; late main-loop callbacks do nothing
 
 	// wantAssistant is whether the user wants the assistant panel, as opposed
 	// to whether it is showing: a narrow window folds it away without
@@ -223,7 +228,9 @@ func (a *App) activate() {
 	installIcons()
 	a.applyFontRendering()
 	mark("css")
+	a.applyDiagnostics()
 	a.buildWindow()
+	a.watchInput()
 	a.applyTheme() // before the window is shown, so it never opens in the wrong colours
 	mark("window-built")
 	a.win.SetVisible(true)
@@ -240,15 +247,20 @@ func (a *App) activate() {
 		return false
 	})
 	a.scheduleReindex()
+	a.watchExternalChanges()
 	a.startReminders()
 	a.maybeCheckForUpdate()
 	a.runBench()
 	a.runDevView()
+	a.diagSeeing("started")
 	printTrace()
 }
 
 func (a *App) shutdown() {
 	a.closing = true
+	diag.Event("app.shutdown")
+	defer diag.Stop()
+	a.stopExternalWatch()
 	a.flushDirty()
 	a.flushSettings()
 	a.rememberLayout()
@@ -333,7 +345,4 @@ func (a *App) loadCSS() {
 // historyDir is where a vault's earlier note versions are kept: in the data
 // directory, under a name taken from the vault's path, so two vaults opened on
 // the same machine never share one.
-func historyDir(vault string) string {
-	sum := sha256.Sum256([]byte(vault))
-	return filepath.Join(storage.DataDir(), "history", hex.EncodeToString(sum[:])[:12])
-}
+func historyDir(vault string) string { return storage.DefaultHistoryDir(vault) }

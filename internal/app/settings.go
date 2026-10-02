@@ -27,6 +27,7 @@ const (
 	sectionAppearance = "appearance"
 	sectionNotes      = "notes"
 	sectionAssistant  = "assistant"
+	sectionClaude     = "claude"
 	sectionUpdates    = "updates"
 	sectionAbout      = "about"
 )
@@ -37,7 +38,7 @@ const (
 // or empty name is "", the top of the page.
 func settingsSectionFor(name string) string {
 	switch n := strings.ToLower(strings.TrimSpace(name)); n {
-	case sectionAppearance, sectionNotes, sectionAssistant, sectionUpdates, sectionAbout:
+	case sectionAppearance, sectionNotes, sectionAssistant, sectionClaude, sectionUpdates, sectionAbout:
 		return n
 	case "general":
 		return sectionAppearance
@@ -295,6 +296,7 @@ func (a *App) showSettingsPage(page string) {
 	if a.centerStack == nil {
 		return
 	}
+	defer a.diagSeeing("settings page")
 	want := settingsSectionFor(page)
 	if a.settingsShowing() && a.settings != nil {
 		a.settings.goTo(want, true)
@@ -371,6 +373,7 @@ func (a *App) buildSettings() *settingsView {
 		v.assistantCard(),
 		v.promptCard(),
 		v.shortcutsCard())
+	v.section(sectionClaude, "Claude Code", v.claudeCards()...)
 	v.section(sectionUpdates, "Updates", v.updateCards()...)
 	v.section(sectionAbout, "About", v.aboutCards()...)
 
@@ -1110,6 +1113,108 @@ func (v *settingsView) syncActions() {
 	v.changed()
 }
 
+// ---- Claude Code ------------------------------------------------------------
+
+// claudeCards are the switch that lets Claude Code use the vault, what it may
+// do once it can, and the command that connects it. The connector itself is
+// "atlas-notes mcp", a separate process that reads these settings on every
+// call, so saving them is all it takes to change what it allows.
+func (v *settingsView) claudeCards() []gtk.Widgetter {
+	a := v.a
+	access := &a.cfg.Claude
+
+	sub := func(title, subtitle string, on bool, apply func(on bool)) *adw.SwitchRow {
+		row := adw.NewSwitchRow()
+		row.SetUseMarkup(false)
+		row.SetTitle(title)
+		row.SetSubtitle(subtitle)
+		indented(&row.ActionRow)
+		row.SetActive(on)
+		row.SetSensitive(access.Enabled)
+		row.NotifyProperty("active", func() { apply(row.Active()) })
+		return row
+	}
+	read := sub("Read and search notes", "Lists, opens and searches your notes", access.Read, func(on bool) {
+		access.Read = on
+		v.changed()
+	})
+	write := sub("Create and edit notes",
+		"Creates, edits, renames and moves notes and folders. Every edit is kept in Version History",
+		access.Write, func(on bool) {
+			access.Write = on
+			v.changed()
+		})
+	del := sub("Delete notes", "Moves notes and folders to the Trash", access.Delete, func(on bool) {
+		access.Delete = on
+		v.changed()
+	})
+	master := switchRow("atlasnotes-sparkle-symbolic", "Let Claude Code use your notes",
+		"Claude Code can work with this vault through the Atlas Notes connector. "+
+			"Password-protected notes stay hidden from it",
+		access.Enabled, func(on bool) {
+			access.Enabled = on
+			for _, r := range []*adw.SwitchRow{read, write, del} {
+				r.SetSensitive(on)
+			}
+			v.changed()
+		})
+
+	cmd := claudeConnectCommand(connectBinary(), inFlatpak())
+	connect := headRow("atlasnotes-link-symbolic", "Connect Claude Code",
+		"Run this once in a terminal:\n"+cmd)
+	connect.SetUseMarkup(false) // a path can hold an & or a <
+	connect.SetSubtitleSelectable(true)
+	copyBtn := gtk.NewButtonWithLabel("Copy")
+	copyBtn.SetVAlign(gtk.AlignCenter)
+	copyBtn.SetTooltipText("Copy the command")
+	copyBtn.ConnectClicked(func() {
+		copyBtn.Clipboard().SetText(cmd)
+		a.toast("Command copied")
+	})
+	connect.AddSuffix(copyBtn)
+
+	return []gtk.Widgetter{settingsCard(master, read, write, del), settingsCard(connect)}
+}
+
+// connectBinary is the running program, with symlinks resolved, for the
+// command that registers it. Empty when it cannot be found.
+func connectBinary() string {
+	exe, _ := installedBinary()
+	return exe
+}
+
+// claudeConnectCommand is the command that registers the connector with Claude
+// Code. In a Flatpak the program is not on the host's PATH, so it is run
+// through flatpak; otherwise it is the binary's own path.
+func claudeConnectCommand(exe string, flatpak bool) string {
+	const head = "claude mcp add --scope user atlas-notes -- "
+	if flatpak {
+		return head + "flatpak run --command=" + binaryName + " " + flatpakAppID + " mcp"
+	}
+	if exe == "" {
+		exe = binaryName
+	}
+	return head + shellQuote(exe) + " mcp"
+}
+
+// shellQuote leaves a word alone when a shell would read it as one plain word,
+// and wraps it in single quotes otherwise.
+func shellQuote(s string) string {
+	plain := s != ""
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("/._+-:@%=,", r):
+		default:
+			plain = false
+		}
+	}
+	if plain {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // ---- Updates ----------------------------------------------------------------
 
 // updateCards are the version with its Update button, the channel it follows,
@@ -1226,5 +1331,15 @@ func (v *settingsView) aboutCards() []gtk.Widgetter {
 
 	build := headRow("atlasnotes-info-symbolic", "Build", buildInfo())
 	build.SetSubtitleSelectable(true)
-	return []gtk.Widgetter{settingsCard(rows...), settingsCard(build)}
+
+	diagRow := switchRow("atlasnotes-property-list-symbolic", "Keep a diagnostic log",
+		"Records what you click and what the window shows, for tracking down bugs. "+
+			"It stays in a file on this computer and is never sent anywhere:\n"+storage.DiagnosticsLogPath(),
+		a.cfg.DiagnosticsLog, func(on bool) {
+			a.cfg.DiagnosticsLog = on
+			a.applyDiagnostics()
+			v.changed()
+		})
+	diagRow.SetSubtitleSelectable(true)
+	return []gtk.Widgetter{settingsCard(rows...), settingsCard(build), settingsCard(diagRow)}
 }

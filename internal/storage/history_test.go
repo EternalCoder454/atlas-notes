@@ -754,6 +754,13 @@ func TestVersionsWithTheSameTimeDoNotOverwrite(t *testing.T) {
 	mustWrite(t, s, "n", "start")
 	src := putVersion(t, s, "n", at.Add(-time.Hour), "restorable")
 	for i := 0; i < 3; i++ {
+		// Each round's text differs: a copy of what the newest version
+		// already holds is skipped, and is not what this test is about.
+		if i > 0 {
+			if err := os.WriteFile(s.notePath("n"), []byte("round"+strconv.Itoa(i)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if err := os.Chtimes(s.notePath("n"), at, at); err != nil {
 			t.Fatal(err)
 		}
@@ -769,7 +776,7 @@ func TestVersionsWithTheSameTimeDoNotOverwrite(t *testing.T) {
 	for _, v := range vs {
 		texts[mustReadVersion(t, s, "n", v.ID)]++
 	}
-	if texts["start"] != 1 || texts["restorable"] != 3 {
+	if texts["start"] != 1 || texts["restorable"] != 1 || texts["round1"] != 1 || texts["round2"] != 1 {
 		t.Errorf("version texts = %v", texts)
 	}
 }
@@ -914,5 +921,25 @@ func TestResealHistoryWithNoHistory(t *testing.T) {
 	s.HistoryDir = filepath.Join(t.TempDir(), "never made")
 	if err := s.resealHistory(key, key); err != nil {
 		t.Errorf("with no history yet: %v", err)
+	}
+}
+
+func TestVersionedWriteSkipsACopyOfWhatTheNewestVersionHolds(t *testing.T) {
+	s := historyStore(t)
+	mustWrite(t, s, "n", "x")
+	for _, text := range []string{"y", "y", "y", "z"} {
+		if err := s.WriteNoteVersioned("n", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// x, y and the second "y" write: the repeats of y add nothing, and every
+	// text that was replaced is still there once.
+	vs := mustHistory(t, s, "n")
+	var got []string
+	for _, v := range vs {
+		got = append(got, mustReadVersion(t, s, "n", v.ID))
+	}
+	if len(got) != 2 || got[0] != "y" || got[1] != "x" {
+		t.Errorf("versions (newest first) = %q, want [y x]", got)
 	}
 }

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -424,6 +425,19 @@ func (s *Store) keepVersion(rel string, force bool, key vaultlock.Key) error {
 	data, err := readFileCapped(src)
 	if err != nil {
 		return err
+	}
+	// A forced copy of what the newest version already holds, byte for byte,
+	// adds nothing: that text is kept, and a burst of edits would otherwise
+	// fill the list with copies of one text. Not for a plain note about to be
+	// sealed, whose copy is a different file.
+	if force && (locked || key == nil) {
+		if versions, lerr := listVersions(dir); lerr == nil && len(versions) > 0 {
+			if _, vext, ok := parseVersionID(versions[0].ID); ok && vext == ext {
+				if prev, rerr := readFileCapped(filepath.Join(dir, versions[0].ID)); rerr == nil && bytes.Equal(prev, data) {
+					return nil
+				}
+			}
+		}
 	}
 	// A note in the clear that this save writes locked, because it has moved
 	// into a locked folder, is not kept in the clear either.

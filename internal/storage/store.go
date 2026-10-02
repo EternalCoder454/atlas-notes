@@ -137,7 +137,7 @@ func Open(vaultPath, dbPath string) (*Store, error) {
 	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)" +
 		"&_pragma=synchronous(normal)&_pragma=foreign_keys(on)" +
 		"&_pragma=cache_size(-8000)&_pragma=temp_store(memory)" +
-		"&_pragma=secure_delete(on)"
+		"&_pragma=secure_delete(on)&_pragma=journal_size_limit(1048576)"
 	db, err := openIndex(dsn)
 	if err != nil {
 		enc.Close()

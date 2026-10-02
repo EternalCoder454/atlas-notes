@@ -70,6 +70,14 @@ type Editor struct {
 	// freshLoad is set when a note has just been opened, so that the first pass to
 	// draw its bullets leaves nothing in the undo history (see applyBulletEdits).
 	freshLoad bool
+	// loads counts SetContent calls, so a callback queued for one text can
+	// tell that another has been loaded since.
+	loads uint64
+	// flash is the tint on lines just changed by someone else (see flash.go).
+	flash *changeFlash
+	// pulses is the table and diagram widgets pulsing for a change, each with
+	// the number of its latest pulse (see flashBlocks).
+	pulses map[*gtk.Widget]uint64
 	// histBefore is the text as a step of the undo history started, and histSwap
 	// whether the step that has just run was only bullet swaps (see afterHistory).
 	histBefore string
@@ -398,7 +406,10 @@ func (e *Editor) newTag(name string, props map[string]any) {
 
 // SetContent replaces the text without firing OnChanged, then re-renders. The
 // caret is placed at the top, so opening a note shows its beginning.
-func (e *Editor) SetContent(s string) {
+func (e *Editor) SetContent(s string) { e.setContent(s, false) }
+
+// setContent is SetContent, leaving the scroll alone when keepScroll is set.
+func (e *Editor) setContent(s string, keepScroll bool) {
 	e.clearItems()    // the old note's checkboxes go with its text
 	e.clearImages()   // and so do its pictures
 	e.clearTables()   // and its tables
@@ -425,6 +436,8 @@ func (e *Editor) SetContent(s string) {
 	// Nothing is anchored in the buffer at this point (clearItems above took
 	// the checkboxes out), and the view is re-attached before the pass below
 	// puts new ones in.
+	e.loads++
+	e.flash.stop(e) // a tint belongs to the text it was put on
 	e.view.SetBuffer(nil)
 	e.withLoading(func() { e.buffer.SetText(s) })
 	start, _ := e.buffer.Bounds()
@@ -438,12 +451,41 @@ func (e *Editor) SetContent(s string) {
 	// applies the tags. (This used to run the checklist pass twice.)
 	e.markAllDirty()
 	e.reparse()
+	if keepScroll {
+		return
+	}
 	// Scroll back to the top once the new text has been laid out: a note should
 	// open at its beginning, not wherever the last one was scrolled to.
 	coreglib.IdleAdd(func() bool {
 		e.scroll.VAdjustment().SetValue(0)
 		return false
 	})
+}
+
+// ReplaceContent puts new text in for the note already open, as when it was
+// changed on disk while on screen. Unlike SetContent, which opens a note at its
+// top, the caret stays on its line and the view where it was scrolled to, so a
+// note being edited elsewhere can be watched without losing the place.
+func (e *Editor) ReplaceContent(s string) {
+	line := e.caretLine()
+	top := e.scroll.VAdjustment().Value()
+	e.setContent(s, true)
+	if at, ok := e.buffer.IterAtLine(line); ok {
+		e.withLoading(func() { e.buffer.PlaceCursor(at) })
+	}
+	// Replacing the text can move the view, and the text is laid out a piece
+	// at a time, so a long note may not be tall enough yet to scroll that far
+	// at the first try; the second catches that. Neither touches a text loaded
+	// after this one, such as another note opened.
+	loads := e.loads
+	restore := func() bool {
+		if e.loads == loads {
+			e.scroll.VAdjustment().SetValue(top)
+		}
+		return false
+	}
+	coreglib.IdleAdd(restore)
+	coreglib.TimeoutAdd(150, restore)
 }
 
 // markDirty widens the range of lines the next render pass must re-tag.
@@ -615,6 +657,7 @@ func (e *Editor) reparse() {
 	if f := finders[e]; f != nil {
 		f.restore()
 	}
+	e.flash.restore(e)
 }
 
 // refreshFence works out again which lines are in a fenced code block, for a

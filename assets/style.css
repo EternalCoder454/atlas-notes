@@ -284,6 +284,37 @@ list.atlas-nav-footer {
 	opacity: 1;
 }
 
+/* A note Claude Code has just changed (tree_touched.go): its row warms and
+   cools again. The same coral as the tint on changed lines in the editor. */
+@keyframes atlas-touched {
+	from { background-color: rgba(217, 119, 87, 0.30); }
+	to { background-color: rgba(217, 119, 87, 0); }
+}
+
+.navigation-sidebar > row.touched {
+	animation: atlas-touched 2000ms cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+/* A table or diagram Claude Code has just changed (editor/flash.go). */
+@keyframes atlas-change-flash {
+	from {
+		background-color: rgba(217, 119, 87, 0.22);
+		box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.55);
+	}
+	45% {
+		background-color: rgba(217, 119, 87, 0.16);
+		box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.40);
+	}
+	to {
+		background-color: rgba(217, 119, 87, 0);
+		box-shadow: 0 0 0 2px rgba(217, 119, 87, 0);
+	}
+}
+
+.change-flash {
+	animation: atlas-change-flash 2000ms cubic-bezier(0.33, 0, 0.2, 1);
+}
+
 /* A folder opening and closing (tree_motion.go). While a row moves, its
    height is carried by the content inside the row's revealer instead of by the
    row, so that it can run down to nothing; the two add up to the same 40px. */

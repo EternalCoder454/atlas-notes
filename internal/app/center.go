@@ -10,6 +10,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/checklist"
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/editor"
 )
 
@@ -544,8 +545,10 @@ func (a *App) showWelcome() {
 		return
 	}
 	if !a.leaveNote() {
+		diag.Event("page.home_refused")
 		return
 	}
+	defer a.diagSeeing("home page")
 	a.welcomeBuilt = true
 	a.refreshWelcome()
 	if a.centerStack.VisibleChildName() != "welcome" {
@@ -605,6 +608,7 @@ func (a *App) showEditorPage() {
 	if a.centerStack != nil {
 		a.centerStack.SetVisibleChildName("editor")
 	}
+	a.diagSeeing("editor page")
 }
 
 func (a *App) updateStats() {

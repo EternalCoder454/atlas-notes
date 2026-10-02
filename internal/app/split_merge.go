@@ -14,6 +14,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/editor"
 	"atlas-notes/internal/markup"
 	"atlas-notes/internal/storage"
@@ -63,6 +64,7 @@ func noteNameFromText(text string) string {
 
 // toastAction shows a message with one button.
 func (a *App) toastAction(text, label string, fn func()) {
+	diag.Event("toast", "text", text, "button", label)
 	if a.toastOverlay == nil {
 		return
 	}

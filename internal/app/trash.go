@@ -15,3 +15,7 @@ import (
 func trashFile(path string) error {
 	return gio.NewFileForPath(path).Trash(context.Background())
 }
+
+// TrashFile is trashFile for the parts of the program outside the window, such
+// as "atlas-notes mcp": GIO's Trash needs no display.
+func TrashFile(path string) error { return trashFile(path) }

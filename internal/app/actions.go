@@ -9,6 +9,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/editor"
 )
 
@@ -222,6 +223,7 @@ func (a *App) focusAssistant() {
 
 // toast shows a transient message in the window.
 func (a *App) toast(text string) {
+	diag.Event("toast", "text", text)
 	if a.toastOverlay == nil {
 		return
 	}

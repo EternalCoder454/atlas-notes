@@ -12,6 +12,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/storage"
 )
 
@@ -261,13 +262,17 @@ func (t *Tree) watchMarks() {
 		exp, onArrow := pending, pendingArrow
 		pending = nil
 		if exp == nil {
+			diag.Event("tree.release", "row", false)
 			return
 		}
 		n := nodeFromExpander(exp)
 		if n == nil {
+			diag.Event("tree.release", "row", true, "node", false)
 			return
 		}
 		mods := click.CurrentEventState()
+		diag.Event("tree.release", "rel", n.rel, "arrow", onArrow, "marks", len(t.marks),
+			"shift", mods&gdk.ShiftMask != 0, "ctrl", mods&gdk.ControlMask != 0)
 		switch {
 		case mods&gdk.ShiftMask != 0:
 			t.markRun(markOf(n))
@@ -289,7 +294,12 @@ func (t *Tree) watchMarks() {
 		t.cursorTo(exp)
 		click.SetState(gtk.EventSequenceClaimed)
 	})
-	click.ConnectCancel(func(_ *gdk.EventSequence) { pending = nil })
+	click.ConnectCancel(func(_ *gdk.EventSequence) {
+		if pending != nil {
+			diag.Event("tree.click_cancelled")
+		}
+		pending = nil
+	})
 	t.listView.AddController(click)
 
 	keys := gtk.NewEventControllerKey()

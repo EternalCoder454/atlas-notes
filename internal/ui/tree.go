@@ -18,6 +18,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"atlas-notes/internal/ai"
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/storage"
 )
 
@@ -114,6 +115,12 @@ type Tree struct {
 	summaryPending   map[string]bool
 
 	currentRel string // the open note, kept selected/highlighted in the list
+
+	// touched is the notes just changed from outside, until when their rows
+	// stay lit, and touchSweep whether a timer is coming to put them out (see
+	// tree_touched.go).
+	touched    map[string]time.Time
+	touchSweep bool
 
 	// marks is the rows picked out to delete together (see tree_marks.go),
 	// anchor the one a Shift and click runs from, and the bar says how many.
@@ -522,6 +529,7 @@ func (t *Tree) taggedNotes(notes []storage.NoteMeta) []*node {
 
 func (t *Tree) refresh(force bool) {
 	defer t.dropMarks()
+	diag.Event("tree.refresh", "force", force, "query", t.query != "")
 	expanded := t.snapshotExpanded()
 	t.reloadCache()
 	if sig := t.vaultSignature(); !force && sig == t.signature {
@@ -820,6 +828,7 @@ func (t *Tree) SetSummariesEnabled(enabled bool) {
 // SetCurrent highlights the open note by selecting its row (revealing it inside
 // collapsed folders first). An empty rel clears the selection.
 func (t *Tree) SetCurrent(rel string) {
+	diag.Event("tree.set_current", "rel", rel, "was", t.currentRel)
 	t.currentRel = rel
 	if rel == "" {
 		t.selection.SetSelected(gtk.InvalidListPosition)
@@ -827,6 +836,9 @@ func (t *Tree) SetCurrent(rel string) {
 	}
 	t.revealAndSelect(rel)
 }
+
+// Current is the note the panel takes to be open, as SetCurrent last set it.
+func (t *Tree) Current() string { return t.currentRel }
 
 // rowAt returns the TreeListRow at a flat position in the (expanded) list view.
 func (t *Tree) rowAt(pos uint) *gtk.TreeListRow {

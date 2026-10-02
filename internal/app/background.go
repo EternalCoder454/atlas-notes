@@ -8,6 +8,7 @@ import (
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/storage"
 )
 
@@ -46,16 +47,28 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 	for first := true; ; first = false {
 		changed, read, converted := false, 0, 0
 		var convertErr error
-		if first && scan {
+		// A rescan is asked for when something outside the window changed the
+		// vault (see external.go). It looks at the disk as the first pass does,
+		// and counts as a change whatever the note count says: a note edited
+		// in place does not change it.
+		rescan := a.rescan.Swap(false)
+		if rescan {
+			changed = true
+		}
+		if (first && scan) || rescan {
 			before, _ := a.store.CountNotes()
 			if err := a.store.Reindex(); err != nil {
 				log.Printf("atlas-notes: reindex: %v", err)
 			} else {
-				if err := a.store.EnsureWelcome(); err != nil {
-					log.Printf("atlas-notes: welcome note: %v", err)
+				// Only on the first pass: a vault Claude Code has just emptied
+				// is not a new vault, and must not get the welcome note back.
+				if first && scan {
+					if err := a.store.EnsureWelcome(); err != nil {
+						log.Printf("atlas-notes: welcome note: %v", err)
+					}
 				}
 				after, _ := a.store.CountNotes()
-				changed = after != before
+				changed = changed || after != before
 			}
 		}
 		// Notes in a format other than the vault's are converted here: a vault
@@ -81,6 +94,7 @@ func (a *App) runBackground(ctx context.Context, scan bool) {
 		}
 
 		wasFirst := first
+		diag.Event("background.pass", "first", first, "rescan", rescan, "changed", changed, "read", read)
 		coreglib.IdleAdd(func() bool {
 			if a.closing {
 				return false
@@ -127,6 +141,14 @@ func formatName(c storage.Compression) string {
 		return "XZ"
 	}
 	return "plain Markdown"
+}
+
+// requestRescan asks for the vault to be scanned again on the worker's next
+// pass, and wakes it. The flag is on the App, not the worker, so a request that
+// comes before the worker has started is not lost.
+func (a *App) requestRescan() {
+	a.rescan.Store(true)
+	a.wakeBackground()
 }
 
 // wakeBackground asks the worker for another pass. It never blocks: if a pass

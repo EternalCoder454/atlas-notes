@@ -159,7 +159,19 @@ type Config struct {
 	// ShowIntro plays the Atlas mark and the app's name when the window opens.
 	// It is skipped anyway when the desktop has animations turned off.
 	ShowIntro bool `json:"show_intro"`
+
+	// Claude is what Claude Code may do with the vault through "atlas-notes
+	// mcp". It is off until the person turns it on; see ClaudeAccess.
+	Claude ClaudeAccess `json:"claude_access"`
+
+	// DiagnosticsLog keeps a log of what is clicked and shown, in a file in the
+	// data directory, for tracking down bugs. Off unless turned on; see
+	// DiagnosticsLogPath.
+	DiagnosticsLog bool `json:"diagnostics_log,omitempty"`
 }
+
+// DiagnosticsLogPath is where the diagnostic log is written when it is on.
+func DiagnosticsLogPath() string { return filepath.Join(dataDir(), "diagnostics.jsonl") }
 
 // dataDir and configDir are per-platform; see paths_*.go. Both honour an
 // explicit override first, which is how a host application that owns its own
@@ -236,6 +248,7 @@ func DefaultConfig() Config {
 		ShowFormatBar: true,
 		DueReminders:  true,
 		ShowIntro:     true,
+		Claude:        ClaudeAccess{Read: true, Write: true},
 		SystemPrompt:  DefaultSystemPrompt,
 		Actions:       defaultActions(),
 	}

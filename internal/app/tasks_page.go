@@ -282,6 +282,7 @@ func (a *App) showTasks() {
 	if a.centerStack == nil {
 		return
 	}
+	defer a.diagSeeing("tasks page")
 	// A note edited just before must be on disk before it is read, and no
 	// editor may hold a note that ticking is about to change.
 	if !a.leaveNote() {

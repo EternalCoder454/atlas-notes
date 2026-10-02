@@ -9,6 +9,7 @@ import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 
+	"atlas-notes/internal/diag"
 	"atlas-notes/internal/storage"
 )
 
@@ -22,6 +23,7 @@ func (a *App) openNote(rel string) {
 	if a.store == nil || a.editor == nil {
 		return
 	}
+	diag.Event("note.open", "rel", rel, "from", a.currentNote, "dirty", a.dirty, "saving", a.saveInFlight)
 	a.flushDirty()
 	content, err := a.store.ReadNote(rel)
 	// Another note arriving plays in; the same one read again does not.
@@ -29,11 +31,13 @@ func (a *App) openNote(rel string) {
 	if err == storage.ErrLocked {
 		// Not a failure: the note is protected and the password has not been
 		// given yet. Ask, then open it.
+		diag.Event("note.open_locked", "rel", rel)
 		a.ensureUnlocked(func() { a.openNote(rel) })
 		return
 	}
 	if err != nil {
 		log.Printf("atlas-notes: open note %q: %v", rel, err)
+		diag.Event("note.open_failed", "rel", rel, "err", err)
 		a.toast("Couldn't open that note: " + err.Error())
 		return
 	}
@@ -57,6 +61,7 @@ func (a *App) openNote(rel string) {
 	}
 	a.refreshBacklinks()
 	a.syncNoteActions()
+	a.diagSeeing("note opened")
 }
 
 // onDeleted clears the editor when the note currently open (or a folder

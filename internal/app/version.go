@@ -12,3 +12,7 @@ package app
 // published — so a stale default here would offer every user an update they
 // already have.
 var version = "0.10.1"
+
+// Version is the application version, for the parts of the program outside
+// the window that report it, such as "atlas-notes mcp".
+func Version() string { return version }
