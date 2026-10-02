@@ -2,6 +2,6 @@
 <resources>
     <!-- The light scheme's surface, from ui/Theme.kt. -->
     <color name="window_background">#FEF7FF</color>
-    <!-- The launcher tile, a light lavender behind the purple Atlas mark. -->
-    <color name="ic_launcher_background">#F3F1FF</color>
+    <!-- The launcher tile, the top of the Atlas apps' purple gradient. -->
+    <color name="ic_launcher_background">#8A7AF4</color>
 </resources>

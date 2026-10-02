@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   The themed-icon variant, for Android 13 and up. A themed icon is recoloured by
-  the system from a single shape, so this is the Atlas mark in one flat colour
-  (assets/atlas-notes.svg's one-colour version), at the same size as the full-colour one.
+  the system from a single shape, so this is the page in one flat colour with
+  its lines cut out (assets/atlas-notes-symbolic.svg), at the same size as the
+  full-colour one.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -10,12 +11,11 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <group
-        android:scaleX="0.0875"
-        android:scaleY="0.0875"
-        android:translateX="9.20"
-        android:translateY="8.50">
-        <path android:fillColor="#FF000000" android:pathData="M615 215.8Q617.3 210.3 619.6 215.8L875.9 842.4Q888 872 856 872L744 872Q712 872 699.9 842.4L538.4 447.6Q529.3 425.4 538.4 403.2Z" />
-        <path android:fillColor="#FF000000" android:pathData="M464.8 583.1Q469.3 572 481.3 572L542.7 572Q554.7 572 559.2 583.1L605.4 695.9Q609.9 707 597.9 707L426.1 707Q414.1 707 418.6 695.9Z" />
-        <path android:fillColor="#FF000000" android:pathData="M411.9 197.6Q424 168 456 168L590 168Q600 168 596.2 177.3L324.1 842.4Q312 872 280 872L168 872Q136 872 148.1 842.4Z" />
+        android:scaleX="0.65"
+        android:scaleY="0.65"
+        android:translateX="12.4"
+        android:translateY="12.4">
+        <path android:fillColor="#FF000000" android:fillType="evenOdd"
+            android:pathData="M 44 30 H 74 L 92 48 V 92 A 6 6 0 0 1 86 98 H 44 A 6 6 0 0 1 38 92 V 36 A 6 6 0 0 1 44 30 Z M 50 58.5 H 80 A 3.5 3.5 0 0 1 80 65.5 H 50 A 3.5 3.5 0 0 1 50 58.5 Z M 50 70.5 H 80 A 3.5 3.5 0 0 1 80 77.5 H 50 A 3.5 3.5 0 0 1 50 70.5 Z M 50 82.5 H 68 A 3.5 3.5 0 0 1 68 89.5 H 50 A 3.5 3.5 0 0 1 50 82.5 Z" />
     </group>
 </vector>

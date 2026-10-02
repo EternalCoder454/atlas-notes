@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A new icon of its own.** Atlas Notes now has the Atlas apps' tile, as Atlas
+  Updater's icon has it: a rounded square in the purple gradient (#8a7af4 to
+  #5b4bd8) with a faint white edge, and a white page with a folded corner and
+  three lines on it. It replaces the bare Atlas mark everywhere the icon was:
+  the desktop icon and its 16 px and one-colour versions, the window, and the
+  Android launcher (the adaptive layers, the themed icon and the older PNGs).
+  The intro at startup still plays the Atlas mark.
+
 ## [0.11.0] - 2026-10-02
 
 ### Added
